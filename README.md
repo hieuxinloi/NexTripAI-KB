@@ -1,104 +1,100 @@
-# NexTripAI-KB
+# NexTrip GraphRAG
 
-Knowledge Base and GraphRAG repo for NexTripAI. This repo owns travel data collection, cleaning, entity/relationship modeling, vector indexing, graph construction, and retrieval evaluation.
+Hệ thống GraphRAG cho chatbot du lịch Quy Nhơn và Đà Nẵng, dùng Gemini để tạo embedding/trả lời và Neo4j để lưu knowledge graph.
 
-## Main Responsibilities
+## Dữ liệu
 
-- Collect travel data for target destinations.
-- Normalize data for places, hotels, restaurants, activities, prices, ratings, opening hours, and locations.
-- Extract entities and relationships for graph-based retrieval.
-- Build embeddings and vector indexes.
-- Build or export graph data for GraphRAG.
-- Provide retrieval APIs or packaged indexes for the backend.
-- Maintain evaluation sets for factual accuracy and retrieval quality.
+Thư mục `travel_data/` hiện có 524 địa điểm:
 
-## Suggested Tech Stack
+- `attraction`: 118
+- `restaurant`: 188
+- `hotel`: 73
+- `cafe`: 106
+- `nightlife`: 39
 
-- Python
-- PostgreSQL for structured metadata
-- FAISS or Qdrant for vector search
-- Neo4j or PostgreSQL graph-style tables for graph relations
-- multilingual-e5-large or another Vietnamese-friendly embedding model
-- Docker
+Hai node chính là `City`: `Quy Nhơn` và `Đà Nẵng`. Mỗi địa điểm được chuẩn hóa thành `Place` và gắn thêm label phụ như `Attraction`, `Restaurant`, `Hotel`, `Cafe`, `Nightlife`.
 
-## Suggested Structure
+## Graph Schema
 
-```txt
-NexTripAI-KB/
-  data/
-    raw/
-    processed/
-    exports/
-  notebooks/
-  src/
-    ingestion/
-    cleaning/
-    extraction/
-    indexing/
-    retrieval/
-    evaluation/
-  tests/
-  .env.example
-  requirements.txt
-  README.md
+```text
+(:City)-[:HAS_PLACE]->(:Place)
+(:Place)-[:IN_CITY]->(:City)
+(:City)-[:HAS_PLACE_TYPE]->(:PlaceType)-[:CONTAINS_PLACE]->(:Place)
+(:Place)-[:HAS_TYPE]->(:PlaceType)
+(:Place)-[:HAS_CATEGORY]->(:Category)
+(:Place)-[:TAGGED_WITH|HAS_AMENITY|HAS_FEATURE|HAS_CUISINE|SERVES|SUITABLE_FOR]->(:Term)
+(:Place)-[:FROM_SOURCE]->(:Source)
+(:Place)-[:NEAR {distance_km}]->(:Place)
 ```
 
-## Data Scope
+`Place` lưu các property đã flatten để Neo4j dùng được trực tiếp: `name`, `city`, `entity_type`, `category_name`, `description`, `address`, `lat`, `lng`, `opening_hours_open`, `opening_hours_close`, `rating`, `review_count`, `search_text`, `embedding`, ...
 
-Initial destinations should follow the project proposal and team decision. Keep the first version small and high quality before expanding.
+## Cài đặt
 
-Suggested minimum data types:
-
-- Attractions and landmarks
-- Hotels and homestays
-- Restaurants and cafes
-- Activities and tours
-- Weather-sensitive tags, such as indoor, outdoor, beach, culture, family, budget, luxury
-- Coordinates and area relationships
-
-## GraphRAG Direction
-
-The KB should support hybrid retrieval:
-
-```txt
-User query
--> intent/entities from backend
--> vector search
--> graph expansion
--> reranking
--> evidence package
--> backend agent response
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-Example relationships:
+Cập nhật `.env`:
 
-- place `LOCATED_IN` destination/area
-- restaurant `NEAR` attraction
-- activity `SUITABLE_FOR` interest/travel style
-- place `HAS_CONSTRAINT` opening hours, price, weather condition
-- hotel `NEAR` area/attraction
+```dotenv
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your-password
+GOOGLE_API_KEY=your-gemini-api-key
+```
 
-## Output Contract For Backend
+Chạy Neo4j local nếu cần:
 
-The backend should receive grounded retrieval results, not only plain text.
+```powershell
+docker run --name nextrip-neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/your-password neo4j:5
+```
 
-Recommended fields:
+## Chuẩn hóa dữ liệu
 
-- `id`
-- `name`
-- `type`
-- `description`
-- `location`
-- `price_range`
-- `rating`
-- `tags`
-- `relationships`
-- `source_url`
-- `evidence_text`
-- `confidence_score`
+```powershell
+python -m nextrip_graphrag prepare --data-dir travel_data --out-dir processed
+```
 
-## Development Notes
+Output:
 
-- Track data source and crawl/update time for every item.
-- Prefer quality and verifiability over large noisy data.
-- Keep a small golden test set for retrieval and factual accuracy.
+- `processed/cities.json`
+- `processed/places.jsonl`
+- `processed/manifest.json`
+
+## Nạp Neo4j
+
+Tạo constraint/index:
+
+```powershell
+python -m nextrip_graphrag schema
+```
+
+Nạp graph kèm Gemini embeddings:
+
+```powershell
+python -m nextrip_graphrag load --processed-dir processed --with-embeddings
+```
+
+Nếu chỉ muốn kiểm tra graph không gọi Gemini:
+
+```powershell
+python -m nextrip_graphrag load --processed-dir processed
+```
+
+## Hỏi thử chatbot
+
+```powershell
+python -m nextrip_graphrag ask "Gợi ý 3 quán hải sản ở Đà Nẵng phù hợp đi gia đình" --city "Đà Nẵng" --type restaurant
+python -m nextrip_graphrag ask "Ở Quy Nhơn nên đi biển nào buổi sáng?" --city "Quy Nhơn" --type attraction
+python -m nextrip_graphrag ask "Tôi cần khách sạn có hồ bơi gần biển ở Quy Nhơn" --city "Quy Nhơn" --type hotel
+```
+
+## Ghi chú kỹ thuật
+
+- Gemini SDK dùng package `google-genai`.
+- Embedding mặc định: `gemini-embedding-2`, ép số chiều bằng `GEMINI_EMBEDDING_DIM=1536` để Neo4j vector index ổn định.
+- Neo4j dùng `CREATE VECTOR INDEX` và `db.index.vector.queryNodes` cho semantic retrieval, sau đó mở rộng ngữ cảnh qua quan hệ graph.
