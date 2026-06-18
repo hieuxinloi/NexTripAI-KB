@@ -1,0 +1,16 @@
+[project]
+name = "nextrip-graphrag"
+version = "0.1.0"
+description = "GraphRAG pipeline for Quy Nhon and Da Nang travel chatbot using Gemini and Neo4j."
+requires-python = ">=3.11"
+dependencies = [
+  "google-genai>=1.0.0",
+  "neo4j>=5.20.0,<7",
+  "python-dotenv>=1.0.1",
+]
+
+[project.scripts]
+nextrip-graphrag = "nextrip_graphrag.__main__:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
