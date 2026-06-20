@@ -6,3 +6,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local Google Cloud service account keys
+/gcp-key.json
+**/corded-gear-*.json
+**/*service-account*.json

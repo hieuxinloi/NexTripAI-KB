@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Iterable
 
 from .config import Settings
@@ -15,27 +16,52 @@ class GeminiClient:
                 "Missing google-genai. Install dependencies with: pip install -r requirements.txt"
             ) from exc
 
-        if not settings.google_api_key:
-            raise RuntimeError("GOOGLE_API_KEY or GEMINI_API_KEY is required for Gemini calls.")
-
         self.settings = settings
         self.types = types
-        self.client = genai.Client(api_key=settings.google_api_key)
+        self.client = self._create_client(genai)
+
+    def _create_client(self, genai):
+        if self.settings.google_genai_use_vertexai:
+            if not self.settings.google_cloud_project:
+                raise RuntimeError(
+                    "GOOGLE_CLOUD_PROJECT is required when GOOGLE_GENAI_USE_VERTEXAI=true."
+                )
+            if not self.settings.google_cloud_location:
+                raise RuntimeError(
+                    "GOOGLE_CLOUD_LOCATION is required when GOOGLE_GENAI_USE_VERTEXAI=true."
+                )
+            if self.settings.google_application_credentials:
+                credentials_path = Path(self.settings.google_application_credentials)
+                if not credentials_path.exists():
+                    raise RuntimeError(
+                        "GOOGLE_APPLICATION_CREDENTIALS points to a missing file: "
+                        f"{credentials_path}"
+                    )
+            return genai.Client(
+                vertexai=True,
+                project=self.settings.google_cloud_project,
+                location=self.settings.google_cloud_location,
+            )
+
+        if self.settings.google_api_key:
+            return genai.Client(api_key=self.settings.google_api_key)
+
+        raise RuntimeError(
+            "Configure Gemini auth with either GOOGLE_API_KEY/GEMINI_API_KEY, or "
+            "set GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_CLOUD_PROJECT, "
+            "GOOGLE_CLOUD_LOCATION, and local ADC such as GOOGLE_APPLICATION_CREDENTIALS."
+        )
 
     def embed_documents(self, texts: Iterable[str]) -> list[list[float]]:
-        contents = [
-            "Document for Vietnamese travel recommendation retrieval:\n" + text
-            for text in texts
-        ]
-        return self._embed(contents)
+        return self._embed(list(texts), task_type="RETRIEVAL_DOCUMENT")
 
     def embed_query(self, query: str) -> list[float]:
-        contents = ["Query for Vietnamese travel recommendation retrieval:\n" + query]
-        return self._embed(contents)[0]
+        return self._embed([query], task_type="RETRIEVAL_QUERY")[0]
 
-    def _embed(self, contents: list[str]) -> list[list[float]]:
+    def _embed(self, contents: list[str], task_type: str) -> list[list[float]]:
         config = self.types.EmbedContentConfig(
-            output_dimensionality=self.settings.embedding_dim
+            task_type=task_type,
+            output_dimensionality=self.settings.embedding_dim,
         )
         response = self.client.models.embed_content(
             model=self.settings.embedding_model,
