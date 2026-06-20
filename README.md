@@ -96,5 +96,5 @@ python -m nextrip_graphrag ask "Tôi cần khách sạn có hồ bơi gần bi�
 ## Ghi chú kỹ thuật
 
 - Gemini SDK dùng package `google-genai`.
-- Embedding mặc định: `gemini-embedding-2`, ép số chiều bằng `GEMINI_EMBEDDING_DIM=1536` để Neo4j vector index ổn định.
+- Embedding mặc định: `gemini-embedding-001`, ép số chiều bằng `GEMINI_EMBEDDING_DIM=1536` để Neo4j vector index ổn định.
 - Neo4j dùng `CREATE VECTOR INDEX` và `db.index.vector.queryNodes` cho semantic retrieval, sau đó mở rộng ngữ cảnh qua quan hệ graph.
