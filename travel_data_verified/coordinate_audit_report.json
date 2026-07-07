@@ -1,0 +1,137 @@
+{
+  "generated_at": "2026-06-18",
+  "input_dir": "travel_data",
+  "output_dir": "travel_data_verified",
+  "removed": [
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_009",
+      "name": "Trà sữa đặc sản Sài Gòn",
+      "reason": "Non-place food/product entry: Tra sua dac san Sai Gon"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_010",
+      "name": "Gỏi cuốn",
+      "reason": "Non-place food/product entry: Goi cuon"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_012",
+      "name": "Cơm cháy chà bông",
+      "reason": "Non-place food/product entry: Com chay cha bong"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_014",
+      "name": "Bánh tét lá cẩm",
+      "reason": "Non-place food/product entry: Banh tet la cam"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_017",
+      "name": "Hạt điều tươi rang muối",
+      "reason": "Non-place food/product entry: Hat dieu tuoi rang muoi"
+    }
+  ],
+  "updated": [
+    {
+      "file": "attraction_final.json",
+      "id": "attr_qn_037",
+      "name": "Bà Nà Hills",
+      "verification_status": "corrected_wrong_city"
+    },
+    {
+      "file": "cafe_final.json",
+      "id": "cafe_qn_023",
+      "name": "Royal Coffee",
+      "verification_status": "corrected_coordinates"
+    },
+    {
+      "file": "cafe_final.json",
+      "id": "cafe_qn_033",
+      "name": "Alice Cafe",
+      "verification_status": "corrected_coordinates"
+    },
+    {
+      "file": "cafe_final.json",
+      "id": "cafe_qn_034",
+      "name": "Silent Kitchen & Coffee",
+      "verification_status": "corrected_coordinates"
+    },
+    {
+      "file": "cafe_final.json",
+      "id": "cafe_qn_035",
+      "name": "Friendship Cafe",
+      "verification_status": "corrected_coordinates"
+    },
+    {
+      "file": "hotel_final.json",
+      "id": "hotel_qn_018",
+      "name": "Nhà nghỉ Ngọc Ánh Quy Nhơn",
+      "verification_status": "corrected_coordinates"
+    },
+    {
+      "file": "hotel_final.json",
+      "id": "hotel_dn_018",
+      "name": "Cô Thương Homestay Đà Nẵng",
+      "verification_status": "address_normalized"
+    },
+    {
+      "file": "nightlife_final.json",
+      "id": "night_qn_015",
+      "name": "Panorama Rooftop Bar",
+      "verification_status": "corrected_coordinates"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_040",
+      "name": "Vị Cua Fastfood",
+      "verification_status": "renamed_from_generic_article_heading"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_043",
+      "name": "No Nê Quy Nhơn - Gia Lai",
+      "verification_status": "needs_manual_verification"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_067",
+      "name": "Hải sản Cây Dừa Quy Nhơn",
+      "verification_status": "verified_existing_coordinates"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_070",
+      "name": "Hải sản Leng Keng 2 - Vua Ghẹ Nhơn Lý",
+      "verification_status": "corrected_coordinates"
+    },
+    {
+      "file": "restaurant_final.json",
+      "id": "rest_qn_073",
+      "name": "Tủ - Quán Nhậu Đêm",
+      "verification_status": "corrected_coordinates"
+    }
+  ],
+  "regional_scope": [
+    {
+      "file": "attraction_final.json",
+      "id": "attr_qn_019",
+      "name": "LÀNG BÍ ĐAO KHỔNG LỒ",
+      "reason": "Regional/day-trip attraction around Quy Nhon, outside inner-city bbox."
+    },
+    {
+      "file": "attraction_final.json",
+      "id": "attr_qn_020",
+      "name": "MŨI VI RỒNG",
+      "reason": "Regional/day-trip attraction around Quy Nhon, outside inner-city bbox."
+    },
+    {
+      "file": "attraction_final.json",
+      "id": "attr_qn_021",
+      "name": "ĐẦM TRÀ Ổ",
+      "reason": "Regional/day-trip attraction around Quy Nhon, outside inner-city bbox."
+    }
+  ]
+}

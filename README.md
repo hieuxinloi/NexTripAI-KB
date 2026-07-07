@@ -1,5 +1,17 @@
 # NexTrip GraphRAG
 
+## Workflow Documentation
+
+Read this before implementation:
+
+- Repo workflow: [docs/WORKFLOW.md](docs/WORKFLOW.md)
+- GraphRAG V1 report: [docs/GRAPHRAG_V1_REPORT.md](docs/GRAPHRAG_V1_REPORT.md)
+- System workflow: [../docs/WORKFLOW.md](../docs/WORKFLOW.md)
+- Repo structure guide: [../docs/REPO_STRUCTURE.md](../docs/REPO_STRUCTURE.md)
+- Step-by-step roadmap: [../docs/IMPLEMENTATION_STEPS.md](../docs/IMPLEMENTATION_STEPS.md)
+
+This repo is the local Knowledge Graph and GraphRAG service for NexTripAI. It owns travel data, Neo4j graph loading, retrieval, and evidence returned to the backend.
+
 Hệ thống GraphRAG cho chatbot du lịch Quy Nhơn và Đà Nẵng, dùng Gemini để tạo embedding/trả lời và Neo4j để lưu knowledge graph.
 
 ## Dữ liệu

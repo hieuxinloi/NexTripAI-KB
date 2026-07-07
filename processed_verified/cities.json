@@ -1,0 +1,31 @@
+[
+  {
+    "id": "city_quy_nhon",
+    "slug": "quy-nhon",
+    "name": "Quy Nhơn",
+    "aliases": [
+      "Quy Nhon",
+      "Qui Nhơn",
+      "Qui Nhon",
+      "Bình Định",
+      "Binh Dinh"
+    ],
+    "country": "Việt Nam",
+    "region": "Bình Định",
+    "is_main_node": true,
+    "place_count": 205
+  },
+  {
+    "id": "city_da_nang",
+    "slug": "da-nang",
+    "name": "Đà Nẵng",
+    "aliases": [
+      "Da Nang",
+      "Danang"
+    ],
+    "country": "Việt Nam",
+    "region": "Đà Nẵng",
+    "is_main_node": true,
+    "place_count": 314
+  }
+]
