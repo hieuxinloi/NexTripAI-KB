@@ -11,3 +11,6 @@ __pycache__/
 /gcp-key.json
 **/corded-gear-*.json
 **/*service-account*.json
+*.log
+tmp/
+tmp_pdf_extract.txt
