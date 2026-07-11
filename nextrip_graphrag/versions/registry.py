@@ -25,12 +25,12 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         ),
         "v3": KBVersionManifest(
             kb_version="v3",
-            status="planned",
+            status="experimental",
             dataset="travel_data_verified:519",
             ontology_version="resolved-claims-v3",
             embedding_version="multi-vector-profile-v3",
             retrieval_version="query-adaptive-graph-first-v3",
-            description="Entity resolution, confidence-bearing claims and adaptive retrieval.",
+            description="Expanded typed facets, geo-near edges and graph-first constraint retrieval.",
         ),
         "v4": KBVersionManifest(
             kb_version="v4",

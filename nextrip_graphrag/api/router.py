@@ -15,6 +15,8 @@ from ..retrieval import SearchRequest, available_strategies, get_strategy
 from ..versions.registry import kb_version_manifests
 from ..versions.v2.retrieval import V2RetrievalService
 from ..versions.v2.schemas import V2QueryResponse
+from ..versions.v3.retrieval import V3RetrievalService
+from ..versions.v3.schemas import V3QueryResponse
 from .schemas import (
     GraphContext,
     HealthResponse,
@@ -119,9 +121,15 @@ def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
         neo4j_v2_status = "ready"
     except Exception as exc:
         neo4j_v2_status = f"not_ready:{exc.__class__.__name__}"
+    try:
+        services.v3_store.run("RETURN 1 AS ok")
+        neo4j_v3_status = "ready"
+    except Exception as exc:
+        neo4j_v3_status = f"not_ready:{exc.__class__.__name__}"
     return HealthResponse(
         neo4j=neo4j_status,
         neo4j_v2=neo4j_v2_status,
+        neo4j_v3=neo4j_v3_status,
         embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
@@ -135,11 +143,11 @@ def versions() -> dict[str, dict[str, Any]]:
     }
 
 
-@router.post("/api/kb/query", response_model=V2QueryResponse)
+@router.post("/api/kb/query", response_model=V2QueryResponse | V3QueryResponse)
 def query_v2(
     request: V2QueryRequest,
     services: KbServices = Depends(get_kb_services),
-) -> V2QueryResponse:
+) -> V2QueryResponse | V3QueryResponse:
     started_at = perf_counter()
     logger.info(
         "KB typed query start version={} query={!r} top_k={}",
@@ -152,10 +160,16 @@ def query_v2(
     except RuntimeError:
         gemini = None
     try:
-        response = V2RetrievalService(services.v2_store, gemini).query(
-            request.query,
-            request.top_k,
-        )
+        if request.kb_version == "v3":
+            response = V3RetrievalService(services.v3_store, gemini).query(
+                request.query,
+                request.top_k,
+            )
+        else:
+            response = V2RetrievalService(services.v2_store, gemini).query(
+                request.query,
+                request.top_k,
+            )
     except Exception as exc:
         logger.exception(
             "KB typed query error version={} error_type={} elapsed_ms={}",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from difflib import SequenceMatcher
+import re
 from time import perf_counter
 from typing import Any
 
@@ -163,7 +164,7 @@ class V2RetrievalService:
             RETURN place {.*, score: 1.0} AS place
             LIMIT 1
             """,
-            subject=subject,
+            subject=_fulltext_query(subject),
             kb_version=self.kb_version,
         )
         if exact:
@@ -392,6 +393,11 @@ ANCHOR_STOP_WORDS = {
 
 def _is_compatible_anchor(subject: str, place: dict[str, Any]) -> bool:
     return _anchor_similarity(subject, place) >= 0.6
+
+
+def _fulltext_query(subject: str) -> str:
+    sanitized = re.sub(r'[+\-!(){}\[\]^"~*?:\\/]|&&|\|\|', " ", subject)
+    return " ".join(sanitized.split())
 
 
 def _anchor_similarity(subject: str, place: dict[str, Any]) -> float:

@@ -24,6 +24,8 @@ from .rag import TravelGraphRAG
 from .retrieval import SearchRequest, available_strategies, get_strategy
 from .versions.v2.graph_store import V2GraphStore
 from .versions.v2.retrieval import V2RetrievalService
+from .versions.v3.graph_store import V3GraphStore
+from .versions.v3.retrieval import V3RetrievalService
 
 
 def load_dotenv_if_available() -> None:
@@ -175,6 +177,80 @@ def cmd_v2_l1_audit(args: argparse.Namespace) -> None:
     output_path.write_text(output + "\n", encoding="utf-8")
     print(json.dumps({key: value for key, value in report.items() if key != "results"}, ensure_ascii=False, indent=2))
     print(f"Detailed report written to {output_path.resolve()}")
+
+
+def cmd_v3_build(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    bundle = read_processed(args.processed_dir)
+    embedder = None
+    if args.with_embeddings:
+        embedder = CachedBatchEmbedder(
+            GeminiClient(settings),
+            Path(args.embedding_cache),
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dim,
+            delay=args.embedding_delay,
+            max_retries=args.embedding_retries,
+        )
+    store = V3GraphStore(settings.for_v3())
+    try:
+        store.ensure_v3_schema(settings.embedding_dim)
+        statistics = store.replace_graph(
+            bundle["cities"],
+            bundle["places"],
+            embedder=embedder,
+            batch_size=args.batch_size,
+        )
+    finally:
+        store.close()
+        if embedder is not None:
+            embedder.close()
+    print(json.dumps({"kb_version": "v3", **statistics}, ensure_ascii=False, indent=2))
+
+
+def cmd_v3_query(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V3GraphStore(settings.for_v3())
+    gemini = GeminiClient(settings) if args.with_gemini_planner else None
+    try:
+        response = V3RetrievalService(store, gemini).query(args.query, args.top_k)
+    finally:
+        store.close()
+        if gemini is not None:
+            gemini.close()
+    print(response.model_dump_json(indent=2))
+
+
+def cmd_v3_validate(args: argparse.Namespace) -> None:
+    store = V3GraphStore(Settings.from_env().for_v3())
+    try:
+        report = store.validate_invariants(args.expected_places)
+    finally:
+        store.close()
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if report["status"] != "pass":
+        raise SystemExit(1)
+
+
+def cmd_v3_l1_audit(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V3GraphStore(settings.for_v3())
+    gemini = GeminiClient(settings) if args.with_gemini_planner else None
+    try:
+        report = run_l1_audit(
+            V3RetrievalService(store, gemini),
+            args.source,
+            args.canonical,
+        )
+    finally:
+        store.close()
+        if gemini is not None:
+            gemini.close()
+    output = json.dumps(report, ensure_ascii=False, indent=2)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output + "\n", encoding="utf-8")
+    print(json.dumps({key: value for key, value in report.items() if key != "results"}, ensure_ascii=False, indent=2))
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
@@ -395,6 +471,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v2_l1_audit.add_argument("--with-gemini-planner", action="store_true")
     v2_l1_audit.set_defaults(func=cmd_v2_l1_audit)
+
+    v3_build = subparsers.add_parser("v3-build", help="Build GraphRAG V3 in isolated Neo4j.")
+    v3_build.add_argument("--processed-dir", default="processed_verified")
+    v3_build.add_argument("--with-embeddings", action="store_true")
+    v3_build.add_argument("--batch-size", type=int, default=16)
+    v3_build.add_argument("--embedding-cache", default="tmp/v3_embedding_cache")
+    v3_build.add_argument("--embedding-delay", type=float, default=0.5)
+    v3_build.add_argument("--embedding-retries", type=int, default=5)
+    v3_build.set_defaults(func=cmd_v3_build)
+
+    v3_query = subparsers.add_parser("v3-query", help="Run a typed graph-first V3 query.")
+    v3_query.add_argument("query")
+    v3_query.add_argument("--top-k", type=int, default=5)
+    v3_query.add_argument("--with-gemini-planner", action="store_true")
+    v3_query.set_defaults(func=cmd_v3_query)
+
+    v3_validate = subparsers.add_parser("v3-validate", help="Validate V3 graph invariants.")
+    v3_validate.add_argument("--expected-places", type=int, default=519)
+    v3_validate.set_defaults(func=cmd_v3_validate)
+
+    v3_l1_audit = subparsers.add_parser("v3-l1-audit", help="Audit all 100 L1 cases against V3.")
+    v3_l1_audit.add_argument("--source", default="../docs/test_cases_benchmark.md")
+    v3_l1_audit.add_argument(
+        "--canonical",
+        default=str(Path(__file__).parent / "evaluation" / "datasets" / "l1_1_v2.json"),
+    )
+    v3_l1_audit.add_argument(
+        "--output",
+        default=str(Path(__file__).parent / "evaluation" / "results" / "level_1_v3_audit.json"),
+    )
+    v3_l1_audit.add_argument("--with-gemini-planner", action="store_true")
+    v3_l1_audit.set_defaults(func=cmd_v3_l1_audit)
 
     ask = subparsers.add_parser("ask", help="Ask the GraphRAG chatbot.")
     ask.add_argument("question")

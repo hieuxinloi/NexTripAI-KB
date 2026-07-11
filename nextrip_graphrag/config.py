@@ -22,6 +22,10 @@ class Settings:
     neo4j_v2_user: str = "neo4j"
     neo4j_v2_password: str = "change-me"
     neo4j_v2_database: str | None = "neo4j"
+    neo4j_v3_uri: str = "bolt://localhost:7689"
+    neo4j_v3_user: str = "neo4j"
+    neo4j_v3_password: str = "change-me"
+    neo4j_v3_database: str | None = "neo4j"
     google_api_key: str | None = None
     google_genai_use_vertexai: bool = False
     google_application_credentials: str | None = None
@@ -45,6 +49,10 @@ class Settings:
             neo4j_v2_user=os.getenv("NEO4J_V2_USER", cls.neo4j_v2_user),
             neo4j_v2_password=os.getenv("NEO4J_V2_PASSWORD", cls.neo4j_v2_password),
             neo4j_v2_database=os.getenv("NEO4J_V2_DATABASE", cls.neo4j_v2_database) or None,
+            neo4j_v3_uri=os.getenv("NEO4J_V3_URI", cls.neo4j_v3_uri),
+            neo4j_v3_user=os.getenv("NEO4J_V3_USER", cls.neo4j_v3_user),
+            neo4j_v3_password=os.getenv("NEO4J_V3_PASSWORD", cls.neo4j_v3_password),
+            neo4j_v3_database=os.getenv("NEO4J_V3_DATABASE", cls.neo4j_v3_database) or None,
             google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
             google_genai_use_vertexai=_env_bool("GOOGLE_GENAI_USE_VERTEXAI"),
             google_application_credentials=os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None,
@@ -65,4 +73,13 @@ class Settings:
             neo4j_user=self.neo4j_v2_user,
             neo4j_password=self.neo4j_v2_password,
             neo4j_database=self.neo4j_v2_database,
+        )
+
+    def for_v3(self) -> "Settings":
+        return replace(
+            self,
+            neo4j_uri=self.neo4j_v3_uri,
+            neo4j_user=self.neo4j_v3_user,
+            neo4j_password=self.neo4j_v3_password,
+            neo4j_database=self.neo4j_v3_database,
         )
