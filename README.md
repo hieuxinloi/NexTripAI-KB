@@ -1,5 +1,7 @@
 # NexTrip GraphRAG
 
+This repo is the local Knowledge Graph and GraphRAG service for NexTripAI. It owns verified travel data, Neo4j graph loading, retrieval, and evidence returned to the backend.
+
 ## Workflow Documentation
 
 Read this before implementation:
@@ -10,21 +12,20 @@ Read this before implementation:
 - Repo structure guide: [../docs/REPO_STRUCTURE.md](../docs/REPO_STRUCTURE.md)
 - Step-by-step roadmap: [../docs/IMPLEMENTATION_STEPS.md](../docs/IMPLEMENTATION_STEPS.md)
 
-This repo is the local Knowledge Graph and GraphRAG service for NexTripAI. It owns travel data, Neo4j graph loading, retrieval, and evidence returned to the backend.
+## Data Source
 
-Hệ thống GraphRAG cho chatbot du lịch Quy Nhơn và Đà Nẵng, dùng Gemini để tạo embedding/trả lời và Neo4j để lưu knowledge graph.
+Use only `travel_data_verified/` as the source of truth. Legacy raw dataset folders are intentionally removed to avoid mixing raw and verified datasets.
 
-## Dữ liệu
+Current verified dataset:
 
-Thư mục `travel_data/` hiện có 524 địa điểm:
+- total: 519 places
+- attraction: 118
+- cafe: 106
+- hotel: 73
+- nightlife: 39
+- restaurant: 183
 
-- `attraction`: 118
-- `restaurant`: 188
-- `hotel`: 73
-- `cafe`: 106
-- `nightlife`: 39
-
-Hai node chính là `City`: `Quy Nhơn` và `Đà Nẵng`. Mỗi địa điểm được chuẩn hóa thành `Place` và gắn thêm label phụ như `Attraction`, `Restaurant`, `Hotel`, `Cafe`, `Nightlife`.
+Processed verified output lives in `processed_verified/`.
 
 ## Graph Schema
 
@@ -39,9 +40,7 @@ Hai node chính là `City`: `Quy Nhơn` và `Đà Nẵng`. Mỗi địa điểm 
 (:Place)-[:NEAR {distance_km}]->(:Place)
 ```
 
-`Place` lưu các property đã flatten để Neo4j dùng được trực tiếp: `name`, `city`, `entity_type`, `category_name`, `description`, `address`, `lat`, `lng`, `opening_hours_open`, `opening_hours_close`, `rating`, `review_count`, `search_text`, `embedding`, ...
-
-## Cài đặt
+## Setup
 
 ```powershell
 python -m venv .venv
@@ -50,63 +49,75 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Cập nhật `.env`:
+Update `.env` with Neo4j and Gemini/Vertex AI settings.
 
-```dotenv
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your-password
-GOOGLE_API_KEY=your-gemini-api-key
-```
-
-Chạy Neo4j local nếu cần:
+Run Neo4j locally:
 
 ```powershell
 docker run --name nextrip-neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/your-password neo4j:5
 ```
 
-## Chuẩn hóa dữ liệu
+## Prepare Verified Data
+
+Defaults already point to verified folders:
 
 ```powershell
-python -m nextrip_graphrag prepare --data-dir travel_data --out-dir processed
+python -m nextrip_graphrag prepare
+```
+
+Equivalent explicit command:
+
+```powershell
+python -m nextrip_graphrag prepare --data-dir travel_data_verified --out-dir processed_verified
 ```
 
 Output:
 
-- `processed/cities.json`
-- `processed/places.jsonl`
-- `processed/manifest.json`
+- `processed_verified/cities.json`
+- `processed_verified/places.jsonl`
+- `processed_verified/manifest.json`
 
-## Nạp Neo4j
+## Load Neo4j
 
-Tạo constraint/index:
+Create constraints and indexes:
 
 ```powershell
 python -m nextrip_graphrag schema
 ```
 
-Nạp graph kèm Gemini embeddings:
+Fast load without embeddings:
 
 ```powershell
-python -m nextrip_graphrag load --processed-dir processed --with-embeddings
+python -m nextrip_graphrag load
 ```
 
-Nếu chỉ muốn kiểm tra graph không gọi Gemini:
+GraphRAG demo load with Gemini embeddings:
 
 ```powershell
-python -m nextrip_graphrag load --processed-dir processed
+python -m nextrip_graphrag load --with-embeddings
 ```
 
-## Hỏi thử chatbot
+## Run KB API
 
 ```powershell
-python -m nextrip_graphrag ask "Gợi ý 3 quán hải sản ở Đà Nẵng phù hợp đi gia đình" --city "Đà Nẵng" --type restaurant
-python -m nextrip_graphrag ask "Ở Quy Nhơn nên đi biển nào buổi sáng?" --city "Quy Nhơn" --type attraction
-python -m nextrip_graphrag ask "Tôi cần khách sạn có hồ bơi gần biển ở Quy Nhơn" --city "Quy Nhơn" --type hotel
+uvicorn nextrip_graphrag.api.app:app --reload --port 8010
 ```
 
-## Ghi chú kỹ thuật
+Endpoints:
 
-- Gemini SDK dùng package `google-genai`.
-- Embedding mặc định: `gemini-embedding-001`, ép số chiều bằng `GEMINI_EMBEDDING_DIM=1536` để Neo4j vector index ổn định.
-- Neo4j dùng `CREATE VECTOR INDEX` và `db.index.vector.queryNodes` cho semantic retrieval, sau đó mở rộng ngữ cảnh qua quan hệ graph.
+- `GET /health`
+- `POST /api/kb/search`
+- `POST /api/kb/answer`
+
+## Ask From CLI
+
+```powershell
+python -m nextrip_graphrag ask "Goi y 3 quan cafe o Quy Nhon" --city "Quy Nhon" --type cafe
+python -m nextrip_graphrag ask "O Da Nang co nha hang hai san nao phu hop gia dinh?" --city "Da Nang" --type restaurant
+```
+
+## Notes
+
+- Gemini SDK uses `google-genai`.
+- Default embedding model: `gemini-embedding-001`.
+- Neo4j uses fulltext and vector indexes for retrieval.

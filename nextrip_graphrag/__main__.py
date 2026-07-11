@@ -89,16 +89,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    prepare = subparsers.add_parser("prepare", help="Normalize travel_data into processed files.")
-    prepare.add_argument("--data-dir", default="travel_data")
-    prepare.add_argument("--out-dir", default="processed")
+    prepare = subparsers.add_parser("prepare", help="Normalize verified travel data into processed files.")
+    prepare.add_argument("--data-dir", default="travel_data_verified")
+    prepare.add_argument("--out-dir", default="processed_verified")
     prepare.set_defaults(func=cmd_prepare)
 
     schema = subparsers.add_parser("schema", help="Create Neo4j constraints and indexes.")
     schema.set_defaults(func=cmd_schema)
 
     load = subparsers.add_parser("load", help="Load processed data into Neo4j.")
-    load.add_argument("--processed-dir", default="processed")
+    load.add_argument("--processed-dir", default="processed_verified")
     load.add_argument("--with-embeddings", action="store_true", help="Generate Gemini embeddings while loading.")
     load.add_argument("--batch-size", type=int, default=16)
     load.set_defaults(func=cmd_load)
