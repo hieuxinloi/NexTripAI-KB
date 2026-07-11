@@ -16,6 +16,7 @@ __pycache__/
 **/corded-gear-*.json
 **/*service-account*.json
 *.log
+.pytest_tmp/
 tmp/
 tmp_pdf_extract.txt
 travel_data/

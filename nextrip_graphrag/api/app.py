@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI
 
 from ..config import Settings
 from ..logging import configure_logging, install_request_logging
+from .dependencies import KbServices
 from .router import router
 
 
@@ -16,11 +19,21 @@ def load_dotenv_if_available() -> None:
     load_dotenv()
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    services = KbServices(Settings.from_env())
+    app.state.kb_services = services
+    try:
+        yield
+    finally:
+        services.close()
+
+
 def create_app() -> FastAPI:
     load_dotenv_if_available()
     settings = Settings.from_env()
     configure_logging(service="nextrip-kb", level=settings.log_level)
-    app = FastAPI(title="NexTripAI KB")
+    app = FastAPI(title="NexTripAI KB", lifespan=lifespan)
     install_request_logging(app)
     app.include_router(router)
     return app

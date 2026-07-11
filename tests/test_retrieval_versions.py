@@ -1,6 +1,9 @@
 from nextrip_graphrag.retrieval import available_strategies, get_strategy
 from nextrip_graphrag.retrieval.query_features import extract_graph_filters
-from nextrip_graphrag.retrieval.versions.v1_hybrid.strategy import reciprocal_rank_fusion
+from nextrip_graphrag.retrieval.versions.v1_hybrid.strategy import (
+    rank_hard_constraint_results,
+    reciprocal_rank_fusion,
+)
 
 
 def _row(place_id: str, score: float = 1.0) -> dict:
@@ -36,3 +39,10 @@ def test_v2_rrf_prioritizes_high_confidence_graph_candidates() -> None:
     ]
     assert results[0]["retrieval"]["keyword_rank"] == 2
     assert results[0]["retrieval"]["graph_rank"] == 1
+
+
+def test_hard_constraint_results_never_backfill_with_unmatched_candidates() -> None:
+    results = rank_hard_constraint_results([_row("indoor")], limit=5)
+
+    assert [row["place"]["id"] for row in results] == ["indoor"]
+    assert results[0]["retrieval"]["constraint_match"] is True

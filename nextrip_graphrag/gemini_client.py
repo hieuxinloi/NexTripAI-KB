@@ -20,6 +20,9 @@ class GeminiClient:
         self.types = types
         self.client = self._create_client(genai)
 
+    def close(self) -> None:
+        self.client.close()
+
     def _create_client(self, genai):
         if self.settings.google_genai_use_vertexai:
             if not self.settings.google_cloud_project:

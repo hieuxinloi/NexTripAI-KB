@@ -178,14 +178,16 @@ def price_summary(raw: dict[str, Any]) -> list[str]:
         value = raw.get(field)
         if not isinstance(value, dict):
             continue
-        min_price = value.get("min") or value.get("adult")
+        min_price = value.get("min")
+        if min_price is None:
+            min_price = value.get("adult")
         max_price = value.get("max")
         currency = value.get("currency") or "VND"
         note = value.get("note")
-        if min_price or max_price:
-            if min_price and max_price:
+        if min_price is not None or max_price is not None:
+            if min_price is not None and max_price is not None:
                 parts.append(f"{label}: {min_price}-{max_price} {currency}")
-            elif min_price:
+            elif min_price is not None:
                 parts.append(f"{label}: từ {min_price} {currency}")
         if note:
             parts.append(f"{label} ghi chú: {note}")

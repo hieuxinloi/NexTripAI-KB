@@ -68,6 +68,8 @@ def cmd_load(args: argparse.Namespace) -> None:
         )
     finally:
         store.close()
+        if embedder is not None:
+            embedder.close()
 
     embedding_note = "with Gemini embeddings" if args.with_embeddings else "without embeddings"
     print(
@@ -90,6 +92,7 @@ def cmd_ask(args: argparse.Namespace) -> None:
         )
     finally:
         store.close()
+        gemini.close()
     print(answer)
 
 
@@ -101,6 +104,7 @@ def cmd_search(args: argparse.Namespace) -> None:
 
         city_id = CITY_DEFINITIONS[canonical_city(args.city)]["id"]
     store = Neo4jGraphStore(settings)
+    gemini = GeminiClient(settings)
     try:
         response = get_strategy(args.strategy).search(
             SearchRequest(
@@ -110,10 +114,11 @@ def cmd_search(args: argparse.Namespace) -> None:
                 entity_types=args.type or None,
             ),
             store,
-            GeminiClient(settings),
+            gemini,
         )
     finally:
         store.close()
+        gemini.close()
     payload = {
         "strategy": response.strategy,
         "results": [
@@ -208,6 +213,8 @@ def cmd_load_evidence(args: argparse.Namespace) -> None:
         )
     finally:
         store.close()
+        if embedder is not None:
+            embedder.close()
     mode = "with embeddings" if embedder else "without embeddings"
     print(f"Loaded {len(documents)} Documents and {len(text_units)} TextUnits {mode}.")
 

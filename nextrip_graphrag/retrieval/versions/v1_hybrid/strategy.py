@@ -63,6 +63,22 @@ def reciprocal_rank_fusion(
     return results
 
 
+def rank_hard_constraint_results(
+    graph_rows: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    results = []
+    for rank, source_row in enumerate(graph_rows[:limit], start=1):
+        row = dict(source_row)
+        row["retrieval"] = {
+            "constraint_match": True,
+            "graph_rank": rank,
+            "graph_score": source_row.get("score"),
+        }
+        results.append(row)
+    return results
+
+
 class V1HybridRetriever:
     """Retrieval ablation on KB V1; this is not a new graph version."""
 
@@ -139,20 +155,31 @@ class V1HybridRetriever:
             graph_rows = []
             trace.append({"step": "graph_filter_search", "status": "skipped"})
 
-        results = reciprocal_rank_fusion(
-            vector_rows,
-            keyword_rows,
-            request.limit,
-            graph_rows=graph_rows,
-        )
-        trace.append(
-            {
-                "step": "rrf_fusion",
-                "status": "ok",
-                "rrf_k": RRF_K,
-                "source_weights": SOURCE_WEIGHTS,
-                "candidate_limit": candidate_limit,
-                "count": len(results),
-            }
-        )
+        if filters.active:
+            results = rank_hard_constraint_results(graph_rows, request.limit)
+            trace.append(
+                {
+                    "step": "hard_constraint_gate",
+                    "status": "ok",
+                    "candidate_limit": candidate_limit,
+                    "count": len(results),
+                }
+            )
+        else:
+            results = reciprocal_rank_fusion(
+                vector_rows,
+                keyword_rows,
+                request.limit,
+                graph_rows=graph_rows,
+            )
+            trace.append(
+                {
+                    "step": "rrf_fusion",
+                    "status": "ok",
+                    "rrf_k": RRF_K,
+                    "source_weights": SOURCE_WEIGHTS,
+                    "candidate_limit": candidate_limit,
+                    "count": len(results),
+                }
+            )
         return SearchResponse(strategy=self.name, results=results, trace=trace)

@@ -29,6 +29,9 @@ class CachedBatchEmbedder:
         self.max_retries = max(0, max_retries)
         self.last_request_at = 0.0
 
+    def close(self) -> None:
+        self.embedder.close()
+
     def embed_documents(self, texts: Iterable[str]) -> list[list[float]]:
         values = list(texts)
         vectors: list[list[float] | None] = [None] * len(values)

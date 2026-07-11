@@ -3,13 +3,11 @@ from __future__ import annotations
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
 from ..config import Settings
-from ..gemini_client import GeminiClient
 from ..logging import safe_text
-from ..neo4j_store import Neo4jGraphStore
 from ..normalizer import CITY_DEFINITIONS, canonical_city
 from ..rag import TravelGraphRAG
 from ..retrieval import SearchRequest, available_strategies, get_strategy
@@ -23,8 +21,16 @@ from .schemas import (
     KbSearchResult,
     SourceInfo,
 )
+from .dependencies import KbServices, get_kb_services
 
 router = APIRouter()
+SEARCH_STEPS = {
+    "vector_search",
+    "keyword_search",
+    "text_unit_vector_search",
+    "text_unit_keyword_search",
+    "graph_filter_search",
+}
 
 
 def _resolve_city_id(city: str | None) -> str | None:
@@ -47,8 +53,7 @@ def _first_present(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
 
 def _run_search(
     request: KbSearchRequest,
-    settings: Settings,
-    store: Neo4jGraphStore,
+    services: KbServices,
 ):
     try:
         strategy = get_strategy(request.strategy)
@@ -61,8 +66,8 @@ def _run_search(
             city_id=_resolve_city_id(request.city),
             entity_types=request.entity_types,
         ),
-        store,
-        GeminiClient(settings),
+        services.store,
+        services.gemini,
     )
 
 
@@ -88,31 +93,34 @@ def _to_search_result(row: dict[str, Any]) -> KbSearchResult:
     )
 
 
-def _neo4j_health(settings: Settings) -> str:
-    store = Neo4jGraphStore(settings)
-    try:
-        store.run("RETURN 1 AS ok")
-    finally:
-        store.close()
+def _all_retrieval_sources_failed(trace: list[dict[str, Any]]) -> bool:
+    attempted = [event for event in trace if event.get("step") in SEARCH_STEPS]
+    return bool(attempted) and not any(event.get("status") == "ok" for event in attempted)
+
+
+def _neo4j_health(services: KbServices) -> str:
+    services.store.run("RETURN 1 AS ok")
     return "ready"
 
 
 @router.get("/health", response_model=HealthResponse)
-def health() -> HealthResponse:
-    settings = Settings.from_env()
+def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
     try:
-        neo4j_status = _neo4j_health(settings)
+        neo4j_status = _neo4j_health(services)
     except Exception as exc:
         neo4j_status = f"not_ready:{exc.__class__.__name__}"
     return HealthResponse(
         neo4j=neo4j_status,
-        embedding_model=settings.embedding_model,
+        embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
 
 
 @router.post("/api/kb/search", response_model=KbSearchResponse)
-def search(request: KbSearchRequest) -> KbSearchResponse:
+def search(
+    request: KbSearchRequest,
+    services: KbServices = Depends(get_kb_services),
+) -> KbSearchResponse:
     started_at = perf_counter()
     logger.info(
         "KB search start strategy={} query={!r} city={} entity_types={} top_k={}",
@@ -122,10 +130,13 @@ def search(request: KbSearchRequest) -> KbSearchResponse:
         request.entity_types or [],
         request.top_k,
     )
-    settings = Settings.from_env()
-    store = Neo4jGraphStore(settings)
     try:
-        response = _run_search(request, settings, store)
+        response = _run_search(request, services)
+        if _all_retrieval_sources_failed(response.trace):
+            raise HTTPException(
+                status_code=503,
+                detail="Knowledge Base retrieval is temporarily unavailable.",
+            )
     except Exception as exc:
         logger.exception(
             "KB search error strategy={} error_type={} elapsed_ms={}",
@@ -134,8 +145,6 @@ def search(request: KbSearchRequest) -> KbSearchResponse:
             int((perf_counter() - started_at) * 1000),
         )
         raise
-    finally:
-        store.close()
     result = KbSearchResponse(
         strategy=response.strategy,
         results=[_to_search_result(row) for row in response.results],
@@ -153,7 +162,10 @@ def search(request: KbSearchRequest) -> KbSearchResponse:
 
 
 @router.post("/api/kb/answer", response_model=KbAnswerResponse)
-def answer(request: KbAnswerRequest) -> KbAnswerResponse:
+def answer(
+    request: KbAnswerRequest,
+    services: KbServices = Depends(get_kb_services),
+) -> KbAnswerResponse:
     started_at = perf_counter()
     logger.info(
         "KB answer start strategy={} query={!r} city={} entity_types={} top_k={}",
@@ -163,19 +175,14 @@ def answer(request: KbAnswerRequest) -> KbAnswerResponse:
         request.entity_types or [],
         request.top_k,
     )
-    settings = Settings.from_env()
-    store = Neo4jGraphStore(settings)
-    rag = TravelGraphRAG(store, GeminiClient(settings))
-    try:
-        text = rag.answer(
-            question=request.query,
-            city=request.city,
-            entity_types=request.entity_types,
-            top_k=request.top_k,
-            strategy=request.strategy,
-        )
-    finally:
-        store.close()
+    rag = TravelGraphRAG(services.store, services.gemini)
+    text = rag.answer(
+        question=request.query,
+        city=request.city,
+        entity_types=request.entity_types,
+        top_k=request.top_k,
+        strategy=request.strategy,
+    )
     result = KbAnswerResponse(
         answer=text,
         strategy=request.strategy,

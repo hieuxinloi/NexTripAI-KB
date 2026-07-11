@@ -94,6 +94,7 @@ def run_benchmark(
             )
     finally:
         store.close()
+        embedder.close()
 
     metric_names = (
         "hit_at_k",

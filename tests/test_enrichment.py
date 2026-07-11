@@ -13,6 +13,7 @@ from nextrip_graphrag.enrichment.nominatim import haversine_km, score_candidate
 from nextrip_graphrag.enrichment.source_crawler import MIN_DOCUMENT_CHARS, extract_page_text
 from nextrip_graphrag.enrichment.text_units import chunk_text, find_mentions
 from nextrip_graphrag.enrichment.embeddings import CachedBatchEmbedder
+from nextrip_graphrag.normalizer import price_summary
 
 
 DATA_DIR = Path(__file__).parents[1] / "travel_data_verified"
@@ -127,3 +128,9 @@ def test_embedding_cache_reuses_vectors(tmp_path: Path) -> None:
     assert cached.embed_query("question") == [8.0]
     assert cached.embed_query("question") == [8.0]
     assert fake.calls == 2
+
+
+def test_price_summary_preserves_free_entry() -> None:
+    summary = price_summary({"entry_fee": {"min": 0, "max": 0, "currency": "VND"}})
+
+    assert any("0-0 VND" in item for item in summary)

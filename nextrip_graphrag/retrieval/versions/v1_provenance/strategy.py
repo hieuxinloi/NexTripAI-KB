@@ -8,7 +8,11 @@ from ....logging import safe_text
 from ...base import trace_error
 from ...models import SearchResponse
 from ...query_features import extract_graph_filters
-from ..v1_hybrid.strategy import MIN_CANDIDATES, reciprocal_rank_fusion
+from ..v1_hybrid.strategy import (
+    MIN_CANDIDATES,
+    rank_hard_constraint_results,
+    reciprocal_rank_fusion,
+)
 
 
 class V1ProvenanceRetriever:
@@ -190,19 +194,29 @@ class V1ProvenanceRetriever:
             )
 
         step_started_at = perf_counter()
-        results = reciprocal_rank_fusion(
-            vector_rows,
-            keyword_rows,
-            request.limit,
-            graph_rows=graph_rows,
-        )
-        fusion_event = {
-            "step": "text_unit_rrf_fusion",
-            "status": "ok",
-            "candidate_limit": candidate_limit,
-            "count": len(results),
-            "elapsed_ms": int((perf_counter() - step_started_at) * 1000),
-        }
+        if filters.active:
+            results = rank_hard_constraint_results(graph_rows, request.limit)
+            fusion_event = {
+                "step": "hard_constraint_gate",
+                "status": "ok",
+                "candidate_limit": candidate_limit,
+                "count": len(results),
+                "elapsed_ms": int((perf_counter() - step_started_at) * 1000),
+            }
+        else:
+            results = reciprocal_rank_fusion(
+                vector_rows,
+                keyword_rows,
+                request.limit,
+                graph_rows=graph_rows,
+            )
+            fusion_event = {
+                "step": "text_unit_rrf_fusion",
+                "status": "ok",
+                "candidate_limit": candidate_limit,
+                "count": len(results),
+                "elapsed_ms": int((perf_counter() - step_started_at) * 1000),
+            }
         trace.append(fusion_event)
         result_ids = [str((row.get("place") or {}).get("id") or "") for row in results]
         logger.info(

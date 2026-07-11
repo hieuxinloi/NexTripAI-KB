@@ -34,6 +34,16 @@ TERM_RELATION_SPECS = {
     "weather_suitable": ("Weather", "SUITABLE_WEATHER", "weather"),
 }
 
+PLACE_OUTGOING_RELATIONSHIPS = [
+    "IN_CITY",
+    "HAS_TYPE",
+    "HAS_CATEGORY",
+    "FROM_SOURCE",
+    "NEAR",
+    *(spec[1] for spec in TERM_RELATION_SPECS.values()),
+]
+PLACE_INCOMING_RELATIONSHIPS = ["HAS_PLACE", "CONTAINS_PLACE", "NEAR"]
+
 
 def slugify_term(value: str) -> str:
     from .normalizer import slugify
@@ -64,14 +74,12 @@ class Neo4jGraphStore:
     def close(self) -> None:
         self.driver.close()
 
-    def _session(self):
-        if self.settings.neo4j_database:
-            return self.driver.session(database=self.settings.neo4j_database)
-        return self.driver.session()
-
     def run(self, query: str, **params: Any) -> list[dict[str, Any]]:
-        with self._session() as session:
-            return session.run(query, **params).data()
+        options: dict[str, Any] = {"parameters_": params}
+        if self.settings.neo4j_database:
+            options["database_"] = self.settings.neo4j_database
+        result = self.driver.execute_query(query, **options)
+        return [record.data() for record in result.records]
 
     def has_embeddings(self) -> bool:
         rows = self.run(
@@ -148,13 +156,24 @@ class Neo4jGraphStore:
             for place, embedding in zip(batch, embeddings, strict=True):
                 self.upsert_place(place, embedding)
 
+        self.sync_place_ids([place["id"] for place in places])
         self.load_nearby_relationships(places)
+
+    def sync_place_ids(self, place_ids: list[str]) -> None:
+        if not place_ids:
+            raise ValueError("Refusing to synchronize an empty place snapshot")
+        self.run(
+            "MATCH (p:Place) WHERE NOT p.id IN $place_ids DETACH DELETE p",
+            place_ids=place_ids,
+        )
 
     def upsert_place(self, place: dict[str, Any], embedding: list[float] | None) -> None:
         entity_label = ENTITY_LABELS.get(place["entity_type"], "TravelPlace")
         props = dict(place["props"])
         lat = props.get("lat")
         lng = props.get("lng")
+
+        self._clear_managed_place_relationships(place["id"])
 
         query = f"""
         MERGE (p:Place {{id: $id}})
@@ -179,6 +198,26 @@ class Neo4jGraphStore:
         self.upsert_core_relationships(place)
         self.upsert_term_relationships(place)
 
+    def _clear_managed_place_relationships(self, place_id: str) -> None:
+        self.run(
+            """
+            MATCH (p:Place {id: $place_id})-[relationship]->()
+            WHERE type(relationship) IN $relationship_types
+            DELETE relationship
+            """,
+            place_id=place_id,
+            relationship_types=PLACE_OUTGOING_RELATIONSHIPS,
+        )
+        self.run(
+            """
+            MATCH ()-[relationship]->(p:Place {id: $place_id})
+            WHERE type(relationship) IN $relationship_types
+            DELETE relationship
+            """,
+            place_id=place_id,
+            relationship_types=PLACE_INCOMING_RELATIONSHIPS,
+        )
+
     def upsert_core_relationships(self, place: dict[str, Any]) -> None:
         props = place["props"]
         source_id = f"source_{slugify_term(props.get('source_name') or 'unknown')}"
@@ -202,8 +241,8 @@ class Neo4jGraphStore:
             MERGE (p)-[:HAS_CATEGORY]->(category)
 
             MERGE (source:Source {id: $source_id})
-            SET source.name = $source_name,
-                source.url = $source_url
+            SET source.name = $source_name
+            REMOVE source.url
             MERGE (p)-[:FROM_SOURCE]->(source)
             """,
             place_id=place["id"],
@@ -215,7 +254,6 @@ class Neo4jGraphStore:
             category_value=place["category_value"],
             source_id=source_id,
             source_name=props.get("source_name") or "unknown",
-            source_url=props.get("source_url"),
         )
 
     def upsert_term_relationships(self, place: dict[str, Any]) -> None:

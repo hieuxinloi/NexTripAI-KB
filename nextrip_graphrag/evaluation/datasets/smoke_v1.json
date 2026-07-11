@@ -48,6 +48,14 @@
       "accepted_place_ids": ["attr_dn_001", "attr_dn_009", "attr_dn_036", "attr_dn_037", "attr_dn_044", "attr_dn_053"]
     },
     {
+      "id": "L3-QN-RAIN-001",
+      "level": "L3",
+      "query": "trời mưa thì nên đi chơi ở đâu ở Quy Nhơn",
+      "city": "Quy Nhơn",
+      "top_k": 5,
+      "accepted_place_ids": ["attr_qn_041"]
+    },
+    {
       "id": "L2-DN-ROOFTOP-001",
       "level": "L2",
       "query": "cafe rooftop",
