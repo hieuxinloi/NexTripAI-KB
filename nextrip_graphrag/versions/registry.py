@@ -34,12 +34,12 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         ),
         "v4": KBVersionManifest(
             kb_version="v4",
-            status="planned",
+            status="experimental",
             dataset="travel_data_verified:519",
-            ontology_version="geo-temporal-v4",
-            embedding_version="geo-context-v4",
-            retrieval_version="geo-itinerary-v4",
-            description="Generated geo edges and itinerary candidate retrieval.",
+            ontology_version="domain-subgraphs-evidence-claims-v4",
+            embedding_version="place-profile-v4",
+            retrieval_version="ontology-guided-query-adaptive-v4",
+            description="Seven connected domain subgraphs with evidence-aware claims and adaptive retrieval.",
         ),
         "v5": KBVersionManifest(
             kb_version="v5",
@@ -48,6 +48,6 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
             ontology_version="community-summary-v5",
             embedding_version="local-community-summary-v5",
             retrieval_version="adaptive-local-global-v5",
-            description="Community summaries with adaptive local/global GraphRAG.",
+            description="Hierarchical learned communities and adaptive local/global GraphRAG.",
         ),
     }

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import socket
 from dataclasses import asdict
 from time import perf_counter
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -17,6 +20,8 @@ from ..versions.v2.retrieval import V2RetrievalService
 from ..versions.v2.schemas import V2QueryResponse
 from ..versions.v3.retrieval import V3RetrievalService
 from ..versions.v3.schemas import V3QueryResponse
+from ..versions.v4.retrieval import V4RetrievalService
+from ..versions.v4.schemas import DynamicObservationInput, V4QueryResponse
 from .schemas import (
     GraphContext,
     HealthResponse,
@@ -26,7 +31,7 @@ from .schemas import (
     KbSearchResponse,
     KbSearchResult,
     SourceInfo,
-    V2QueryRequest,
+    TypedQueryRequest,
 )
 from .dependencies import KbServices, get_kb_services
 
@@ -105,31 +110,30 @@ def _all_retrieval_sources_failed(trace: list[dict[str, Any]]) -> bool:
     return bool(attempted) and not any(event.get("status") == "ok" for event in attempted)
 
 
-def _neo4j_health(services: KbServices) -> str:
-    services.store.run("RETURN 1 AS ok")
-    return "ready"
+def _store_health(store: Any) -> str:
+    try:
+        target = urlparse(store.settings.neo4j_uri)
+        with socket.create_connection((target.hostname or "localhost", target.port or 7687), timeout=0.5):
+            pass
+        store.run("RETURN 1 AS ok")
+        return "ready"
+    except Exception as exc:
+        return f"not_ready:{exc.__class__.__name__}"
 
 
 @router.get("/health", response_model=HealthResponse)
 def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
-    try:
-        neo4j_status = _neo4j_health(services)
-    except Exception as exc:
-        neo4j_status = f"not_ready:{exc.__class__.__name__}"
-    try:
-        services.v2_store.run("RETURN 1 AS ok")
-        neo4j_v2_status = "ready"
-    except Exception as exc:
-        neo4j_v2_status = f"not_ready:{exc.__class__.__name__}"
-    try:
-        services.v3_store.run("RETURN 1 AS ok")
-        neo4j_v3_status = "ready"
-    except Exception as exc:
-        neo4j_v3_status = f"not_ready:{exc.__class__.__name__}"
+    stores = (services.store, services.v2_store, services.v3_store, services.v4_store)
+    with ThreadPoolExecutor(max_workers=len(stores), thread_name_prefix="kb-health") as pool:
+        neo4j_status, neo4j_v2_status, neo4j_v3_status, neo4j_v4_status = pool.map(
+            _store_health,
+            stores,
+        )
     return HealthResponse(
         neo4j=neo4j_status,
         neo4j_v2=neo4j_v2_status,
         neo4j_v3=neo4j_v3_status,
+        neo4j_v4=neo4j_v4_status,
         embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
@@ -143,11 +147,44 @@ def versions() -> dict[str, dict[str, Any]]:
     }
 
 
-@router.post("/api/kb/query", response_model=V2QueryResponse | V3QueryResponse)
-def query_v2(
-    request: V2QueryRequest,
+@router.get("/api/kb/v4/stats")
+def v4_stats(services: KbServices = Depends(get_kb_services)) -> dict[str, Any]:
+    return {
+        "kb_version": "v4",
+        "statistics": services.v4_store.graph_statistics(),
+        "subgraphs": services.v4_store.domain_statistics(),
+        "invariants": services.v4_store.validate_invariants(),
+    }
+
+
+@router.post("/api/kb/v4/explain", response_model=V4QueryResponse)
+def explain_v4(
+    request: TypedQueryRequest,
     services: KbServices = Depends(get_kb_services),
-) -> V2QueryResponse | V3QueryResponse:
+) -> V4QueryResponse:
+    try:
+        gemini = services.gemini
+    except RuntimeError:
+        gemini = None
+    return V4RetrievalService(services.v4_store, gemini).query(request.query, request.top_k)
+
+
+@router.post("/api/kb/v4/observations")
+def upsert_v4_observation(
+    observation: DynamicObservationInput,
+    services: KbServices = Depends(get_kb_services),
+) -> dict[str, Any]:
+    try:
+        return services.v4_store.upsert_dynamic_observation(observation)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/kb/query", response_model=V2QueryResponse | V3QueryResponse | V4QueryResponse)
+def query_typed(
+    request: TypedQueryRequest,
+    services: KbServices = Depends(get_kb_services),
+) -> V2QueryResponse | V3QueryResponse | V4QueryResponse:
     started_at = perf_counter()
     logger.info(
         "KB typed query start version={} query={!r} top_k={}",
@@ -160,7 +197,12 @@ def query_v2(
     except RuntimeError:
         gemini = None
     try:
-        if request.kb_version == "v3":
+        if request.kb_version == "v4":
+            response = V4RetrievalService(services.v4_store, gemini).query(
+                request.query,
+                request.top_k,
+            )
+        elif request.kb_version == "v3":
             response = V3RetrievalService(services.v3_store, gemini).query(
                 request.query,
                 request.top_k,

@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from ..versions.v2.retrieval import V2RetrievalService
+from ..versions.v2.schemas import QueryPlan
+from ..versions.v3.schemas import V3QueryPlan
+from ..versions.v4.schemas import V4QueryPlan
 
 
 def run_v2_benchmark(
@@ -42,9 +45,10 @@ def evaluate_v2_response(expected: dict[str, Any], response: Any) -> list[str]:
     failures = []
     if response.answer_type != expected["intent"]:
         failures.append(f"intent:{response.answer_type}!={expected['intent']}")
-    if not response.query_plan.tasks:
-        return [*failures, "missing_task"]
-    if response.query_plan.tasks[0].operation != expected["operation"]:
+    operation = _response_operation(response.query_plan)
+    if operation is None:
+        return [*failures, "missing_operation"]
+    if operation != expected["operation"]:
         failures.append("operation_mismatch")
 
     if "count" in expected:
@@ -66,3 +70,18 @@ def evaluate_v2_response(expected: dict[str, Any], response: Any) -> list[str]:
     if minimum is not None and len(response.entities) < minimum:
         failures.append(f"results:{len(response.entities)}<{minimum}")
     return failures
+
+
+def _response_operation(query_plan: QueryPlan | V3QueryPlan | V4QueryPlan) -> str | None:
+    if not isinstance(query_plan, V4QueryPlan):
+        return query_plan.tasks[0].operation.value if query_plan.tasks else None
+    value = query_plan.retrieval_mode.value
+    return {
+        "aggregate": "count",
+        "entity_lookup": "lookup",
+        "path_search": "filter",
+        "recommendation": "recommend",
+        "community_search": "filter",
+        "comparison": "lookup",
+        "planning_candidates": "recommend",
+    }.get(value)

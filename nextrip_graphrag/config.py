@@ -26,6 +26,12 @@ class Settings:
     neo4j_v3_user: str = "neo4j"
     neo4j_v3_password: str = "change-me"
     neo4j_v3_database: str | None = "neo4j"
+    neo4j_v4_uri: str = "bolt://localhost:7690"
+    neo4j_v4_user: str = "neo4j"
+    neo4j_v4_password: str = "change-me"
+    neo4j_v4_database: str | None = "neo4j"
+    neo4j_connection_timeout: float = 3.0
+    neo4j_max_transaction_retry_time: float = 3.0
     google_api_key: str | None = None
     google_genai_use_vertexai: bool = False
     google_application_credentials: str | None = None
@@ -53,6 +59,19 @@ class Settings:
             neo4j_v3_user=os.getenv("NEO4J_V3_USER", cls.neo4j_v3_user),
             neo4j_v3_password=os.getenv("NEO4J_V3_PASSWORD", cls.neo4j_v3_password),
             neo4j_v3_database=os.getenv("NEO4J_V3_DATABASE", cls.neo4j_v3_database) or None,
+            neo4j_v4_uri=os.getenv("NEO4J_V4_URI", cls.neo4j_v4_uri),
+            neo4j_v4_user=os.getenv("NEO4J_V4_USER", cls.neo4j_v4_user),
+            neo4j_v4_password=os.getenv("NEO4J_V4_PASSWORD", cls.neo4j_v4_password),
+            neo4j_v4_database=os.getenv("NEO4J_V4_DATABASE", cls.neo4j_v4_database) or None,
+            neo4j_connection_timeout=float(
+                os.getenv("NEO4J_CONNECTION_TIMEOUT", str(cls.neo4j_connection_timeout))
+            ),
+            neo4j_max_transaction_retry_time=float(
+                os.getenv(
+                    "NEO4J_MAX_TRANSACTION_RETRY_TIME",
+                    str(cls.neo4j_max_transaction_retry_time),
+                )
+            ),
             google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
             google_genai_use_vertexai=_env_bool("GOOGLE_GENAI_USE_VERTEXAI"),
             google_application_credentials=os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None,
@@ -82,4 +101,13 @@ class Settings:
             neo4j_user=self.neo4j_v3_user,
             neo4j_password=self.neo4j_v3_password,
             neo4j_database=self.neo4j_v3_database,
+        )
+
+    def for_v4(self) -> "Settings":
+        return replace(
+            self,
+            neo4j_uri=self.neo4j_v4_uri,
+            neo4j_user=self.neo4j_v4_user,
+            neo4j_password=self.neo4j_v4_password,
+            neo4j_database=self.neo4j_v4_database,
         )
