@@ -13,7 +13,7 @@ Dataset:
 
 Knowledge graph:
 
-- Node labels: `City`, `Place`, `PlaceType`, `Category`, `Source`, `Term`.
+- Node labels: `City`, `Place`, `PlaceType`, `Category`, `Source`, `Term`, `Document`, `TextUnit`.
 - Extra place labels: `Attraction`, `Cafe`, `Hotel`, `Nightlife`, `Restaurant`.
 - Core relationships:
   - `(:City)-[:HAS_PLACE]->(:Place)`
@@ -23,17 +23,20 @@ Knowledge graph:
   - `(:Place)-[:FROM_SOURCE]->(:Source)`
   - `(:Place)-[:TAGGED_WITH|HAS_AMENITY|HAS_FEATURE|HAS_CUISINE|SERVES|SUITABLE_FOR]->(:Term)`
   - `(:Place)-[:NEAR]->(:Place)`
+  - `(:Document)-[:HAS_TEXT_UNIT]->(:TextUnit)`
+  - `(:Document)-[:SOURCE_FOR]->(:Place)`
+  - `(:TextUnit)-[:MENTIONS {confidence, match_type}]->(:Place)`
 
 Retrieval:
 
-- Vector search over `Place.embedding`.
-- Keyword fallback over Neo4j fulltext index.
-- Graph context expansion for facets and nearby places.
+- Vector and fulltext search over `TextUnit` with Place baselines retained for ablation.
+- Traversal from evidence TextUnit to Place, then graph context expansion.
+- Deterministic graph filters and weighted Reciprocal Rank Fusion.
 - Gemini embeddings and Gemini answer generation.
 
 Interfaces:
 
-- CLI: `prepare`, `schema`, `load`, `ask`.
+- CLI includes `prepare`, `schema`, `load`, `build-article-text-units`, `load-evidence`, `search`, `benchmark`, `ask`.
 - Local API scaffold: `GET /health`, `POST /api/kb/search`, `POST /api/kb/answer`.
 
 ## 2. Where V1 Works Well
@@ -55,15 +58,14 @@ V1 is a good baseline for:
 
 V1 is not yet an advanced GraphRAG system because:
 
-- Retrieval is vector-first, then keyword fallback. It is not true hybrid score fusion.
-- Graph traversal is shallow. The graph currently enriches retrieved nodes rather than driving retrieval.
-- There is no graph-first Cypher retrieval for constraints like budget, weather, audience, area, price, rating, or open hours.
+- Query feature extraction covers only work, seafood, rooftop and rain/indoor constraints.
+- Graph-first retrieval does not yet cover budget, audience, area, price, rating or open hours.
 - There is no geospatial generated graph beyond available `nearby_attractions`.
 - There are no community summaries or higher-level city/category summaries.
 - There is no LightRAG-style dual-level retrieval across detailed entities and high-level themes.
 - Errors in vector retrieval can be hidden by fallback behavior if not traced.
-- There is no benchmark harness, no pass/fail report, and no systematic comparison across variants.
-- There is no debug trace for why each place was selected.
+- Benchmark coverage is only six smoke cases and does not yet cover L4-L5.
+- Trace explains retrieval sources but not a calibrated per-result feature contribution.
 
 ## 4. Baseline Limits To Measure
 
@@ -141,3 +143,13 @@ Example hypotheses:
 ## 7. V1 Verdict
 
 V1 is strong enough as a baseline and demo foundation, but not enough as the final research contribution. The next milestone is not just "make it answer"; it is to make retrieval variants measurable, comparable, and iteratively better for this travel dataset.
+
+## 8. Measured Runtime Result (2026-07-11)
+
+- Neo4j evidence graph: 54 Documents, 1,055 TextUnits and 1,198 MENTIONS edges.
+- TextUnit embedding coverage: 1,055/1,055, dimension 1,536.
+- Six-case final smoke benchmark: Hit@5 1.0000, Precision@5 0.7333, Relevance@5 1.0000, MRR 1.0000.
+- Indoor/rain query returns 5/5 accepted indoor/all-weather places.
+- Embedding bulk load uses content-addressed cache, request delay and quota retry.
+
+See `docs/GRAPHRAG_V1_RETRIEVAL_EXPERIMENT.md` for the retrieval ablation and raw result paths.

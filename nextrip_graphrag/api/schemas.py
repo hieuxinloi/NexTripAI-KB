@@ -10,6 +10,7 @@ class HealthResponse(BaseModel):
     service: str = "nextrip-kb"
     neo4j: str
     embedding_model: str
+    retrieval_strategies: list[str] = Field(default_factory=list)
 
 
 class KbSearchRequest(BaseModel):
@@ -17,6 +18,7 @@ class KbSearchRequest(BaseModel):
     city: str | None = None
     entity_types: list[str] | None = None
     top_k: int = Field(default=8, ge=1, le=30)
+    strategy: str = Field(default="v1_provenance", min_length=1)
 
 
 class SourceInfo(BaseModel):
@@ -29,6 +31,18 @@ class GraphContext(BaseModel):
     nearby: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class EvidenceItem(BaseModel):
+    text_unit_id: str | None = None
+    text: str | None = None
+    sequence: int | None = None
+    evidence_origin: str | None = None
+    confidence: float | None = None
+    match_type: str | None = None
+    title: str | None = None
+    url: str | None = None
+    score: float | None = None
+
+
 class KbSearchResult(BaseModel):
     place_id: str
     name: str | None = None
@@ -38,9 +52,12 @@ class KbSearchResult(BaseModel):
     score: float | None = None
     source: SourceInfo = Field(default_factory=SourceInfo)
     graph_context: GraphContext = Field(default_factory=GraphContext)
+    retrieval: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[EvidenceItem] = Field(default_factory=list)
 
 
 class KbSearchResponse(BaseModel):
+    strategy: str
     results: list[KbSearchResult]
     trace: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -51,4 +68,5 @@ class KbAnswerRequest(KbSearchRequest):
 
 class KbAnswerResponse(BaseModel):
     answer: str
+    strategy: str
     trace: list[dict[str, Any]] = Field(default_factory=list)

@@ -8,6 +8,10 @@ Read this before implementation:
 
 - Repo workflow: [docs/WORKFLOW.md](docs/WORKFLOW.md)
 - GraphRAG V1 report: [docs/GRAPHRAG_V1_REPORT.md](docs/GRAPHRAG_V1_REPORT.md)
+- Versioning V1-V5: [docs/GRAPHRAG_VERSIONING.md](docs/GRAPHRAG_VERSIONING.md)
+- V1 retrieval experiment: [docs/GRAPHRAG_V1_RETRIEVAL_EXPERIMENT.md](docs/GRAPHRAG_V1_RETRIEVAL_EXPERIMENT.md)
+- Data enrichment workflow: [docs/DATA_ENRICHMENT.md](docs/DATA_ENRICHMENT.md)
+- Data enrichment run report: [docs/DATA_ENRICHMENT_RUN_REPORT.md](docs/DATA_ENRICHMENT_RUN_REPORT.md)
 - System workflow: [../docs/WORKFLOW.md](../docs/WORKFLOW.md)
 - Repo structure guide: [../docs/REPO_STRUCTURE.md](../docs/REPO_STRUCTURE.md)
 - Step-by-step roadmap: [../docs/IMPLEMENTATION_STEPS.md](../docs/IMPLEMENTATION_STEPS.md)
@@ -27,6 +31,14 @@ Current verified dataset:
 
 Processed verified output lives in `processed_verified/`.
 
+Build staged provenance and address candidates without changing verified JSON:
+
+```powershell
+python -m nextrip_graphrag build-source-artifacts
+python -m nextrip_graphrag crawl-sources
+python -m nextrip_graphrag enrich-addresses
+```
+
 ## Graph Schema
 
 ```text
@@ -38,6 +50,9 @@ Processed verified output lives in `processed_verified/`.
 (:Place)-[:TAGGED_WITH|HAS_AMENITY|HAS_FEATURE|HAS_CUISINE|SERVES|SUITABLE_FOR]->(:Term)
 (:Place)-[:FROM_SOURCE]->(:Source)
 (:Place)-[:NEAR {distance_km}]->(:Place)
+(:Document)-[:HAS_TEXT_UNIT]->(:TextUnit)
+(:Document)-[:SOURCE_FOR]->(:Place)
+(:TextUnit)-[:MENTIONS {confidence, match_type}]->(:Place)
 ```
 
 ## Setup
@@ -97,6 +112,15 @@ GraphRAG demo load with Gemini embeddings:
 python -m nextrip_graphrag load --with-embeddings
 ```
 
+Build and load the provenance evidence graph:
+
+```powershell
+python -m nextrip_graphrag build-source-artifacts
+python -m nextrip_graphrag crawl-sources
+python -m nextrip_graphrag build-article-text-units
+python -m nextrip_graphrag load-evidence --with-embeddings
+```
+
 ## Run KB API
 
 ```powershell
@@ -109,11 +133,25 @@ Endpoints:
 - `POST /api/kb/search`
 - `POST /api/kb/answer`
 
+API requests that omit `strategy` use `v1_provenance`. Pass `v1` or `v1_hybrid` explicitly for
+baseline experiments.
+
 ## Ask From CLI
 
 ```powershell
 python -m nextrip_graphrag ask "Goi y 3 quan cafe o Quy Nhon" --city "Quy Nhon" --type cafe
 python -m nextrip_graphrag ask "O Da Nang co nha hang hai san nao phu hop gia dinh?" --city "Da Nang" --type restaurant
+```
+
+Compare versioned retrieval strategies:
+
+```powershell
+python -m nextrip_graphrag search "dia diem trong nha khi troi mua" --city "Da Nang" --type attraction --strategy v1
+python -m nextrip_graphrag search "dia diem trong nha khi troi mua" --city "Da Nang" --type attraction --strategy v1_hybrid
+python -m nextrip_graphrag benchmark --strategy v1
+python -m nextrip_graphrag benchmark --strategy v1_hybrid
+python -m nextrip_graphrag search "dia diem ngam canh song ve dem" --city "Da Nang" --type attraction --strategy v1_provenance
+python -m nextrip_graphrag benchmark --strategy v1_provenance
 ```
 
 ## Notes

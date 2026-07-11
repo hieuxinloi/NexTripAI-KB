@@ -6,6 +6,7 @@ venv/
 .secrets/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -19,3 +20,4 @@ tmp/
 tmp_pdf_extract.txt
 travel_data/
 processed/
+enrichment_workspace/

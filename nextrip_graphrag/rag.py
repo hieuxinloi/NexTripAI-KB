@@ -4,7 +4,8 @@ from typing import Any
 
 from .gemini_client import GeminiClient
 from .neo4j_store import Neo4jGraphStore
-from .normalizer import canonical_city
+from .normalizer import CITY_DEFINITIONS, canonical_city
+from .retrieval import SearchRequest, get_strategy
 
 
 SYSTEM_INSTRUCTION = """
@@ -26,38 +27,28 @@ class TravelGraphRAG:
         city: str | None = None,
         entity_types: list[str] | None = None,
         top_k: int = 8,
+        strategy: str = "v1",
     ) -> str:
         city_id = None
         if city:
-            city_name = canonical_city(city)
-            city_id = "city_quy_nhon" if city_name == "Quy Nhơn" else "city_da_nang"
+            city_id = CITY_DEFINITIONS[canonical_city(city)]["id"]
 
-        try:
-            query_embedding = self.gemini.embed_query(question)
-            results = self.store.vector_search(
-                embedding=query_embedding,
+        response = get_strategy(strategy).search(
+            SearchRequest(
+                query=question,
                 limit=top_k,
                 city_id=city_id,
                 entity_types=entity_types,
-            )
-        except Exception:
-            results = []
-
-        if not results:
-            fallback_results = self.store.keyword_search(
-                query_text=question,
-                limit=top_k,
-                city_id=city_id,
-                entity_types=entity_types,
-            )
-            results = fallback_results
-
-        context = self.build_context(results)
+            ),
+            self.store,
+            self.gemini,
+        )
+        context = self.build_context(response.results)
         prompt = f"""
 Câu hỏi của người dùng:
 {question}
 
-Ngữ cảnh lấy từ Neo4j GraphRAG:
+Ngữ cảnh lấy từ Neo4j GraphRAG ({strategy}):
 {context}
 
 Hãy trả lời như một tư vấn viên du lịch. Nếu có nhiều lựa chọn, nhóm theo nhu cầu
@@ -76,10 +67,17 @@ và ưu tiên các địa điểm khớp nhất với câu hỏi.
             nearby_names = [
                 item.get("name") for item in row.get("nearby", []) if item.get("name")
             ]
+            evidence_lines = [
+                f"Evidence: {item.get('text', '')[:700]}\nURL: {item.get('url')}"
+                for item in row.get("evidence", [])[:3]
+                if item.get("text")
+            ]
             lines = [
                 f"[{index}] {place.get('name')} ({place.get('entity_label')}, {place.get('category_name')})",
                 f"Thành phố: {place.get('city')}",
-                f"Điểm liên quan: {row.get('score'):.4f}" if row.get("score") is not None else None,
+                f"Điểm retrieval: {row.get('score'):.4f}"
+                if row.get("score") is not None
+                else None,
                 f"Địa chỉ: {place.get('address')}" if place.get("address") else None,
                 f"Tọa độ: {place.get('lat')}, {place.get('lng')}",
                 f"Rating: {place.get('rating')} ({place.get('review_count')} đánh giá)"
@@ -96,5 +94,6 @@ và ưu tiên các địa điểm khớp nhất với câu hỏi.
                 if place.get("source_url")
                 else None,
             ]
+            lines.extend(evidence_lines)
             blocks.append("\n".join(line for line in lines if line))
         return "\n\n".join(blocks)
