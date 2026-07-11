@@ -27,6 +27,7 @@ class Settings:
     embedding_dim: int = 1536
     top_k: int = 8
     temperature: float = 0.2
+    log_level: str = "INFO"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -45,4 +46,5 @@ class Settings:
             embedding_dim=int(os.getenv("GEMINI_EMBEDDING_DIM", str(cls.embedding_dim))),
             top_k=int(os.getenv("RAG_TOP_K", str(cls.top_k))),
             temperature=float(os.getenv("RAG_TEMPERATURE", str(cls.temperature))),
+            log_level=os.getenv("LOG_LEVEL", cls.log_level),
         )

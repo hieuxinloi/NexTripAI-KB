@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from loguru import logger
 
 from ..config import Settings
 from ..gemini_client import GeminiClient
+from ..logging import safe_text
 from ..neo4j_store import Neo4jGraphStore
 from ..normalizer import CITY_DEFINITIONS, canonical_city
 from ..rag import TravelGraphRAG
@@ -110,21 +113,56 @@ def health() -> HealthResponse:
 
 @router.post("/api/kb/search", response_model=KbSearchResponse)
 def search(request: KbSearchRequest) -> KbSearchResponse:
+    started_at = perf_counter()
+    logger.info(
+        "KB search start strategy={} query={!r} city={} entity_types={} top_k={}",
+        request.strategy,
+        safe_text(request.query),
+        request.city or "-",
+        request.entity_types or [],
+        request.top_k,
+    )
     settings = Settings.from_env()
     store = Neo4jGraphStore(settings)
     try:
         response = _run_search(request, settings, store)
+    except Exception as exc:
+        logger.exception(
+            "KB search error strategy={} error_type={} elapsed_ms={}",
+            request.strategy,
+            exc.__class__.__name__,
+            int((perf_counter() - started_at) * 1000),
+        )
+        raise
     finally:
         store.close()
-    return KbSearchResponse(
+    result = KbSearchResponse(
         strategy=response.strategy,
         results=[_to_search_result(row) for row in response.results],
         trace=response.trace,
     )
+    logger.info(
+        "KB search end strategy={} result_count={} result_ids={} trace_steps={} elapsed_ms={}",
+        result.strategy,
+        len(result.results),
+        [item.place_id for item in result.results],
+        [event.get("step") for event in result.trace],
+        int((perf_counter() - started_at) * 1000),
+    )
+    return result
 
 
 @router.post("/api/kb/answer", response_model=KbAnswerResponse)
 def answer(request: KbAnswerRequest) -> KbAnswerResponse:
+    started_at = perf_counter()
+    logger.info(
+        "KB answer start strategy={} query={!r} city={} entity_types={} top_k={}",
+        request.strategy,
+        safe_text(request.query),
+        request.city or "-",
+        request.entity_types or [],
+        request.top_k,
+    )
     settings = Settings.from_env()
     store = Neo4jGraphStore(settings)
     rag = TravelGraphRAG(store, GeminiClient(settings))
@@ -138,8 +176,15 @@ def answer(request: KbAnswerRequest) -> KbAnswerResponse:
         )
     finally:
         store.close()
-    return KbAnswerResponse(
+    result = KbAnswerResponse(
         answer=text,
         strategy=request.strategy,
         trace=[{"step": "kb_answer", "status": "ok", "strategy": request.strategy}],
     )
+    logger.info(
+        "KB answer end strategy={} answer_len={} elapsed_ms={}",
+        result.strategy,
+        len(result.answer),
+        int((perf_counter() - started_at) * 1000),
+    )
+    return result

@@ -3,6 +3,8 @@ from __future__ import annotations
 import uvicorn
 from fastapi import FastAPI
 
+from ..config import Settings
+from ..logging import configure_logging, install_request_logging
 from .router import router
 
 
@@ -16,7 +18,10 @@ def load_dotenv_if_available() -> None:
 
 def create_app() -> FastAPI:
     load_dotenv_if_available()
+    settings = Settings.from_env()
+    configure_logging(service="nextrip-kb", level=settings.log_level)
     app = FastAPI(title="NexTripAI KB")
+    install_request_logging(app)
     app.include_router(router)
     return app
 

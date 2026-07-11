@@ -12,6 +12,7 @@ Read this before implementation:
 - V1 retrieval experiment: [docs/GRAPHRAG_V1_RETRIEVAL_EXPERIMENT.md](docs/GRAPHRAG_V1_RETRIEVAL_EXPERIMENT.md)
 - Data enrichment workflow: [docs/DATA_ENRICHMENT.md](docs/DATA_ENRICHMENT.md)
 - Data enrichment run report: [docs/DATA_ENRICHMENT_RUN_REPORT.md](docs/DATA_ENRICHMENT_RUN_REPORT.md)
+- Logging: [docs/LOGGING.md](docs/LOGGING.md)
 - System workflow: [../docs/WORKFLOW.md](../docs/WORKFLOW.md)
 - Repo structure guide: [../docs/REPO_STRUCTURE.md](../docs/REPO_STRUCTURE.md)
 - Step-by-step roadmap: [../docs/IMPLEMENTATION_STEPS.md](../docs/IMPLEMENTATION_STEPS.md)
