@@ -68,7 +68,7 @@ CATEGORY_LABELS = {
     "work_cafe": "Cà phê làm việc",
 }
 
-LIST_RELATION_FIELDS = {
+LIST_RELATION_FIELDS = (
     "ambience",
     "amenities",
     "cuisine",
@@ -86,7 +86,7 @@ LIST_RELATION_FIELDS = {
     "tags",
     "vibe",
     "weather_suitable",
-}
+)
 
 
 def strip_accents(value: str) -> str:
@@ -201,6 +201,7 @@ def build_search_text(raw: dict[str, Any], city_name: str, category_name: str) -
     transportation = raw.get("transportation_options") or {}
     text_parts = [
         f"Tên: {raw.get('name')}",
+        f"Tên khác: {', '.join(clean_list(raw.get('aliases')))}" if raw.get("aliases") else None,
         f"Thành phố: {city_name}",
         f"Loại địa điểm: {ENTITY_TYPE_LABELS.get(raw.get('entity_type'), raw.get('entity_type'))}",
         f"Nhóm: {category_name}",
@@ -258,7 +259,7 @@ def normalize_place(raw: dict[str, Any], source_file: str) -> dict[str, Any]:
     props["search_text"] = search_text
     props["embedding_text"] = raw.get("embedding_text") or search_text
 
-    return {
+    normalized = {
         "id": raw["id"],
         "city_id": city["id"],
         "entity_type": entity_type,
@@ -271,6 +272,9 @@ def normalize_place(raw: dict[str, Any], source_file: str) -> dict[str, Any]:
         "terms": relation_terms(raw),
         "nearby_attractions": raw.get("nearby_attractions") or [],
     }
+    if raw.get("verified_sources"):
+        normalized["verified_sources"] = raw["verified_sources"]
+    return normalized
 
 
 def load_raw_items(data_dir: Path) -> list[tuple[dict[str, Any], str]]:

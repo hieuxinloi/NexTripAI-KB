@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -9,6 +9,7 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     service: str = "nextrip-kb"
     neo4j: str
+    neo4j_v2: str | None = None
     embedding_model: str
     retrieval_strategies: list[str] = Field(default_factory=list)
 
@@ -70,3 +71,9 @@ class KbAnswerResponse(BaseModel):
     answer: str
     strategy: str
     trace: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class V2QueryRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    kb_version: Literal["v2"] = "v2"
+    top_k: int = Field(default=5, ge=1, le=30)

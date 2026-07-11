@@ -3217,7 +3217,7 @@
       ]
     },
     {
-      "id": "attr_qn_037",
+      "id": "attr_dn_067",
       "entity_type": "attraction",
       "name": "Bà Nà Hills",
       "city": "Đà Nẵng",
@@ -3230,6 +3230,7 @@
       "category": "entertainment",
       "sub_category": [],
       "description": "Sun World Bà Nà Hills sở hữu kiến trúc Gothic cổ kính và độ cao gần 1.400...",
+      "altitude_m": 1400,
       "highlights": [
         "Bà Nà Hills"
       ],
@@ -8194,7 +8195,7 @@
       },
       "nearby_attractions": [
         {
-          "id": "attr_qn_037",
+          "id": "attr_dn_067",
           "name": "Bà Nà Hills",
           "distance_km": 0.05,
           "category": "entertainment"
@@ -8488,7 +8489,7 @@
           "category": "entertainment"
         },
         {
-          "id": "attr_qn_037",
+          "id": "attr_dn_067",
           "name": "Bà Nà Hills",
           "distance_km": 3.95,
           "category": "entertainment"
@@ -8574,7 +8575,7 @@
           "category": "entertainment"
         },
         {
-          "id": "attr_qn_037",
+          "id": "attr_dn_067",
           "name": "Bà Nà Hills",
           "distance_km": 4.42,
           "category": "entertainment"
@@ -8650,9 +8651,14 @@
       "id": "attr_dn_045",
       "entity_type": "attraction",
       "name": "Bán đảo Sơn Trà và Chùa Linh Ứng bãi Bụt",
+      "aliases": [
+        "Chùa Linh Ứng Bãi Bụt",
+        "Chùa Linh Ứng Sơn Trà",
+        "Linh Ứng Bãi Bụt"
+      ],
       "city": "Đà Nẵng",
       "district": null,
-      "address": "\n472H+435 Vườn Lâm Tỳ Ni, Hoàng Sa, Sơn Trà, Đà Nẵng, Việt Nam",
+      "address": "472H+435 Vườn Lâm Tỳ Ni, Hoàng Sa, Sơn Trà, Đà Nẵng, Việt Nam",
       "coordinates": {
         "lat": 16.0992473,
         "lng": 108.2757279

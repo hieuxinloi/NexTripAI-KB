@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TypeVar
+
+from pydantic import BaseModel
 
 from .config import Settings
+
+
+StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 
 class GeminiClient:
@@ -84,3 +89,24 @@ class GeminiClient:
             config=config,
         )
         return (response.text or "").strip()
+
+    def generate_structured(
+        self,
+        system_instruction: str,
+        prompt: str,
+        response_schema: type[StructuredModel],
+    ) -> StructuredModel:
+        config = self.types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+        )
+        response = self.client.models.generate_content(
+            model=self.settings.gemini_model,
+            contents=prompt,
+            config=config,
+        )
+        if isinstance(response.parsed, response_schema):
+            return response.parsed
+        return response_schema.model_validate_json(response.text or "{}")

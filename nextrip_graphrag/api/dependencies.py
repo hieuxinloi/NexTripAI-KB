@@ -7,12 +7,14 @@ from fastapi import Request
 from ..config import Settings
 from ..gemini_client import GeminiClient
 from ..neo4j_store import Neo4jGraphStore
+from ..versions.v2.graph_store import V2GraphStore
 
 
 class KbServices:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.store = Neo4jGraphStore(settings)
+        self.v2_store = V2GraphStore(settings.for_v2())
         self._gemini: GeminiClient | None = None
         self._gemini_lock = Lock()
 
@@ -26,6 +28,7 @@ class KbServices:
 
     def close(self) -> None:
         self.store.close()
+        self.v2_store.close()
         if self._gemini is not None:
             self._gemini.close()
 

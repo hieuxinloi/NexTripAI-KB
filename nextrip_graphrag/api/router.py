@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from time import perf_counter
 from typing import Any
 
@@ -11,6 +12,9 @@ from ..logging import safe_text
 from ..normalizer import CITY_DEFINITIONS, canonical_city
 from ..rag import TravelGraphRAG
 from ..retrieval import SearchRequest, available_strategies, get_strategy
+from ..versions.registry import kb_version_manifests
+from ..versions.v2.retrieval import V2RetrievalService
+from ..versions.v2.schemas import V2QueryResponse
 from .schemas import (
     GraphContext,
     HealthResponse,
@@ -20,6 +24,7 @@ from .schemas import (
     KbSearchResponse,
     KbSearchResult,
     SourceInfo,
+    V2QueryRequest,
 )
 from .dependencies import KbServices, get_kb_services
 
@@ -109,11 +114,67 @@ def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
         neo4j_status = _neo4j_health(services)
     except Exception as exc:
         neo4j_status = f"not_ready:{exc.__class__.__name__}"
+    try:
+        services.v2_store.run("RETURN 1 AS ok")
+        neo4j_v2_status = "ready"
+    except Exception as exc:
+        neo4j_v2_status = f"not_ready:{exc.__class__.__name__}"
     return HealthResponse(
         neo4j=neo4j_status,
+        neo4j_v2=neo4j_v2_status,
         embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
+
+
+@router.get("/api/kb/versions")
+def versions() -> dict[str, dict[str, Any]]:
+    return {
+        version: asdict(manifest)
+        for version, manifest in kb_version_manifests().items()
+    }
+
+
+@router.post("/api/kb/query", response_model=V2QueryResponse)
+def query_v2(
+    request: V2QueryRequest,
+    services: KbServices = Depends(get_kb_services),
+) -> V2QueryResponse:
+    started_at = perf_counter()
+    logger.info(
+        "KB typed query start version={} query={!r} top_k={}",
+        request.kb_version,
+        safe_text(request.query),
+        request.top_k,
+    )
+    try:
+        gemini = services.gemini
+    except RuntimeError:
+        gemini = None
+    try:
+        response = V2RetrievalService(services.v2_store, gemini).query(
+            request.query,
+            request.top_k,
+        )
+    except Exception as exc:
+        logger.exception(
+            "KB typed query error version={} error_type={} elapsed_ms={}",
+            request.kb_version,
+            exc.__class__.__name__,
+            int((perf_counter() - started_at) * 1000),
+        )
+        raise
+    logger.info(
+        "KB typed query end version={} intent={} entities={} recommendations={} facts={} planner={} elapsed_ms={}",
+        request.kb_version,
+        response.answer_type,
+        len(response.entities),
+        len(response.recommendations),
+        len(response.facts),
+        response.trace[0].get("planner") if response.trace else "-",
+        int((perf_counter() - started_at) * 1000),
+    )
+    return response
 
 
 @router.post("/api/kb/search", response_model=KbSearchResponse)

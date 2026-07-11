@@ -16,7 +16,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         ),
         "v2": KBVersionManifest(
             kb_version="v2",
-            status="planned",
+            status="experimental",
             dataset="travel_data_verified:519",
             ontology_version="typed-travel-provenance-v2",
             embedding_version="place-profile-evidence-chunk-v2",
