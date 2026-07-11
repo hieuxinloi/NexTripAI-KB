@@ -6,8 +6,8 @@ This report captures the current GraphRAG V1 baseline before deeper research ite
 
 Dataset:
 
-- Raw tracked data: `travel_data/`, 524 places.
-- Verified local data: `travel_data_verified/`, 519 places.
+- Verified tracked data: `travel_data_verified/`, 519 places.
+- Legacy raw data folders are intentionally removed from the active repo layout.
 - Cities: Quy Nhon and Da Nang.
 - Entity types: attraction, cafe, hotel, nightlife, restaurant.
 
@@ -141,4 +141,3 @@ Example hypotheses:
 ## 7. V1 Verdict
 
 V1 is strong enough as a baseline and demo foundation, but not enough as the final research contribution. The next milestone is not just "make it answer"; it is to make retrieval variants measurable, comparable, and iteratively better for this travel dataset.
-

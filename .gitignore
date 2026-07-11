@@ -1,6 +1,9 @@
 .env
 .venv/
 venv/
+.agents/
+.codex/
+.secrets/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -14,3 +17,5 @@ __pycache__/
 *.log
 tmp/
 tmp_pdf_extract.txt
+travel_data/
+processed/

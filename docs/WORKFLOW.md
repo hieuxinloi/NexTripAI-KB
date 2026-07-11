@@ -13,7 +13,7 @@ Doc chung:
 
 `NexTripAI-KB` phu trach:
 
-- Luu raw/verified travel data.
+- Luu verified travel data.
 - Clean va normalize data.
 - Tao processed files.
 - Load Neo4j Knowledge Graph.
@@ -35,9 +35,7 @@ Doc chung:
 
 Hien tai repo co:
 
-- `travel_data/`: raw tracked data, 524 places.
-- `travel_data_verified/`: verified local data, 519 places neu co tren may.
-- `processed/`: processed output tu raw data.
+- `travel_data_verified/`: verified tracked data, 519 places.
 - `processed_verified/`: processed output tu verified data.
 - `nextrip_graphrag/`: CLI va GraphRAG core.
 - `.env.example`: config Neo4j + Gemini/Vertex AI.
@@ -81,27 +79,14 @@ Tu luc nay KB khong chi la data service. KB la GraphRAG research lab:
 
 ## 3. Step 1 - Check Data Source
 
-Uu tien dung verified data cho demo:
-
-```powershell
-Test-Path .\travel_data_verified
-```
-
-Neu co:
+Chi dung verified data cho demo va nghien cuu:
 
 ```powershell
 $DATA_DIR = "travel_data_verified"
 $OUT_DIR = "processed_verified"
 ```
 
-Neu khong:
-
-```powershell
-$DATA_DIR = "travel_data"
-$OUT_DIR = "processed"
-```
-
-Expected counts for verified data:
+Expected counts:
 
 - total: 519
 - attraction: 118
@@ -109,15 +94,6 @@ Expected counts for verified data:
 - hotel: 73
 - nightlife: 39
 - restaurant: 183
-
-Expected counts for raw tracked data:
-
-- total: 524
-- attraction: 118
-- cafe: 106
-- hotel: 73
-- nightlife: 39
-- restaurant: 188
 
 ## 4. Step 2 - Prepare Processed Data
 
