@@ -177,6 +177,19 @@ class V3RetrievalService(V2RetrievalService):
                 "OR EXISTS { MATCH (place)-[:HAS_FACT]->(fact:Fact) "
                 "WHERE fact.predicate = 'opening_24h_claim' AND fact.value = true })"
             )
+        if filters.indoor is True or filters.weather == "rain":
+            clauses.append(
+                "(place.is_indoor = true OR "
+                "'all_weather' IN coalesce(place.weather_suitable, []))"
+            )
+        elif filters.indoor is False:
+            clauses.append("place.is_indoor = false")
+        if filters.weather and filters.weather != "rain":
+            clauses.append(
+                "($weather IN coalesce(place.weather_suitable, []) OR "
+                "'all_weather' IN coalesce(place.weather_suitable, []))"
+            )
+            params["weather"] = filters.weather
         if filters.ambience == "sea_view" or filters.tag == "sea_view":
             clauses.append(
                 "(place.hotel_style = 'beachfront' OR "

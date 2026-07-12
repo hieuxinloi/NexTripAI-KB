@@ -77,6 +77,8 @@ def deterministic_plan(query: str) -> V3QueryPlan:
         )
 
     if any(word in lowered for word in ("ngon nhất", "đẹp nhất", "nổi tiếng", "gợi ý", "nên")):
+        if not entity_types:
+            entity_types = _recommendation_entity_types(lowered, filters)
         return V3QueryPlan(
             intent=QueryIntent.RECOMMENDATION,
             city=city,
@@ -223,6 +225,7 @@ def _without_city_suffix(subject: str, city: str | None) -> str:
 
 def _filters(query: str) -> V3Filters:
     star = re.search(r"\b([1-5])\s*sao\b", query)
+    rainy = "mưa" in query
     return V3Filters(
         star_rating=int(star.group(1)) if star else None,
         amenity="pool" if "hồ bơi" in query else None,
@@ -234,15 +237,35 @@ def _filters(query: str) -> V3Filters:
         tag="sea_view" if "view biển" in query else None,
         near_subject=_near_subject(query),
         open_24h=True if "24/7" in query or "24h" in query else None,
+        indoor=True if rainy or "trong nhà" in query else None,
+        weather="rain" if rainy else None,
     )
 
 
 def _terms(query: str) -> list[str]:
     terms = []
-    for value in ("hải sản", "chay", "bánh xèo", "view biển", "rooftop", "yên tĩnh", "làm việc"):
+    for value in (
+        "hải sản",
+        "chay",
+        "bánh xèo",
+        "view biển",
+        "rooftop",
+        "yên tĩnh",
+        "làm việc",
+        "mưa",
+        "trong nhà",
+    ):
         if value in query:
             terms.append(value)
     return terms
+
+
+def _recommendation_entity_types(query: str, filters: V3Filters) -> list[str]:
+    if filters.indoor or filters.weather == "rain":
+        return ["attraction"]
+    if any(marker in query for marker in ("đi đâu", "đi chơi", "tham quan")):
+        return ["attraction"]
+    return ["attraction", "restaurant", "cafe"]
 
 
 def _near_subject(query: str) -> str | None:
