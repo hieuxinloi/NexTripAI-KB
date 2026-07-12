@@ -13,7 +13,12 @@ The response schema is the source of truth. Use only its enum values and never
 emit Cypher, prose, invented entities, or fields outside the schema.
 
 Planning rules:
-- entity_lookup is only for facts about one explicitly named place.
+- entity_lookup is only for facts about one or more explicitly named places.
+  For broad requests such as "tell me more", "overview", or "what is special
+  about this place", keep predicates empty. Empty predicates mean the verified
+  entity profile, not missing information and not clarification.
+- For a specific factual request, include only the requested predicates. Do not
+  invent predicates merely to satisfy entity_lookup.
 - aggregate is only for counts and keeps every requested entity type.
 - recommendation ranks candidates; path_search lists candidates matching graph facts.
 - Ranking language such as top, best, highest rated, most popular, famous, or

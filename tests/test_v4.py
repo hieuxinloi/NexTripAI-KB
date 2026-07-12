@@ -9,6 +9,7 @@ from nextrip_graphrag.evaluation.v2_runner import _response_operation
 from nextrip_graphrag.versions.v2.schemas import EntityResult, FactResult, QueryIntent
 from nextrip_graphrag.versions.v4.extraction import DescriptionExtractor
 from nextrip_graphrag.versions.v4.ontology import deterministic_description_claims
+from nextrip_graphrag.versions.v4.profile import profile_predicates
 from nextrip_graphrag.versions.v4.query_planner import plan_query
 from nextrip_graphrag.versions.v4.retrieval import V4RetrievalService, _balanced_results
 from nextrip_graphrag.versions.v4.schemas import (
@@ -218,15 +219,42 @@ def test_v4_returns_safe_fallback_when_gemini_fails() -> None:
     assert plan.retrieval_mode == RetrievalMode.UNSUPPORTED
 
 
-def test_v4_plan_rejects_lookup_without_predicates() -> None:
-    with pytest.raises(ValidationError, match="requires detail intent, subject and predicates"):
-        V4QueryPlan.model_validate({
-            "intent": "entity_detail",
-            "subjects": ["Bãi biển Mỹ Khê"],
-            "entity_types": ["attraction"],
-            "retrieval_mode": "entity_lookup",
-            "confidence": 0.9,
-        })
+def test_v4_plan_treats_lookup_without_predicates_as_entity_profile() -> None:
+    plan = V4QueryPlan.model_validate({
+        "intent": "entity_detail",
+        "subjects": ["Bãi biển Mỹ Khê"],
+        "entity_types": ["attraction"],
+        "retrieval_mode": "entity_lookup",
+        "confidence": 0.9,
+    })
+
+    assert plan.predicates == []
+
+
+def test_v4_entity_profile_uses_whitelisted_profile_predicates() -> None:
+    class ProfileLookupService(V4RetrievalService):
+        def __init__(self):
+            self.seen_predicates = []
+
+        def _lookup_v3(self, subject, predicates, entity_types, *, city=None):
+            self.seen_predicates = predicates
+            return [], []
+
+    service = ProfileLookupService()
+    service._lookup_v4("Mr. Moc", [], ["restaurant"], [])
+
+    assert service.seen_predicates == profile_predicates(["restaurant"])
+    assert "cuisine" in service.seen_predicates
+    assert "check_in_time" not in service.seen_predicates
+
+
+def test_v4_entity_profile_without_type_supports_all_known_place_facts() -> None:
+    predicates = profile_predicates([])
+
+    assert "signature_dishes" in predicates
+    assert "check_in_time" in predicates
+    assert "duration" in predicates
+    assert len(predicates) == len(set(predicates))
 
 
 def test_v4_plan_accepts_open_24h_as_typed_constraint() -> None:

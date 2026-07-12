@@ -11,6 +11,7 @@ from ..v2.retrieval import _elapsed_ms, _entity
 from ..v2.schemas import EntityResult, FactResult, QueryIntent
 from ..v3.retrieval import V3RetrievalService
 from .graph_store import V4GraphStore
+from .profile import profile_predicates
 from .query_planner import plan_query
 from .policy import POLICY
 from .schemas import (
@@ -180,9 +181,10 @@ class V4RetrievalService(V3RetrievalService):
         *,
         city: str | None = None,
     ) -> tuple[list[EntityResult], list[FactResult]]:
+        lookup_predicates = predicates or profile_predicates(entity_types)
         entities, facts = self._lookup_v3(
             subject,
-            predicates,
+            lookup_predicates,
             entity_types,
             city=city,
         )

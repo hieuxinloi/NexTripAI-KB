@@ -145,8 +145,8 @@ class V4QueryPlan(BaseModel):
         if self.clarification_needed:
             return self
         if self.retrieval_mode == RetrievalMode.ENTITY_LOOKUP:
-            if self.intent != QueryIntent.ENTITY_DETAIL or not self.subjects or not self.predicates:
-                raise ValueError("V4 entity lookup requires detail intent, subject and predicates")
+            if self.intent != QueryIntent.ENTITY_DETAIL or not self.subjects:
+                raise ValueError("V4 entity lookup requires detail intent and at least one subject")
         elif self.retrieval_mode == RetrievalMode.AGGREGATE:
             if self.intent != QueryIntent.AGGREGATE_COUNT or self.city is None or not self.entity_types:
                 raise ValueError("V4 aggregate retrieval requires count intent, city and entity types")
