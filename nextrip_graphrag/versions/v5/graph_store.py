@@ -122,14 +122,17 @@ class V5GraphStore(V4GraphStore):
             OPTIONAL MATCH (area:GeoArea {kb_version: $kb_version})
             WITH cities, collect(DISTINCT area.name) AS areas
             OPTIONAL MATCH (concept:Concept {kb_version: $kb_version})
-            RETURN cities, areas,
-                   collect(DISTINCT concept.canonical_name) AS concepts
+            WITH cities, areas,
+                 collect(DISTINCT concept.canonical_name) AS concepts
+            OPTIONAL MATCH (place:Place {kb_version: $kb_version})
+            RETURN cities, areas, concepts,
+                   collect(DISTINCT place.name) AS places
             """
         )
         row = rows[0]
         return {
             key: sorted(str(value) for value in row[key] if value)
-            for key in ("cities", "areas", "concepts")
+            for key in ("cities", "areas", "concepts", "places")
         }
 
     def semantic_concept_candidates(

@@ -205,6 +205,13 @@ class V5RetrievalService(V4RetrievalService):
         else:
             limit = min(top_k, plan.limit)
             entity_types = _place_types(plan.targets)
+            area_targets = self._resolve_geo_areas(plan.geo_scope.areas, plan.limit)
+            outcome.targets.extend(area_targets)
+            place_ids = (
+                self._geo_scope_place_ids(area_targets)
+                if plan.geo_scope.areas
+                else None
+            )
             candidates, outcome.constraint_results = self._path_candidates(
                 _single_city(plan.geo_scope.cities),
                 entity_types,
@@ -212,6 +219,7 @@ class V5RetrievalService(V4RetrievalService):
                 plan.preferred_concepts,
                 plan.constraints,
                 max(limit * POLICY.candidate_multiplier, POLICY.minimum_candidate_pool),
+                place_ids=place_ids,
             )
             query_embedding = (
                 self._query_embedding(query)
@@ -224,6 +232,7 @@ class V5RetrievalService(V4RetrievalService):
                     _single_city(plan.geo_scope.cities),
                     entity_types,
                     limit,
+                    place_ids=place_ids,
                 )
                 outcome.retrieval_strategy = "semantic_place_fallback"
             else:
@@ -239,6 +248,39 @@ class V5RetrievalService(V4RetrievalService):
                 [*plan.required_concepts, *plan.preferred_concepts],
             )
         return outcome
+
+    def _resolve_geo_areas(
+        self,
+        areas: list[str],
+        limit: int,
+    ) -> list[TargetResult]:
+        resolved: list[TargetResult] = []
+        for area in areas:
+            resolved.extend(
+                self.resolver.resolve(
+                    QueryTarget(kind=TargetKind.GEO_AREA, value=area),
+                    limit,
+                )
+            )
+        return resolved
+
+    def _geo_scope_place_ids(self, targets: list[TargetResult]) -> list[str]:
+        rows = self.store.run_versioned(
+            """
+            MATCH (place:Place {kb_version: $kb_version})
+            WHERE EXISTS {
+              MATCH (place)-[:LOCATED_IN]->(area:GeoArea {kb_version: $kb_version})
+              WHERE area.id IN $area_ids
+            } OR EXISTS {
+              MATCH (place)<-[:MENTIONS]-(unit:TextUnit {kb_version: $kb_version})
+                    -[:MENTIONS_GEO_AREA]->(area:GeoArea {kb_version: $kb_version})
+              WHERE area.id IN $area_ids
+            }
+            RETURN DISTINCT place.id AS place_id
+            """,
+            area_ids=[target.target_id for target in targets],
+        )
+        return [row["place_id"] for row in rows]
 
     def _geo_places(self, target: TargetResult, limit: int) -> list[EntityResult]:
         if target.kind == TargetKind.CITY:
@@ -278,6 +320,7 @@ class V5RetrievalService(V4RetrievalService):
         city: str | None,
         entity_types: list[str],
         limit: int,
+        place_ids: list[str] | None = None,
     ) -> list[EntityResult]:
         rows = self.store.run_versioned(
             """
@@ -286,6 +329,7 @@ class V5RetrievalService(V4RetrievalService):
             WHERE place.kb_version = $kb_version
               AND ($city IS NULL OR place.city = $city)
               AND ($entity_types = [] OR place.entity_type IN $entity_types)
+              AND ($place_ids IS NULL OR place.id IN $place_ids)
             WITH place, vector_score,
                  CASE
                    WHEN place.rating IS NULL THEN 0.0
@@ -300,6 +344,7 @@ class V5RetrievalService(V4RetrievalService):
             embedding=query_embedding,
             city=city,
             entity_types=entity_types,
+            place_ids=place_ids,
             limit=limit,
         )
         return [_entity(row["place"]) for row in rows]

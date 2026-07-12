@@ -21,6 +21,7 @@ CATALOG = {
     "cities": ["Đà Nẵng", "Quy Nhơn"],
     "areas": ["Nhơn Lý", "Tuy Phước"],
     "concepts": ["hải sản", "gia đình", "quiet"],
+    "places": ["Eo Gió", "Kỳ Co", "Cafe"],
 }
 
 
@@ -211,6 +212,31 @@ def test_v5_planner_uses_catalog_geo_fallback_when_gemini_fails() -> None:
     assert plan.targets == [QueryTarget(kind=TargetKind.GEO_AREA, value="Nhơn Lý")]
 
 
+def test_v5_planner_uses_named_place_fallback_when_gemini_fails() -> None:
+    plan, planner, failure = plan_query(
+        "Mô tả thêm về Kỳ Co Quy Nhơn",
+        FailingGemini(),
+        CATALOG,
+    )
+
+    assert planner == "catalog_fallback"
+    assert failure is None
+    assert plan.intent == V5Intent.PROFILE
+    assert plan.targets == [QueryTarget(kind=TargetKind.PLACE, value="Kỳ Co")]
+
+
+def test_v5_planner_does_not_fallback_to_generic_one_word_place() -> None:
+    plan, planner, failure = plan_query(
+        "Gợi ý cafe",
+        FailingGemini(),
+        CATALOG,
+    )
+
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert plan.intent == V5Intent.UNSUPPORTED
+
+
 def test_v5_planner_rejects_vocabulary_outside_graph() -> None:
     plan, planner, failure = plan_query(
         "Gợi ý ở Huế",
@@ -390,7 +416,14 @@ def test_v5_unresolved_preference_does_not_block_semantic_place_fallback() -> No
         def _query_embedding(self, query):
             return [0.1, 0.2]
 
-        def _semantic_place_candidates(self, embedding, city, entity_types, limit):
+        def _semantic_place_candidates(
+            self,
+            embedding,
+            city,
+            entity_types,
+            limit,
+            place_ids=None,
+        ):
             assert city == "Quy Nhơn"
             assert entity_types == ["hotel"]
             return [EntityResult(

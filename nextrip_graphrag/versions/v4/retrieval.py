@@ -274,6 +274,7 @@ class V4RetrievalService(V3RetrievalService):
         preferred_concepts: list[str],
         constraints: list[V4Constraint],
         limit: int,
+        place_ids: list[str] | None = None,
     ) -> tuple[list[EntityResult], list[ConstraintResult]]:
         required_terms = [_plain(term) for term in required_concepts]
         preferred_terms = [_plain(term) for term in preferred_concepts]
@@ -282,6 +283,7 @@ class V4RetrievalService(V3RetrievalService):
             "place.kb_version = $kb_version",
             "($city IS NULL OR place.city = $city)",
             "($entity_types = [] OR place.entity_type IN $entity_types)",
+            "($place_ids IS NULL OR place.id IN $place_ids)",
             "all(term IN $required_terms WHERE EXISTS { MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(concept:Concept) WHERE concept.kb_version = $kb_version AND (toLower(concept.canonical_name) CONTAINS term OR toLower(concept.name) CONTAINS term) })",
         ]
         params: dict[str, Any] = {
@@ -291,6 +293,7 @@ class V4RetrievalService(V3RetrievalService):
             "required_terms": required_terms,
             "preferred_terms": preferred_terms,
             "all_terms": all_terms,
+            "place_ids": place_ids,
             "required_weight": POLICY.required_concept_weight,
             "preferred_weight": POLICY.preferred_concept_weight,
             "limit": limit,

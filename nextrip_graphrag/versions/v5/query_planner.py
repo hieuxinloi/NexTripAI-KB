@@ -20,6 +20,7 @@ Return only the requested structured schema; never emit Cypher or prose.
 Choose the target kind before retrieval. A named geographic locality is geo_area,
 not place. Food specialties are dish targets. Activities are activity targets.
 Use profile for broad requests about one named target and lookup for requested fields.
+For location questions about a place, request both address and location.
 Use summarize for broad questions about a city or area. Use recommend/list for
 candidate retrieval, aggregate only for counts, and plan_candidates for itinerary
 inputs. Dynamic weather, live routes, booking, current prices and transport status
@@ -217,6 +218,16 @@ def _catalog_fallback_plan(
     query: str,
     catalog: dict[str, list[str]],
 ) -> V5QueryPlan | None:
+    places = _specific_place_mentions(query, catalog.get("places", []))
+    if places:
+        return V5QueryPlan(
+            intent=V5Intent.PROFILE,
+            targets=[
+                QueryTarget(kind=TargetKind.PLACE, value=place)
+                for place in places
+            ],
+            confidence=1.0,
+        )
     areas = _catalog_mentions(query, catalog["areas"])
     if not areas:
         return None
@@ -239,9 +250,23 @@ def _unique_lower(values: list[str]) -> list[str]:
     return _unique([value.casefold() for value in values])
 
 
+def _specific_place_mentions(query: str, places: list[str]) -> list[str]:
+    """Find named places while rejecting generic one-word venue names."""
+    return [
+        place
+        for place in _catalog_mentions(query, places)
+        if len(slugify(place).split("-")) >= 2
+        or any(character.isdigit() for character in place)
+    ]
+
+
 def _user_prompt(query: str, catalog: dict[str, list[str]]) -> str:
+    graph_vocabulary = {
+        key: catalog[key]
+        for key in ("cities", "areas", "concepts")
+    }
     return json.dumps(
-        {"query": query, "graph_vocabulary": catalog},
+        {"query": query, "graph_vocabulary": graph_vocabulary},
         ensure_ascii=False,
         separators=(",", ":"),
     )
