@@ -12,6 +12,7 @@ class HealthResponse(BaseModel):
     neo4j_v2: str | None = None
     neo4j_v3: str | None = None
     neo4j_v4: str | None = None
+    neo4j_v5: str | None = None
     embedding_model: str
     retrieval_strategies: list[str] = Field(default_factory=list)
 
@@ -77,5 +78,5 @@ class KbAnswerResponse(BaseModel):
 
 class TypedQueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
-    kb_version: Literal["v2", "v3", "v4"] = "v2"
+    kb_version: Literal["v2", "v3", "v4", "v5"] = "v2"
     top_k: int = Field(default=5, ge=1, le=30)

@@ -1,3 +1,17 @@
-# KB V5 Target
+# KB V5
 
-Community and summary nodes with local/global embeddings and adaptive GraphRAG retrieval.
+Typed-target, geo-aware and reliability-focused GraphRAG.
+
+V5 reuses V4's verified Place, Fact, Claim and TextUnit ingestion, then adds
+first-class geographic scopes and target-aware retrieval. V4 and V5 use
+separate Neo4j databases and can be benchmarked independently.
+
+```powershell
+docker compose -f docker-compose.v5.yml up -d
+python -m nextrip_graphrag v5-build --processed-dir processed_verified --with-embeddings
+python -m nextrip_graphrag v5-validate
+python -m nextrip_graphrag v5-query "Tuy Phuoc co gi dac biet?" --with-gemini-planner
+```
+
+An address-derived area may create `LOCATED_IN`. An area found only in prose
+creates `MENTIONS_GEO_AREA`; it is never silently promoted to a location.

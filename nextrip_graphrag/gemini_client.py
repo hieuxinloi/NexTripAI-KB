@@ -29,6 +29,17 @@ class GeminiClient:
         self.client.close()
 
     def _create_client(self, genai):
+        http_options = self.types.HttpOptions(
+            timeout=self.settings.gemini_timeout_ms,
+            retry_options=self.types.HttpRetryOptions(
+                attempts=self.settings.gemini_retry_attempts,
+                initial_delay=1,
+                max_delay=8,
+                exp_base=2,
+                jitter=1,
+                http_status_codes=[429, 500, 502, 503, 504],
+            ),
+        )
         if self.settings.google_genai_use_vertexai:
             if not self.settings.google_cloud_project:
                 raise RuntimeError(
@@ -49,10 +60,14 @@ class GeminiClient:
                 vertexai=True,
                 project=self.settings.google_cloud_project,
                 location=self.settings.google_cloud_location,
+                http_options=http_options,
             )
 
         if self.settings.google_api_key:
-            return genai.Client(api_key=self.settings.google_api_key)
+            return genai.Client(
+                api_key=self.settings.google_api_key,
+                http_options=http_options,
+            )
 
         raise RuntimeError(
             "Configure Gemini auth with either GOOGLE_API_KEY/GEMINI_API_KEY, or "

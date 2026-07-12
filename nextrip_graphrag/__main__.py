@@ -29,6 +29,8 @@ from .versions.v3.retrieval import V3RetrievalService
 from .versions.v4.extraction import DescriptionExtractor
 from .versions.v4.graph_store import V4GraphStore
 from .versions.v4.retrieval import V4RetrievalService
+from .versions.v5.graph_store import V5GraphStore
+from .versions.v5.retrieval import V5RetrievalService
 
 
 def load_dotenv_if_available() -> None:
@@ -338,6 +340,64 @@ def cmd_v4_l1_audit(args: argparse.Namespace) -> None:
     print(json.dumps({key: value for key, value in report.items() if key != "results"}, ensure_ascii=False, indent=2))
 
 
+def cmd_v5_build(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    bundle = read_processed(args.processed_dir)
+    embedding_client = GeminiClient(settings) if args.with_embeddings else None
+    extraction_client = GeminiClient(settings) if args.with_description_extraction else None
+    embedder = None
+    if embedding_client is not None:
+        embedder = CachedBatchEmbedder(
+            embedding_client,
+            Path(args.embedding_cache),
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dim,
+            delay=args.embedding_delay,
+            max_retries=args.embedding_retries,
+        )
+    extractor = DescriptionExtractor(extraction_client, Path(args.description_cache))
+    store = V5GraphStore(settings.for_v5(), extractor)
+    try:
+        store.ensure_v5_schema(settings.embedding_dim)
+        statistics = store.replace_graph(
+            bundle["cities"],
+            bundle["places"],
+            embedder=embedder,
+            batch_size=args.batch_size,
+        )
+    finally:
+        store.close()
+        if embedding_client is not None:
+            embedding_client.close()
+        if extraction_client is not None:
+            extraction_client.close()
+    print(json.dumps({"kb_version": "v5", **statistics}, ensure_ascii=False, indent=2))
+
+
+def cmd_v5_query(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings) if args.with_gemini_planner else None
+    try:
+        response = V5RetrievalService(store, gemini).query(args.query, args.top_k)
+    finally:
+        store.close()
+        if gemini is not None:
+            gemini.close()
+    print(response.model_dump_json(indent=2))
+
+
+def cmd_v5_validate(args: argparse.Namespace) -> None:
+    store = V5GraphStore(Settings.from_env().for_v5())
+    try:
+        report = store.validate_invariants(args.expected_places)
+    finally:
+        store.close()
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if report["status"] != "pass":
+        raise SystemExit(1)
+
+
 def cmd_ask(args: argparse.Namespace) -> None:
     settings = Settings.from_env()
     store = Neo4jGraphStore(settings)
@@ -622,6 +682,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v4_l1_audit.add_argument("--with-gemini-planner", action="store_true")
     v4_l1_audit.set_defaults(func=cmd_v4_l1_audit)
+
+    v5_build = subparsers.add_parser("v5-build", help="Build typed-target GraphRAG V5.")
+    v5_build.add_argument("--processed-dir", default="processed_verified")
+    v5_build.add_argument("--with-embeddings", action="store_true")
+    v5_build.add_argument("--with-description-extraction", action="store_true")
+    v5_build.add_argument("--batch-size", type=int, default=16)
+    v5_build.add_argument("--embedding-cache", default="tmp/v5_embedding_cache")
+    v5_build.add_argument("--description-cache", default="tmp/v5_description_cache")
+    v5_build.add_argument("--embedding-delay", type=float, default=0.5)
+    v5_build.add_argument("--embedding-retries", type=int, default=5)
+    v5_build.set_defaults(func=cmd_v5_build)
+
+    v5_query = subparsers.add_parser("v5-query", help="Run typed-target V5 retrieval.")
+    v5_query.add_argument("query")
+    v5_query.add_argument("--top-k", type=int, default=5)
+    v5_query.add_argument("--with-gemini-planner", action="store_true")
+    v5_query.set_defaults(func=cmd_v5_query)
+
+    v5_validate = subparsers.add_parser("v5-validate", help="Validate V5 graph invariants.")
+    v5_validate.add_argument("--expected-places", type=int, default=None)
+    v5_validate.set_defaults(func=cmd_v5_validate)
 
     ask = subparsers.add_parser("ask", help="Ask the GraphRAG chatbot.")
     ask.add_argument("question")

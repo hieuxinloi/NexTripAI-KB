@@ -43,11 +43,11 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         ),
         "v5": KBVersionManifest(
             kb_version="v5",
-            status="planned",
+            status="experimental",
             dataset="travel_data_verified:519",
-            ontology_version="community-summary-v5",
-            embedding_version="local-community-summary-v5",
-            retrieval_version="adaptive-local-global-v5",
-            description="Hierarchical learned communities and adaptive local/global GraphRAG.",
+            ontology_version="typed-target-geo-provenance-v5",
+            embedding_version="place-profile-v5",
+            retrieval_version="typed-router-local-v5",
+            description="Experimental typed-target and grounded geographic retrieval foundation.",
         ),
     }

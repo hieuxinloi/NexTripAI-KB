@@ -22,6 +22,8 @@ from ..versions.v3.retrieval import V3RetrievalService
 from ..versions.v3.schemas import V3QueryResponse
 from ..versions.v4.retrieval import V4RetrievalService
 from ..versions.v4.schemas import DynamicObservationInput, V4QueryResponse
+from ..versions.v5.retrieval import V5RetrievalService
+from ..versions.v5.schemas import V5QueryResponse
 from .schemas import (
     GraphContext,
     HealthResponse,
@@ -123,9 +125,15 @@ def _store_health(store: Any) -> str:
 
 @router.get("/health", response_model=HealthResponse)
 def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
-    stores = (services.store, services.v2_store, services.v3_store, services.v4_store)
+    stores = (
+        services.store,
+        services.v2_store,
+        services.v3_store,
+        services.v4_store,
+        services.v5_store,
+    )
     with ThreadPoolExecutor(max_workers=len(stores), thread_name_prefix="kb-health") as pool:
-        neo4j_status, neo4j_v2_status, neo4j_v3_status, neo4j_v4_status = pool.map(
+        neo4j_status, neo4j_v2_status, neo4j_v3_status, neo4j_v4_status, neo4j_v5_status = pool.map(
             _store_health,
             stores,
         )
@@ -134,6 +142,7 @@ def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
         neo4j_v2=neo4j_v2_status,
         neo4j_v3=neo4j_v3_status,
         neo4j_v4=neo4j_v4_status,
+        neo4j_v5=neo4j_v5_status,
         embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
@@ -154,6 +163,16 @@ def v4_stats(services: KbServices = Depends(get_kb_services)) -> dict[str, Any]:
         "statistics": services.v4_store.graph_statistics(),
         "subgraphs": services.v4_store.domain_statistics(),
         "invariants": services.v4_store.validate_invariants(),
+    }
+
+
+@router.get("/api/kb/v5/stats")
+def v5_stats(services: KbServices = Depends(get_kb_services)) -> dict[str, Any]:
+    return {
+        "kb_version": "v5",
+        "statistics": services.v5_store.graph_statistics(),
+        "subgraphs": services.v5_store.domain_statistics(),
+        "invariants": services.v5_store.validate_invariants(),
     }
 
 
@@ -180,11 +199,14 @@ def upsert_v4_observation(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/api/kb/query", response_model=V2QueryResponse | V3QueryResponse | V4QueryResponse)
+@router.post(
+    "/api/kb/query",
+    response_model=V2QueryResponse | V3QueryResponse | V4QueryResponse | V5QueryResponse,
+)
 def query_typed(
     request: TypedQueryRequest,
     services: KbServices = Depends(get_kb_services),
-) -> V2QueryResponse | V3QueryResponse | V4QueryResponse:
+) -> V2QueryResponse | V3QueryResponse | V4QueryResponse | V5QueryResponse:
     started_at = perf_counter()
     logger.info(
         "KB typed query start version={} query={!r} top_k={}",
@@ -197,7 +219,12 @@ def query_typed(
     except RuntimeError:
         gemini = None
     try:
-        if request.kb_version == "v4":
+        if request.kb_version == "v5":
+            response = V5RetrievalService(services.v5_store, gemini).query(
+                request.query,
+                request.top_k,
+            )
+        elif request.kb_version == "v4":
             response = V4RetrievalService(services.v4_store, gemini).query(
                 request.query,
                 request.top_k,
