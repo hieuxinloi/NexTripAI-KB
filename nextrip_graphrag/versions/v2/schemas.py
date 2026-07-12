@@ -116,6 +116,7 @@ class EntityResult(BaseModel):
     category: str | None = None
     score: float | None = None
     distance_km: float | None = None
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
 
 class FactResult(BaseModel):

@@ -349,6 +349,14 @@ def _entity(place: dict[str, Any]) -> EntityResult:
         category=place.get("category_name") or place.get("category"),
         score=place.get("score"),
         distance_km=place.get("distance_km"),
+        attributes={
+            key: value
+            for key, value in {
+                "is_indoor": place.get("is_indoor"),
+                "weather_suitable": place.get("weather_suitable"),
+            }.items()
+            if value is not None and value != []
+        },
     )
 
 
