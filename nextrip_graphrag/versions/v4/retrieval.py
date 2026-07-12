@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from math import log1p
 from time import perf_counter
 from typing import Any
 
@@ -16,6 +17,7 @@ from .schemas import (
     ConstraintMode,
     ConstraintResult,
     MatchedPath,
+    RankingCriterion,
     RetrievalMode,
     V4Constraint,
     V4EvidenceResult,
@@ -63,17 +65,42 @@ class V4RetrievalService(V3RetrievalService):
             for entity_type in plan.entity_types:
                 facts.append(self._count_fact(plan.city, [entity_type]))
         elif plan.retrieval_mode == RetrievalMode.ENTITY_LOOKUP:
-            entities, facts = self._lookup_v4(
-                plan.subjects[0],
+            lookup_started = perf_counter()
+            lookup_results = self._lookup_subjects(
+                plan.subjects,
                 plan.predicates,
                 plan.entity_types,
                 plan.required_concepts,
                 city=plan.city,
             )
+            unresolved_subjects: list[str] = []
+            subjects_without_facts: list[str] = []
+            resolved_subject_count = 0
+            for subject, subject_entities, subject_facts in lookup_results:
+                if not subject_entities:
+                    unresolved_subjects.append(subject)
+                    continue
+                resolved_subject_count += 1
+                entities.extend(subject_entities)
+                facts.extend(subject_facts)
+                if not subject_facts:
+                    subjects_without_facts.append(subject)
             if not entities:
-                missing_fields.append(f"not_found:entity:{plan.subjects[0]}")
+                missing_fields.extend(
+                    f"not_found:entity:{subject}" for subject in unresolved_subjects
+                )
             elif not facts:
                 missing_fields.extend(f"fact:{predicate}" for predicate in plan.predicates)
+            trace.append({
+                "step": "entity_lookup_batch",
+                "status": "ok",
+                "subject_count": len(plan.subjects),
+                "resolved_subject_count": resolved_subject_count,
+                "entity_count": len(entities),
+                "unresolved_subjects": unresolved_subjects,
+                "subjects_without_facts": subjects_without_facts,
+                "elapsed_ms": _elapsed_ms(lookup_started),
+            })
         elif plan.retrieval_mode == RetrievalMode.COMMUNITY_SEARCH:
             entities = self._community_candidates(plan.city, plan.entity_types, min(top_k, plan.limit))
         elif plan.retrieval_mode == RetrievalMode.COMPARISON:
@@ -98,7 +125,13 @@ class V4RetrievalService(V3RetrievalService):
                     POLICY.minimum_candidate_pool,
                 ),
             )
-            ranked = self._rank_candidates(query, candidates, limit, plan.entity_types)
+            ranked = self._rank_candidates(
+                query,
+                candidates,
+                limit,
+                plan.entity_types,
+                plan.ranking_criteria,
+            )
             retrieval_concepts = [*plan.required_concepts, *plan.preferred_concepts]
             matched_paths = self._matched_paths(ranked, retrieval_concepts)
             if plan.retrieval_mode == RetrievalMode.PATH_SEARCH and plan.intent == QueryIntent.ENTITY_LIST:
@@ -208,6 +241,27 @@ class V4RetrievalService(V3RetrievalService):
             facts = [fact for fact in facts if fact.predicate not in {"amenities", "features"}]
             facts.extend(resolved)
         return entities, facts
+
+    def _lookup_subjects(
+        self,
+        subjects: list[str],
+        predicates: list[str],
+        entity_types: list[str],
+        required_concepts: list[str],
+        *,
+        city: str | None = None,
+    ) -> list[tuple[str, list[EntityResult], list[FactResult]]]:
+        results: list[tuple[str, list[EntityResult], list[FactResult]]] = []
+        for subject in subjects:
+            entities, facts = self._lookup_v4(
+                subject,
+                predicates,
+                entity_types,
+                required_concepts,
+                city=city,
+            )
+            results.append((subject, entities, facts))
+        return results
 
     def _path_candidates(
         self,
@@ -323,6 +377,7 @@ class V4RetrievalService(V3RetrievalService):
         candidates: list[EntityResult],
         limit: int,
         entity_types: list[str],
+        ranking_criteria: list[RankingCriterion],
     ) -> list[EntityResult]:
         if not candidates:
             return []
@@ -348,6 +403,10 @@ class V4RetrievalService(V3RetrievalService):
             )
             vector_scores = {row["place_id"]: float(row["score"]) for row in rows}
         metadata = self._candidate_metadata(candidate_ids)
+        maximum_review_count = max(
+            (item["review_count"] for item in metadata.values()),
+            default=0,
+        )
         ranked = []
         for candidate in candidates:
             graph_score = float(candidate.score) if candidate.score is not None else 0.0
@@ -357,13 +416,31 @@ class V4RetrievalService(V3RetrievalService):
                 1.0,
             )
             semantic = vector_scores.get(candidate.place_id, 0)
-            score = POLICY.ranking.score(
+            base_score = POLICY.ranking.score(
                 semantic=semantic,
                 graph_coverage=graph_score,
                 type_match=1.0,
                 rating=rating_score,
                 evidence=candidate_metadata["evidence_confidence"],
             )
+            ranking_signals: list[float] = []
+            if RankingCriterion.RATING in ranking_criteria:
+                ranking_signals.append(rating_score)
+            if RankingCriterion.POPULARITY in ranking_criteria:
+                popularity_score = (
+                    log1p(candidate_metadata["review_count"]) / log1p(maximum_review_count)
+                    if maximum_review_count > 0
+                    else 0
+                )
+                ranking_signals.append(popularity_score)
+            if ranking_signals:
+                explicit_score = sum(ranking_signals) / len(ranking_signals)
+                score = (
+                    (1 - POLICY.explicit_ranking_weight) * base_score
+                    + POLICY.explicit_ranking_weight * explicit_score
+                )
+            else:
+                score = base_score
             ranked.append(candidate.model_copy(update={"score": round(score, 6)}))
         sorted_candidates = sorted(
             ranked,
@@ -381,6 +458,7 @@ class V4RetrievalService(V3RetrievalService):
                            <-[:ABOUT]-(claim:Claim {kb_version: $kb_version})
             RETURN place.id AS place_id,
                    coalesce(place.rating, 0) AS rating,
+                   coalesce(place.review_count, 0) AS review_count,
                    CASE WHEN coalesce(place.rating, 0) > 5 THEN 10.0 ELSE 5.0 END AS rating_scale,
                    coalesce(avg(claim.confidence), 0) AS evidence_confidence
             """,
@@ -391,6 +469,7 @@ class V4RetrievalService(V3RetrievalService):
             row["place_id"]: {
                 "rating": float(row["rating"]),
                 "rating_scale": max(float(row["rating_scale"]), 1.0),
+                "review_count": max(float(row["review_count"]), 0.0),
                 "evidence_confidence": float(row["evidence_confidence"]),
             }
             for row in rows

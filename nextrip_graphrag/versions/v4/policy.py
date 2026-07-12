@@ -49,11 +49,14 @@ class V4Policy:
     community_sample_size: int = 8
     required_concept_weight: float = 0.4
     preferred_concept_weight: float = 0.6
+    explicit_ranking_weight: float = 0.35
     ranking: RankingWeights = field(default_factory=RankingWeights)
 
     def __post_init__(self) -> None:
         if abs(self.required_concept_weight + self.preferred_concept_weight - 1.0) > 1e-9:
             raise ValueError("V4 concept weights must sum to 1.0")
+        if not 0 <= self.explicit_ranking_weight <= 1:
+            raise ValueError("V4 explicit ranking weight must be between 0 and 1")
 
 
 POLICY = V4Policy()

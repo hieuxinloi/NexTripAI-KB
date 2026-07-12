@@ -6,7 +6,7 @@ from ...normalizer import canonical_city
 from ..v2.schemas import QueryIntent
 from .ontology import canonical_concept
 from .planner_models import PlannerConstraintDraft, V4PlannerDraft
-from .schemas import RetrievalMode, V4QueryPlan
+from .schemas import RankingCriterion, RetrievalMode, V4QueryPlan
 
 
 MODE_INTENTS = {
@@ -27,10 +27,30 @@ def compile_plan(
     concept_vocabulary: list[str],
 ) -> V4QueryPlan:
     allowed_concepts = set(concept_vocabulary)
-    required_concepts = _validated_concepts(draft.required_concepts, allowed_concepts)
+    ranking_values = {criterion.value for criterion in RankingCriterion}
+    ranking_criteria = _unique([
+        *(criterion.value for criterion in draft.ranking_criteria),
+        *(
+            value.casefold()
+            for value in draft.required_concepts
+            if value.casefold() in ranking_values
+        ),
+        *(
+            value.casefold()
+            for value in draft.preferred_concepts
+            if value.casefold() in ranking_values
+        ),
+    ])
+    required_concepts = _validated_concepts(
+        [value for value in draft.required_concepts if value.casefold() not in ranking_values],
+        allowed_concepts,
+    )
     preferred_concepts = [
         concept
-        for concept in _validated_concepts(draft.preferred_concepts, allowed_concepts)
+        for concept in _validated_concepts(
+            [value for value in draft.preferred_concepts if value.casefold() not in ranking_values],
+            allowed_concepts,
+        )
         if concept not in required_concepts
     ]
     return V4QueryPlan.model_validate({
@@ -41,6 +61,7 @@ def compile_plan(
         "predicates": _unique_lower(draft.predicates),
         "required_concepts": required_concepts,
         "preferred_concepts": preferred_concepts,
+        "ranking_criteria": ranking_criteria,
         "constraints": _unique_constraints(draft.constraints),
         "retrieval_mode": draft.retrieval_mode,
         "limit": draft.limit,

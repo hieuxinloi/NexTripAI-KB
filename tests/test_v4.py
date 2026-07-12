@@ -6,11 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from nextrip_graphrag.evaluation.v2_runner import _response_operation
-from nextrip_graphrag.versions.v2.schemas import EntityResult, QueryIntent
+from nextrip_graphrag.versions.v2.schemas import EntityResult, FactResult, QueryIntent
 from nextrip_graphrag.versions.v4.extraction import DescriptionExtractor
 from nextrip_graphrag.versions.v4.ontology import deterministic_description_claims
 from nextrip_graphrag.versions.v4.query_planner import plan_query
-from nextrip_graphrag.versions.v4.retrieval import _balanced_results
+from nextrip_graphrag.versions.v4.retrieval import V4RetrievalService, _balanced_results
 from nextrip_graphrag.versions.v4.schemas import (
     ClaimPolarity,
     DynamicObservationInput,
@@ -160,6 +160,30 @@ def test_v4_preserves_multi_type_agent_plan() -> None:
     assert plan.subjects == []
 
 
+def test_v4_moves_ranking_signals_out_of_graph_concepts() -> None:
+    gemini = FakeGemini(recommendation_plan(
+        required_concepts=[],
+        preferred_concepts=["rating"],
+        ranking_criteria=["popularity"],
+        limit=6,
+    ))
+
+    plan, planner, fallback_reason = plan_query(
+        "Cho toi top 6 nha hang o Da Nang",
+        gemini,
+        CONCEPT_VOCABULARY,
+    )
+
+    assert planner == "gemini"
+    assert fallback_reason is None
+    assert plan.preferred_concepts == []
+    assert [criterion.value for criterion in plan.ranking_criteria] == [
+        "popularity",
+        "rating",
+    ]
+    assert plan.limit == 6
+
+
 def test_v4_returns_safe_unsupported_plan_without_gemini() -> None:
     plan, planner, fallback_reason = plan_query("Một câu hỏi bất kỳ")
 
@@ -252,6 +276,41 @@ def test_v4_balances_explicit_multi_type_results() -> None:
     results = _balanced_results(candidates, ["cafe", "hotel"], 4)
 
     assert [item.entity_type for item in results] == ["cafe", "hotel", "cafe", "hotel"]
+
+
+def test_v4_multi_entity_lookup_returns_every_subject_in_order() -> None:
+    class BatchLookupService(V4RetrievalService):
+        def __init__(self):
+            pass
+
+        def _lookup_v4(self, subject, predicates, entity_types, required_concepts, *, city=None):
+            entity = EntityResult(
+                place_id=f"id-{subject}",
+                name=subject,
+                city=city or "Quy Nhơn",
+                entity_type=entity_types[0],
+            )
+            fact = FactResult(
+                fact_id=f"fact-{subject}",
+                subject_id=entity.place_id,
+                predicate=predicates[0],
+                value=f"address-{subject}",
+                value_type="string",
+                confidence=1,
+            )
+            return [entity], [fact]
+
+    results = BatchLookupService()._lookup_subjects(
+        ["A", "B"],
+        ["address"],
+        ["restaurant"],
+        [],
+        city="Quy Nhơn",
+    )
+
+    assert [subject for subject, _, _ in results] == ["A", "B"]
+    assert [entities[0].place_id for _, entities, _ in results] == ["id-A", "id-B"]
+    assert [facts[0].subject_id for _, _, facts in results] == ["id-A", "id-B"]
 
 
 def test_dynamic_observation_requires_valid_aware_time_window() -> None:

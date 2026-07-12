@@ -39,6 +39,7 @@ def plan_query(
             user_prompt(query, concept_vocabulary or []),
             V4PlannerDraft,
         )
+        logger.info("V4 planner LLM draft={}", generated.model_dump_json())
         compiled = compile_plan(generated, concept_vocabulary or [])
         logger.info(
             "V4 planner LLM output draft={} compiled_plan={}",
@@ -48,8 +49,9 @@ def plan_query(
         return compiled, "gemini", None
     except Exception as exc:
         logger.warning(
-            "V4 query planner fallback error_type={} query_length={}",
+            "V4 query planner fallback error_type={} error={} query_length={}",
             exc.__class__.__name__,
+            str(exc),
             len(query),
         )
         return _unavailable_plan(), "planner_fallback", exc.__class__.__name__

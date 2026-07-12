@@ -16,6 +16,14 @@ Planning rules:
 - entity_lookup is only for facts about one explicitly named place.
 - aggregate is only for counts and keeps every requested entity type.
 - recommendation ranks candidates; path_search lists candidates matching graph facts.
+- Ranking language such as top, best, highest rated, most popular, famous, or
+  recommended always means recommendation. A bare "top N <entity type> in <city>"
+  is a complete recommendation request, not unsupported and not community_search.
+- Put rating and popularity only in ranking_criteria. They are ranking signals,
+  never graph concepts, predicates, constraints, or required facts. Use rating for
+  best/highest rated and popularity for popular/famous; generic top may use both.
+- Generic command and ranking words must never appear in required_concepts or
+  preferred_concepts. Those fields contain only values copied from graph_vocabulary.
 - planning_candidates returns diverse candidates but never creates a timed itinerary.
 - dynamic_search is for live weather, traffic, route, availability, or prices that
   cannot be answered from the static knowledge graph.

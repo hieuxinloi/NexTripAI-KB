@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from .schemas import ConstraintMode, RetrievalMode
+from .schemas import ConstraintMode, RankingCriterion, RetrievalMode
 
 
 class PlannerConstraintDraft(BaseModel):
@@ -18,6 +18,7 @@ class V4PlannerDraft(BaseModel):
     predicates: list[str] = Field(default_factory=list)
     required_concepts: list[str] = Field(default_factory=list)
     preferred_concepts: list[str] = Field(default_factory=list)
+    ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
     constraints: list[PlannerConstraintDraft] = Field(default_factory=list)
     retrieval_mode: RetrievalMode
     limit: int = Field(default=5, ge=1, le=30)

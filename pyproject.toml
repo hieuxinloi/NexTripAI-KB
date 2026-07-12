@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["httpx2>=2.5.0", "pytest>=8.0"]
 
 [project.scripts]
 nextrip-graphrag = "nextrip_graphrag.__main__:main"

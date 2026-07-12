@@ -75,6 +75,11 @@ class RetrievalMode(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
+class RankingCriterion(StrEnum):
+    RATING = "rating"
+    POPULARITY = "popularity"
+
+
 class ConstraintMode(StrEnum):
     HARD = "hard"
     SOFT = "soft"
@@ -122,6 +127,7 @@ class V4QueryPlan(BaseModel):
     predicates: list[str] = Field(default_factory=list)
     required_concepts: list[str] = Field(default_factory=list)
     preferred_concepts: list[str] = Field(default_factory=list)
+    ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
     constraints: list[V4Constraint] = Field(default_factory=list)
     retrieval_mode: RetrievalMode
     limit: int = Field(default=5, ge=1, le=30)
