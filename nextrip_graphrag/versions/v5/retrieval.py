@@ -192,13 +192,16 @@ class V5RetrievalService(V4RetrievalService):
                     outcome.entities.extend(self._geo_places(resolved[0], plan.limit))
         elif any(target.kind != TargetKind.PLACE for target in plan.targets):
             for target in plan.targets:
-                outcome.targets.extend(
-                    self.resolver.resolve(
-                        target,
-                        min(top_k, plan.limit),
-                        plan.geo_scope.cities,
-                    )
+                resolved = self.resolver.resolve(
+                    target,
+                    min(top_k, plan.limit),
+                    plan.geo_scope.cities,
                 )
+                outcome.targets.extend(resolved)
+                if target.kind in {TargetKind.CITY, TargetKind.GEO_AREA} and resolved:
+                    outcome.recommendations.extend(
+                        self._geo_places(resolved[0], min(top_k, plan.limit))
+                    )
         else:
             limit = min(top_k, plan.limit)
             entity_types = _place_types(plan.targets)

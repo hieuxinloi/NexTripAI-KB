@@ -25,6 +25,9 @@ candidate retrieval, aggregate only for counts, and plan_candidates for itinerar
 inputs. Dynamic weather, live routes, booking, current prices and transport status
 must use tool_required with explicit required_tools. Never invent entities, fields,
 constraints, or tools.
+For place recommendations and lists, always set entity_types. Use attraction for
+sightseeing, scenery, activities, and places to visit; use hotel, restaurant, cafe,
+or nightlife only when the user asks for that venue type or an equivalent meaning.
 For required_concepts and preferred_concepts, preserve the user's normalized
 meaning even when no graph concept has the exact same wording. The application
 will link those semantic terms to graph concepts after planning.
@@ -83,7 +86,7 @@ def plan_query(
             _user_prompt(query, catalog),
             V5PlannerDraft,
         )
-        plan = _compile_plan(draft, catalog)
+        plan = _compile_plan(draft, catalog, query)
         logger.info("V5 planner output plan={}", plan.model_dump_json())
         return plan, "gemini", None
     except Exception as exc:
@@ -92,6 +95,9 @@ def plan_query(
             exc.__class__.__name__,
             len(query),
         )
+        fallback = _catalog_fallback_plan(query, catalog)
+        if fallback is not None:
+            return fallback, "catalog_fallback", None
         invalid_plan = isinstance(exc, (ValueError, ValidationError))
         return _unavailable_plan(), "planner_unavailable", PlannerFailure(
             code="invalid_plan" if invalid_plan else "planner_unavailable",
@@ -103,9 +109,20 @@ def plan_query(
 def _compile_plan(
     draft: V5PlannerDraft,
     catalog: dict[str, list[str]],
+    query: str,
 ) -> V5QueryPlan:
-    cities = [_canonical_city(value, catalog["cities"]) for value in draft.geo_scope.cities]
-    areas = [_canonical_value(value, catalog["areas"], "area") for value in draft.geo_scope.areas]
+    cities = [
+        *_catalog_mentions(query, catalog["cities"]),
+        *(_canonical_city(value, catalog["cities"]) for value in draft.geo_scope.cities),
+    ]
+    mentioned_areas = _catalog_mentions(query, catalog["areas"])
+    areas = [
+        *mentioned_areas,
+        *(
+            _canonical_value(value, catalog["areas"], "area")
+            for value in draft.geo_scope.areas
+        ),
+    ]
     concepts = set(catalog["concepts"])
     concepts_by_slug = {slugify(item): item for item in concepts}
     required = [_canonical_or_raw(value, concepts_by_slug) for value in draft.required_concepts]
@@ -128,6 +145,11 @@ def _compile_plan(
         )
         for target in draft.targets
     ]
+    if not targets and mentioned_areas:
+        targets = [
+            QueryTarget(kind=TargetKind.GEO_AREA, value=area)
+            for area in mentioned_areas
+        ]
     return V5QueryPlan(
         intent=draft.intent,
         targets=targets,
@@ -176,6 +198,37 @@ def _canonical_value(value: str, allowed: list[str] | set[str], label: str) -> s
 
 def _canonical_or_raw(value: str, allowed_by_slug: dict[str, str]) -> str:
     return allowed_by_slug.get(slugify(value), value.strip())
+
+
+def _catalog_mentions(query: str, allowed: list[str]) -> list[str]:
+    query_slug = f"-{slugify(query)}-"
+    matches: list[str] = []
+    for value in sorted(allowed, key=lambda item: len(slugify(item)), reverse=True):
+        value_slug = slugify(value)
+        if f"-{value_slug}-" not in query_slug:
+            continue
+        if any(f"-{value_slug}-" in f"-{slugify(match)}-" for match in matches):
+            continue
+        matches.append(value)
+    return matches
+
+
+def _catalog_fallback_plan(
+    query: str,
+    catalog: dict[str, list[str]],
+) -> V5QueryPlan | None:
+    areas = _catalog_mentions(query, catalog["areas"])
+    if not areas:
+        return None
+    return V5QueryPlan(
+        intent=V5Intent.SUMMARIZE,
+        targets=[
+            QueryTarget(kind=TargetKind.GEO_AREA, value=area)
+            for area in areas
+        ],
+        geo_scope=GeoScope(areas=areas),
+        confidence=1.0,
+    )
 
 
 def _unique(values: list[str]) -> list[str]:

@@ -35,6 +35,11 @@ class FakeGemini:
         return [0.1, 0.2]
 
 
+class FailingGemini:
+    def generate_structured(self, system_instruction, prompt, response_schema):
+        raise RuntimeError("planner unavailable")
+
+
 class FakeResolverStore:
     def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
         if "MATCH (node:GeoArea" not in query:
@@ -175,6 +180,35 @@ def test_v5_planner_compiles_typed_geo_area_summary() -> None:
     assert failure is None
     assert plan.targets[0].kind == TargetKind.GEO_AREA
     assert plan.targets[0].value == "Tuy Phước"
+
+
+def test_v5_planner_repairs_omitted_geo_area_from_graph_catalog() -> None:
+    plan, planner, failure = plan_query(
+        "Nhơn Lý có nơi nào để đi không?",
+        FakeGemini({
+            "intent": "list",
+            "confidence": 0.95,
+        }),
+        CATALOG,
+    )
+
+    assert planner == "gemini"
+    assert failure is None
+    assert plan.geo_scope.areas == ["Nhơn Lý"]
+    assert plan.targets == [QueryTarget(kind=TargetKind.GEO_AREA, value="Nhơn Lý")]
+
+
+def test_v5_planner_uses_catalog_geo_fallback_when_gemini_fails() -> None:
+    plan, planner, failure = plan_query(
+        "Nhơn Lý có nơi nào để đi không?",
+        FailingGemini(),
+        CATALOG,
+    )
+
+    assert planner == "catalog_fallback"
+    assert failure is None
+    assert plan.intent == V5Intent.SUMMARIZE
+    assert plan.targets == [QueryTarget(kind=TargetKind.GEO_AREA, value="Nhơn Lý")]
 
 
 def test_v5_planner_rejects_vocabulary_outside_graph() -> None:
