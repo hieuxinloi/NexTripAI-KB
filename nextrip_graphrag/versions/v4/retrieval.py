@@ -34,7 +34,11 @@ class V4RetrievalService(V3RetrievalService):
     def query(self, query: str, top_k: int = 5) -> V4QueryResponse:
         self._ensure_ready()
         started = perf_counter()
-        plan, planner, fallback_reason = plan_query(query, self.gemini)
+        plan, planner, fallback_reason = plan_query(
+            query,
+            self.gemini,
+            self.store.planner_vocabulary(),
+        )
         trace: list[dict[str, Any]] = [{
             "step": "query_planner",
             "status": "ok",
@@ -64,16 +68,17 @@ class V4RetrievalService(V3RetrievalService):
                 plan.predicates,
                 plan.entity_types,
                 plan.required_concepts,
+                city=plan.city,
             )
             if not entities:
-                missing_fields.append(f"entity:{plan.subjects[0]}")
+                missing_fields.append(f"not_found:entity:{plan.subjects[0]}")
             elif not facts:
                 missing_fields.extend(f"fact:{predicate}" for predicate in plan.predicates)
         elif plan.retrieval_mode == RetrievalMode.COMMUNITY_SEARCH:
             entities = self._community_candidates(plan.city, plan.entity_types, min(top_k, plan.limit))
         elif plan.retrieval_mode == RetrievalMode.COMPARISON:
             for subject in plan.subjects:
-                anchor = self._anchor(subject)
+                anchor = self._anchor(subject, entity_types=plan.entity_types, city=plan.city)
                 if anchor:
                     entities.append(_entity(anchor))
         elif plan.retrieval_mode in {
@@ -86,20 +91,25 @@ class V4RetrievalService(V3RetrievalService):
                 plan.city,
                 plan.entity_types,
                 plan.required_concepts,
+                plan.preferred_concepts,
                 plan.constraints,
                 max(
                     limit * POLICY.candidate_multiplier,
                     POLICY.minimum_candidate_pool,
                 ),
             )
-            ranked = self._rank_candidates(query, candidates, limit)
-            matched_paths = self._matched_paths(ranked, plan.required_concepts)
+            ranked = self._rank_candidates(query, candidates, limit, plan.entity_types)
+            retrieval_concepts = [*plan.required_concepts, *plan.preferred_concepts]
+            matched_paths = self._matched_paths(ranked, retrieval_concepts)
             if plan.retrieval_mode == RetrievalMode.PATH_SEARCH and plan.intent == QueryIntent.ENTITY_LIST:
                 entities = ranked
             else:
                 recommendations = ranked
 
-        evidence = self._claim_evidence([*entities, *recommendations], plan.required_concepts)
+        evidence = self._claim_evidence(
+            [*entities, *recommendations],
+            [*plan.required_concepts, *plan.preferred_concepts],
+        )
         trace.append({
             "step": "retrieval",
             "status": "ok",
@@ -134,8 +144,15 @@ class V4RetrievalService(V3RetrievalService):
         predicates: list[str],
         entity_types: list[str],
         required_concepts: list[str],
+        *,
+        city: str | None = None,
     ) -> tuple[list[EntityResult], list[FactResult]]:
-        entities, facts = self._lookup_v3(subject, predicates, entity_types)
+        entities, facts = self._lookup_v3(
+            subject,
+            predicates,
+            entity_types,
+            city=city,
+        )
         if not entities or not required_concepts:
             return entities, facts
         claim_rows = self.store.run(
@@ -197,21 +214,28 @@ class V4RetrievalService(V3RetrievalService):
         city: str | None,
         entity_types: list[str],
         required_concepts: list[str],
+        preferred_concepts: list[str],
         constraints: list[V4Constraint],
         limit: int,
     ) -> tuple[list[EntityResult], list[ConstraintResult]]:
-        terms = [_plain(term) for term in required_concepts]
+        required_terms = [_plain(term) for term in required_concepts]
+        preferred_terms = [_plain(term) for term in preferred_concepts]
+        all_terms = [*required_terms, *preferred_terms]
         clauses = [
             "place.kb_version = $kb_version",
             "($city IS NULL OR place.city = $city)",
             "($entity_types = [] OR place.entity_type IN $entity_types)",
-            "all(term IN $terms WHERE EXISTS { MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(concept:Concept) WHERE concept.kb_version = $kb_version AND (toLower(concept.canonical_name) CONTAINS term OR toLower(concept.name) CONTAINS term) })",
+            "all(term IN $required_terms WHERE EXISTS { MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(concept:Concept) WHERE concept.kb_version = $kb_version AND (toLower(concept.canonical_name) CONTAINS term OR toLower(concept.name) CONTAINS term) })",
         ]
         params: dict[str, Any] = {
             "kb_version": self.kb_version,
             "city": city,
             "entity_types": entity_types,
-            "terms": terms,
+            "required_terms": required_terms,
+            "preferred_terms": preferred_terms,
+            "all_terms": all_terms,
+            "required_weight": POLICY.required_concept_weight,
+            "preferred_weight": POLICY.preferred_concept_weight,
             "limit": limit,
         }
         near_subject = _constraint(constraints, "near_subject")
@@ -233,6 +257,14 @@ class V4RetrievalService(V3RetrievalService):
         if indoor:
             clauses.append("place.is_indoor = $indoor")
             params["indoor"] = bool(indoor.value)
+        open_24h = _constraint(constraints, "open_24h")
+        if open_24h:
+            clauses.append(
+                "((place.opening_hours_open IN ['00:00', '0:00'] "
+                "AND place.opening_hours_close IN ['23:59', '24:00', '00:00']) "
+                "OR EXISTS { MATCH (place)-[:HAS_FACT]->(fact:Fact) "
+                "WHERE fact.predicate = 'opening_24h_claim' AND fact.value = true })"
+            )
         budget = _constraint(constraints, "budget_max")
         if budget:
             clauses.append("EXISTS { MATCH (place)-[:HAS_FACT]->(price:Fact) WHERE price.predicate IN ['price', 'price_min'] AND toFloat(price.value) <= $budget_max }")
@@ -253,10 +285,19 @@ class V4RetrievalService(V3RetrievalService):
             {near_match}
             WHERE {' AND '.join(clauses)}
             OPTIONAL MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(matched:Concept)
-            WHERE any(term IN $terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term)
-            WITH place, count(DISTINCT matched) AS graphMatches{', near' if near_subject else ''}
-            RETURN place {{.*, score: CASE WHEN size($terms) = 0 THEN 1.0 ELSE toFloat(graphMatches) / size($terms) END{distance_projection}}} AS place
-            ORDER BY graphMatches DESC, coalesce(place.rating, 0) DESC
+            WHERE any(term IN $all_terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term)
+            WITH place,
+                 count(DISTINCT CASE WHEN any(term IN $required_terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term) THEN matched END) AS requiredMatches,
+                 count(DISTINCT CASE WHEN any(term IN $preferred_terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term) THEN matched END) AS preferredMatches{', near' if near_subject else ''}
+            WITH place, requiredMatches, preferredMatches,
+                 CASE WHEN size($required_terms) = 0 THEN 1.0 ELSE toFloat(requiredMatches) / size($required_terms) END AS requiredCoverage,
+                 CASE WHEN size($preferred_terms) = 0 THEN 0.0 ELSE toFloat(preferredMatches) / size($preferred_terms) END AS preferredCoverage{', near' if near_subject else ''}
+            RETURN place {{.*, score:
+                CASE WHEN size($preferred_terms) = 0
+                     THEN requiredCoverage
+                     ELSE $required_weight * requiredCoverage + $preferred_weight * preferredCoverage
+                END{distance_projection}}} AS place
+            ORDER BY preferredMatches DESC, requiredMatches DESC, coalesce(place.rating, 0) DESC
             LIMIT $limit
             """,
             **params,
@@ -281,6 +322,7 @@ class V4RetrievalService(V3RetrievalService):
         query: str,
         candidates: list[EntityResult],
         limit: int,
+        entity_types: list[str],
     ) -> list[EntityResult]:
         if not candidates:
             return []
@@ -310,7 +352,10 @@ class V4RetrievalService(V3RetrievalService):
         for candidate in candidates:
             graph_score = float(candidate.score) if candidate.score is not None else 0.0
             candidate_metadata = metadata[candidate.place_id]
-            rating_score = min(candidate_metadata["rating"] / POLICY.rating_scale, 1.0)
+            rating_score = min(
+                candidate_metadata["rating"] / candidate_metadata["rating_scale"],
+                1.0,
+            )
             semantic = vector_scores.get(candidate.place_id, 0)
             score = POLICY.ranking.score(
                 semantic=semantic,
@@ -320,11 +365,12 @@ class V4RetrievalService(V3RetrievalService):
                 evidence=candidate_metadata["evidence_confidence"],
             )
             ranked.append(candidate.model_copy(update={"score": round(score, 6)}))
-        return sorted(
+        sorted_candidates = sorted(
             ranked,
             key=lambda item: item.score if item.score is not None else 0.0,
             reverse=True,
-        )[:limit]
+        )
+        return _balanced_results(sorted_candidates, entity_types, limit)
 
     def _candidate_metadata(self, candidate_ids: list[str]) -> dict[str, dict[str, float]]:
         rows = self.store.run(
@@ -335,6 +381,7 @@ class V4RetrievalService(V3RetrievalService):
                            <-[:ABOUT]-(claim:Claim {kb_version: $kb_version})
             RETURN place.id AS place_id,
                    coalesce(place.rating, 0) AS rating,
+                   CASE WHEN coalesce(place.rating, 0) > 5 THEN 10.0 ELSE 5.0 END AS rating_scale,
                    coalesce(avg(claim.confidence), 0) AS evidence_confidence
             """,
             candidate_ids=candidate_ids,
@@ -343,13 +390,14 @@ class V4RetrievalService(V3RetrievalService):
         return {
             row["place_id"]: {
                 "rating": float(row["rating"]),
+                "rating_scale": max(float(row["rating_scale"]), 1.0),
                 "evidence_confidence": float(row["evidence_confidence"]),
             }
             for row in rows
         }
 
     def _matched_paths(self, candidates: list[EntityResult], concepts: list[str]) -> list[MatchedPath]:
-        if not candidates:
+        if not candidates or not concepts:
             return []
         rows = self.store.run(
             """
@@ -422,6 +470,29 @@ class V4RetrievalService(V3RetrievalService):
             kb_version=self.kb_version,
         )
         return [_entity(row["place"]) for row in rows]
+
+
+def _balanced_results(
+    candidates: list[EntityResult],
+    requested_types: list[str],
+    limit: int,
+) -> list[EntityResult]:
+    """Keep explicit multi-type requests represented without changing single-type ranking."""
+    types = list(dict.fromkeys(requested_types))
+    if len(types) < 2:
+        return candidates[:limit]
+
+    buckets = {
+        entity_type: [item for item in candidates if item.entity_type == entity_type]
+        for entity_type in types
+    }
+    selected: list[EntityResult] = []
+    while len(selected) < limit and any(buckets.values()):
+        for entity_type in types:
+            bucket = buckets[entity_type]
+            if bucket and len(selected) < limit:
+                selected.append(bucket.pop(0))
+    return selected
 
 
 def _plain(value: str) -> str:

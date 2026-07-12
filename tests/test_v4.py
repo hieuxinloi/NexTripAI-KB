@@ -5,16 +5,49 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from nextrip_graphrag.versions.v2.schemas import QueryIntent
+from nextrip_graphrag.evaluation.v2_runner import _response_operation
+from nextrip_graphrag.versions.v2.schemas import EntityResult, QueryIntent
 from nextrip_graphrag.versions.v4.extraction import DescriptionExtractor
 from nextrip_graphrag.versions.v4.ontology import deterministic_description_claims
-from nextrip_graphrag.versions.v4.query_planner import deterministic_plan
+from nextrip_graphrag.versions.v4.query_planner import plan_query
+from nextrip_graphrag.versions.v4.retrieval import _balanced_results
 from nextrip_graphrag.versions.v4.schemas import (
     ClaimPolarity,
     DynamicObservationInput,
     RetrievalMode,
+    V4QueryPlan,
 )
-from nextrip_graphrag.evaluation.v2_runner import _response_operation
+
+
+class FakeGemini:
+    def __init__(self, payload: dict | None = None, error: Exception | None = None):
+        self.payload = payload
+        self.error = error
+        self.calls: list[tuple[str, str]] = []
+
+    def generate_structured(self, instruction, prompt, schema):
+        self.calls.append((instruction, prompt))
+        if self.error is not None:
+            raise self.error
+        return schema.model_validate(self.payload)
+
+
+def recommendation_plan(**overrides) -> dict:
+    payload = {
+        "intent": "recommendation",
+        "city": "Quy Nhơn",
+        "entity_types": ["restaurant"],
+        "required_concepts": ["Hải sản"],
+        "preferred_concepts": ["Gia đình"],
+        "retrieval_mode": "recommendation",
+        "limit": 5,
+        "confidence": 0.96,
+    }
+    payload.update(overrides)
+    return payload
+
+
+CONCEPT_VOCABULARY = ["families", "seafood"]
 
 
 def test_description_extraction_preserves_negative_amenity_claim() -> None:
@@ -52,7 +85,11 @@ def test_v4_rejects_unsupported_structured_cuisine() -> None:
     place = {
         "id": "rest_qn_bad",
         "entity_type": "restaurant",
-        "props": {"name": "Korean BBQ", "description": "Chuyen thit nuong Han Quoc.", "category": "bbq"},
+        "props": {
+            "name": "Korean BBQ",
+            "description": "Chuyen thit nuong Han Quoc.",
+            "category": "bbq",
+        },
         "terms": {"cuisine": ["seafood", "korean", "bbq"]},
     }
 
@@ -77,62 +114,144 @@ def test_v4_normalizes_description_and_structured_concept_aliases() -> None:
     extraction = DescriptionExtractor().extract(place)
 
     family_concepts = [
-        concept for concept in extraction.concepts if concept.concept_type.value == "Audience"
+        concept for concept in extraction.concepts
+        if concept.concept_type.value == "Audience"
     ]
     assert len(family_concepts) == 1
     assert family_concepts[0].canonical_name == "families"
 
 
-def test_v4_plans_ontology_guided_recommendation() -> None:
-    plan = deterministic_plan(
-        "G\u1ee3i \u00fd nh\u00e0 h\u00e0ng h\u1ea3i s\u1ea3n cho gia \u0111\u00ecnh \u1edf Quy Nh\u01a1n"
+def test_v4_uses_gemini_plan_and_canonicalizes_with_graph_ontology() -> None:
+    gemini = FakeGemini(recommendation_plan(
+        entity_types=["restaurant", "restaurant"],
+        required_concepts=["Hải sản", "hai san"],
+        preferred_concepts=["Gia đình", "Hải sản"],
+    ))
+
+    plan, planner, fallback_reason = plan_query(
+        "Gợi ý nhà hàng hải sản cho gia đình ở Quy Nhơn",
+        gemini,
+        CONCEPT_VOCABULARY,
     )
 
-    assert plan.intent == QueryIntent.RECOMMENDATION
-    assert plan.retrieval_mode == RetrievalMode.RECOMMENDATION
-    assert plan.city == "Quy Nh\u01a1n"
+    assert planner == "gemini"
+    assert fallback_reason is None
     assert plan.entity_types == ["restaurant"]
-    assert plan.required_concepts == ["seafood", "families"]
+    assert plan.required_concepts == ["seafood"]
+    assert plan.preferred_concepts == ["families"]
+    assert "<user_request>" in gemini.calls[0][1]
 
 
-def test_v4_routes_live_weather_to_backend_tool() -> None:
-    plan = deterministic_plan("Th\u1eddi ti\u1ebft Quy Nh\u01a1n h\u00f4m nay th\u1ebf n\u00e0o?")
+def test_v4_preserves_multi_type_agent_plan() -> None:
+    gemini = FakeGemini(recommendation_plan(
+        entity_types=["cafe", "hotel"],
+        required_concepts=[],
+        preferred_concepts=[],
+    ))
 
-    assert plan.retrieval_mode == RetrievalMode.DYNAMIC_SEARCH
+    plan, planner, _ = plan_query(
+        "Tôi muốn đi cafe và ở khách sạn tại Quy Nhơn",
+        gemini,
+        CONCEPT_VOCABULARY,
+    )
+
+    assert planner == "gemini"
+    assert plan.entity_types == ["cafe", "hotel"]
+    assert plan.subjects == []
+
+
+def test_v4_returns_safe_unsupported_plan_without_gemini() -> None:
+    plan, planner, fallback_reason = plan_query("Một câu hỏi bất kỳ")
+
+    assert planner == "planner_unavailable"
+    assert fallback_reason == "GeminiUnavailable"
     assert plan.intent == QueryIntent.UNSUPPORTED
+    assert plan.retrieval_mode == RetrievalMode.UNSUPPORTED
 
 
-def test_v4_plans_itinerary_candidates_without_building_timeline() -> None:
-    plan = deterministic_plan("Quy Nh\u01a1n 1 ng\u00e0y n\u00ean \u0111i \u0111\u00e2u?")
+def test_v4_returns_safe_fallback_when_agent_output_is_invalid() -> None:
+    gemini = FakeGemini(recommendation_plan(city="Huế"))
 
-    assert plan.retrieval_mode == RetrievalMode.PLANNING_CANDIDATES
-    assert plan.intent == QueryIntent.RECOMMENDATION
+    plan, planner, fallback_reason = plan_query(
+        "Gợi ý ở Huế",
+        gemini,
+        CONCEPT_VOCABULARY,
+    )
+
+    assert planner == "planner_fallback"
+    assert fallback_reason == "ValueError"
+    assert plan.retrieval_mode == RetrievalMode.UNSUPPORTED
+
+
+def test_v4_returns_safe_fallback_when_gemini_fails() -> None:
+    plan, planner, fallback_reason = plan_query(
+        "Gợi ý ở Quy Nhơn",
+        FakeGemini(error=TimeoutError()),
+    )
+
+    assert planner == "planner_fallback"
+    assert fallback_reason == "TimeoutError"
+    assert plan.retrieval_mode == RetrievalMode.UNSUPPORTED
+
+
+def test_v4_plan_rejects_lookup_without_predicates() -> None:
+    with pytest.raises(ValidationError, match="requires detail intent, subject and predicates"):
+        V4QueryPlan.model_validate({
+            "intent": "entity_detail",
+            "subjects": ["Bãi biển Mỹ Khê"],
+            "entity_types": ["attraction"],
+            "retrieval_mode": "entity_lookup",
+            "confidence": 0.9,
+        })
+
+
+def test_v4_plan_accepts_open_24h_as_typed_constraint() -> None:
+    plan = V4QueryPlan.model_validate(recommendation_plan(
+        entity_types=["cafe"],
+        required_concepts=[],
+        preferred_concepts=[],
+        constraints=[{"field": "open_24h", "value": True, "mode": "hard"}],
+    ))
+
+    assert plan.constraints[0].field == "open_24h"
 
 
 def test_v4_query_plan_maps_to_benchmark_operation() -> None:
-    plan = deterministic_plan("Quy Nh\u01a1n co bao nhieu nha hang?")
+    plan = V4QueryPlan.model_validate({
+        "intent": "aggregate_count",
+        "city": "Quy Nhơn",
+        "entity_types": ["restaurant"],
+        "retrieval_mode": "aggregate",
+        "confidence": 0.99,
+    })
 
     assert _response_operation(plan) == "count"
 
 
-def test_v4_multi_count_keeps_all_entity_types() -> None:
-    plan = deterministic_plan(
-        "Quy Nh\u01a1n c\u00f3 bao nhi\u00eau qu\u00e1n cafe, nh\u00e0 h\u00e0ng v\u00e0 kh\u00e1ch s\u1ea1n?"
-    )
+def test_v4_balances_explicit_multi_type_results() -> None:
+    candidates = [
+        EntityResult(
+            place_id=f"cafe-{index}",
+            name=f"Cafe {index}",
+            city="Quy Nhơn",
+            entity_type="cafe",
+            score=1 - index / 10,
+        )
+        for index in range(4)
+    ] + [
+        EntityResult(
+            place_id=f"hotel-{index}",
+            name=f"Hotel {index}",
+            city="Quy Nhơn",
+            entity_type="hotel",
+            score=0.5 - index / 10,
+        )
+        for index in range(2)
+    ]
 
-    assert plan.retrieval_mode == RetrievalMode.AGGREGATE
-    assert plan.entity_types == ["cafe", "restaurant", "hotel"]
+    results = _balanced_results(candidates, ["cafe", "hotel"], 4)
 
-
-def test_v4_rain_question_routes_to_constrained_recommendation() -> None:
-    plan = deterministic_plan(
-        "Tr\u1eddi m\u01b0a th\u00ec n\u00ean \u0111i ch\u01a1i \u1edf \u0111\u00e2u \u1edf Quy Nh\u01a1n?"
-    )
-
-    assert plan.retrieval_mode == RetrievalMode.RECOMMENDATION
-    assert plan.entity_types == ["attraction"]
-    assert plan.constraints[0].field == "weather"
-    assert plan.required_concepts == []
+    assert [item.entity_type for item in results] == ["cafe", "hotel", "cafe", "hotel"]
 
 
 def test_dynamic_observation_requires_valid_aware_time_window() -> None:

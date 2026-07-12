@@ -190,6 +190,7 @@ def _subject(query: str, markers: tuple[str, ...]) -> str:
         r"\s+có hồ bơi.*$",
         r"\s+phục vụ món gì.*$",
         r"\s+có địa chỉ.*$",
+        r"\s+địa chỉ.*$",
         r"\s+(?:nằm\s+)?ở đâu.*$",
         r"\s+mở cửa.*$",
         r"\s+được xây dựng.*$",

@@ -155,16 +155,29 @@ class V2RetrievalService:
         )
         return [_entity(anchor)], [_fact(row) for row in facts]
 
-    def _anchor(self, subject: str) -> dict[str, Any] | None:
+    def _anchor(
+        self,
+        subject: str,
+        *,
+        entity_types: list[str] | None = None,
+        city: str | None = None,
+    ) -> dict[str, Any] | None:
+        allowed_types = entity_types or []
         exact = self.store.run(
             """
             MATCH (place:Place {kb_version: $kb_version})
-            WHERE toLower(place.name) = toLower($subject)
-               OR any(alias IN coalesce(place.aliases, []) WHERE toLower(alias) = toLower($subject))
+            WHERE ($entity_types = [] OR place.entity_type IN $entity_types)
+              AND ($city IS NULL OR place.city = $city)
+              AND (
+                toLower(place.name) = toLower($subject)
+                OR any(alias IN coalesce(place.aliases, []) WHERE toLower(alias) = toLower($subject))
+              )
             RETURN place {.*, score: 1.0} AS place
             LIMIT 1
             """,
             subject=_fulltext_query(subject),
+            entity_types=allowed_types,
+            city=city,
             kb_version=self.kb_version,
         )
         if exact:
@@ -174,12 +187,16 @@ class V2RetrievalService:
             CALL db.index.fulltext.queryNodes($index_name, $subject, {limit: 10})
             YIELD node, score
             WHERE node.kb_version = $kb_version
+              AND ($entity_types = [] OR node.entity_type IN $entity_types)
+              AND ($city IS NULL OR node.city = $city)
             RETURN node {.*, score: score} AS place
             ORDER BY score DESC
             LIMIT 10
             """,
             subject=subject,
             index_name=self.fulltext_index,
+            entity_types=allowed_types,
+            city=city,
             kb_version=self.kb_version,
         )
         for row in rows:
@@ -189,8 +206,12 @@ class V2RetrievalService:
         candidates = self.store.run(
             """
             MATCH (place:Place {kb_version: $kb_version})
+            WHERE ($entity_types = [] OR place.entity_type IN $entity_types)
+              AND ($city IS NULL OR place.city = $city)
             RETURN place {.*} AS place
             """,
+            entity_types=allowed_types,
+            city=city,
             kb_version=self.kb_version,
         )
         ranked = sorted(

@@ -5,7 +5,8 @@ from typing import Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
-from ..v2.schemas import EntityResult, EvidenceResult, FactResult, QueryIntent
+from ..v2.schemas import ENTITY_TYPES, EntityResult, EvidenceResult, FactResult, QueryIntent
+from ..v3.schemas import V3_PREDICATES
 
 
 class ClaimPolarity(StrEnum):
@@ -81,14 +82,41 @@ class ConstraintMode(StrEnum):
 
 
 class V4Constraint(BaseModel):
-    field: str = Field(min_length=1)
+    field: Literal[
+        "budget_max",
+        "indoor",
+        "near_subject",
+        "open_24h",
+        "star_rating",
+        "weather",
+    ]
     value: str | float | int | bool
     mode: ConstraintMode = ConstraintMode.HARD
+
+    @model_validator(mode="after")
+    def validate_constraint(self) -> "V4Constraint":
+        if self.mode != ConstraintMode.HARD:
+            raise ValueError(
+                "V4 currently supports hard constraints only; use preferred_concepts for preferences"
+            )
+        if self.field in {"indoor", "open_24h"} and not isinstance(self.value, bool):
+            raise ValueError(f"{self.field} requires a boolean value")
+        if self.field == "star_rating":
+            if isinstance(self.value, bool) or not isinstance(self.value, int) or not 1 <= self.value <= 5:
+                raise ValueError("star_rating requires an integer from 1 to 5")
+        if self.field == "budget_max":
+            if isinstance(self.value, bool) or not isinstance(self.value, (int, float)) or self.value < 0:
+                raise ValueError("budget_max requires a non-negative number")
+        if self.field == "near_subject" and not str(self.value).strip():
+            raise ValueError("near_subject requires a named place")
+        if self.field == "weather" and self.value not in {"rain", "sunny", "cloudy", "all_weather"}:
+            raise ValueError("weather uses the supported weather enum")
+        return self
 
 
 class V4QueryPlan(BaseModel):
     intent: QueryIntent
-    city: str | None = None
+    city: Literal["Đà Nẵng", "Quy Nhơn"] | None = None
     subjects: list[str] = Field(default_factory=list)
     entity_types: list[str] = Field(default_factory=list)
     predicates: list[str] = Field(default_factory=list)
@@ -98,14 +126,36 @@ class V4QueryPlan(BaseModel):
     retrieval_mode: RetrievalMode
     limit: int = Field(default=5, ge=1, le=30)
     clarification_needed: bool = False
-    confidence: float = Field(default=0, ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
 
     @model_validator(mode="after")
     def validate_plan(self) -> "V4QueryPlan":
-        if self.intent == QueryIntent.ENTITY_DETAIL and not self.subjects:
-            raise ValueError("V4 entity lookup requires a subject")
-        if self.retrieval_mode == RetrievalMode.AGGREGATE and not self.entity_types:
-            raise ValueError("V4 aggregate retrieval requires entity types")
+        unknown_types = set(self.entity_types) - ENTITY_TYPES
+        unknown_predicates = set(self.predicates) - V3_PREDICATES
+        if unknown_types:
+            raise ValueError(f"Unknown V4 entity types: {sorted(unknown_types)}")
+        if unknown_predicates:
+            raise ValueError(f"Unknown V4 predicates: {sorted(unknown_predicates)}")
+        if self.clarification_needed:
+            return self
+        if self.retrieval_mode == RetrievalMode.ENTITY_LOOKUP:
+            if self.intent != QueryIntent.ENTITY_DETAIL or not self.subjects or not self.predicates:
+                raise ValueError("V4 entity lookup requires detail intent, subject and predicates")
+        elif self.retrieval_mode == RetrievalMode.AGGREGATE:
+            if self.intent != QueryIntent.AGGREGATE_COUNT or self.city is None or not self.entity_types:
+                raise ValueError("V4 aggregate retrieval requires count intent, city and entity types")
+        elif self.retrieval_mode in {RetrievalMode.PATH_SEARCH, RetrievalMode.COMMUNITY_SEARCH}:
+            if self.intent != QueryIntent.ENTITY_LIST or not self.entity_types or self.city is None:
+                raise ValueError("V4 list retrieval requires list intent, city and entity types")
+        elif self.retrieval_mode in {RetrievalMode.RECOMMENDATION, RetrievalMode.PLANNING_CANDIDATES}:
+            if self.intent != QueryIntent.RECOMMENDATION or not self.entity_types or self.city is None:
+                raise ValueError("V4 recommendation requires recommendation intent, city and entity types")
+        elif self.retrieval_mode == RetrievalMode.COMPARISON:
+            if self.intent != QueryIntent.ENTITY_LIST or len(self.subjects) < 2:
+                raise ValueError("V4 comparison requires list intent and at least two named subjects")
+        elif self.retrieval_mode in {RetrievalMode.DYNAMIC_SEARCH, RetrievalMode.UNSUPPORTED}:
+            if self.intent != QueryIntent.UNSUPPORTED:
+                raise ValueError("Non-KB retrieval modes require unsupported intent")
         return self
 
 

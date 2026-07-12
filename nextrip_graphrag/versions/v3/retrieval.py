@@ -51,6 +51,7 @@ class V3RetrievalService(V2RetrievalService):
                         plan.subjects[0],
                         task.predicates,
                         task.entity_types,
+                        city=plan.city,
                     )
                     if not entities:
                         missing_fields.append(f"entity:{plan.subjects[0]}")
@@ -100,9 +101,11 @@ class V3RetrievalService(V2RetrievalService):
         subject: str,
         predicates: list[str],
         entity_types: list[str],
+        *,
+        city: str | None = None,
     ) -> tuple[list[EntityResult], list[FactResult]]:
-        anchor = self._anchor(subject)
-        if not anchor or entity_types and anchor.get("entity_type") not in entity_types:
+        anchor = self._anchor(subject, entity_types=entity_types, city=city)
+        if not anchor:
             return [], []
         rows = self.store.run(
             """

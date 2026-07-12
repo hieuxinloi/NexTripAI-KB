@@ -19,6 +19,7 @@ class V4GraphStore(V3GraphStore):
     def __init__(self, settings: Any, description_extractor: DescriptionExtractor | None = None):
         super().__init__(settings)
         self.description_extractor = description_extractor or DescriptionExtractor()
+        self._planner_vocabulary: list[str] | None = None
 
     def ensure_v4_schema(self, embedding_dim: int) -> None:
         self.ensure_typed_schema(embedding_dim, index_prefix="v4")
@@ -55,6 +56,19 @@ class V4GraphStore(V3GraphStore):
             """,
             place_count=len(places),
         )
+        self._planner_vocabulary = None
+
+    def planner_vocabulary(self) -> list[str]:
+        if self._planner_vocabulary is None:
+            rows = self.run_versioned(
+                """
+                MATCH (concept:Concept {kb_version: $kb_version})
+                WHERE concept.canonical_name IS NOT NULL
+                RETURN collect(DISTINCT concept.canonical_name) AS concepts
+                """
+            )
+            self._planner_vocabulary = sorted(str(value) for value in rows[0]["concepts"])
+        return list(self._planner_vocabulary)
 
     def _load_offerings(self, places: list[dict[str, Any]]) -> None:
         rows = []

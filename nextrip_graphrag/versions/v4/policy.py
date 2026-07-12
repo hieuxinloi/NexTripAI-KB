@@ -39,7 +39,6 @@ class V4Policy:
     structured_claim_confidence: float = 0.90
     deterministic_claim_confidence: float = 0.78
     relationship_promotion_confidence: float = 0.75
-    planner_fastpath_confidence: float = 0.90
     sentence_batch_size: int = 500
     concept_batch_size: int = 500
     claim_batch_size: int = 300
@@ -48,8 +47,13 @@ class V4Policy:
     minimum_vector_pool: int = 100
     maximum_evidence_results: int = 30
     community_sample_size: int = 8
-    rating_scale: float = 5.0
+    required_concept_weight: float = 0.4
+    preferred_concept_weight: float = 0.6
     ranking: RankingWeights = field(default_factory=RankingWeights)
+
+    def __post_init__(self) -> None:
+        if abs(self.required_concept_weight + self.preferred_concept_weight - 1.0) > 1e-9:
+            raise ValueError("V4 concept weights must sum to 1.0")
 
 
 POLICY = V4Policy()
