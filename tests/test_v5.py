@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from nextrip_graphrag.config import Settings
 from nextrip_graphrag.versions.v2.schemas import EntityResult
 from nextrip_graphrag.versions.v5.concept_linker import ConceptLinker
-from nextrip_graphrag.versions.v5.geo import extract_geo_area_candidates
-from nextrip_graphrag.versions.v5.graph_store import _concept_semantic_text
+from nextrip_graphrag.versions.v5.geo import (
+    extract_geo_area_candidates,
+    verified_address_area_vocabulary,
+)
+from nextrip_graphrag.versions.v5.graph_store import V5GraphStore, _concept_semantic_text
 from nextrip_graphrag.versions.v5.query_planner import V5PlannerDraft, plan_query
 from nextrip_graphrag.versions.v5.resolver import V5EntityResolver
 from nextrip_graphrag.versions.v5.retrieval import V5RetrievalService
 from nextrip_graphrag.versions.v5.schemas import (
     QueryTarget,
     TargetKind,
+    TargetResult,
     V5Intent,
 )
 
@@ -163,6 +169,75 @@ def test_v5_geo_extraction_rejects_malformed_verified_district() -> None:
     }
 
     assert extract_geo_area_candidates(place) == []
+
+
+def test_v5_geo_extraction_learns_verified_address_components() -> None:
+    places = [
+        {
+            "id": "attr_qn_031",
+            "city_id": "city_quy_nhon",
+            "props": {
+                "city": "Quy Nhơn",
+                "address": "An Hoà, Tuy Phước Bắc, Gia Lai, Việt Nam",
+            },
+        },
+        {
+            "id": "attr_qn_012",
+            "city_id": "city_quy_nhon",
+            "props": {
+                "city": "Quy Nhơn",
+                "address": "Tuy Phước Bắc, Gia Lai, Việt Nam",
+            },
+        },
+        {
+            "id": "cafe_qn_008",
+            "city_id": "city_quy_nhon",
+            "props": {
+                "city": "Quy Nhơn",
+                "address": "Xuân Diệu, Quy Nhơn, Gia Lai, Việt Nam",
+            },
+        },
+    ]
+
+    vocabulary = verified_address_area_vocabulary(places)
+    chua_candidates = extract_geo_area_candidates(places[0], vocabulary)
+    tower_candidates = extract_geo_area_candidates(places[1], vocabulary)
+    street_candidates = extract_geo_area_candidates(places[2], vocabulary)
+
+    assert "tuy-phuoc-bac" in vocabulary
+    assert any(
+        item.name == "Tuy Phước Bắc" and item.relation == "located_in"
+        for item in chua_candidates
+    )
+    assert any(
+        item.name == "Tuy Phước Bắc" and item.relation == "located_in"
+        for item in tower_candidates
+    )
+    assert not any(item.name == "Xuân Diệu" for item in street_candidates)
+
+
+def test_v5_verified_dataset_has_reviewed_geo_coverage() -> None:
+    places = [
+        json.loads(line)
+        for line in Path("processed_verified/places.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    vocabulary = verified_address_area_vocabulary(places)
+    located = {
+        place["id"]: {
+            candidate.name
+            for candidate in extract_geo_area_candidates(place, vocabulary)
+            if candidate.relation == "located_in"
+        }
+        for place in places
+    }
+
+    assert sum(bool(areas) for areas in located.values()) >= 260
+    assert "Tuy Phước Bắc" in located["attr_qn_031"]
+    assert "Tuy Phước Bắc" in located["attr_qn_012"]
+    assert "Xuân Diệu" not in located["cafe_qn_008"]
 
 
 def test_v5_planner_compiles_typed_geo_area_summary() -> None:
@@ -332,6 +407,53 @@ def test_v5_concept_embedding_text_includes_grounded_evidence_samples() -> None:
 
     assert "Yên tĩnh" in text
     assert "nghỉ ngơi" in text
+
+
+def test_v5_near_area_edges_keep_proximity_distinct_from_location() -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    store = V5GraphStore.__new__(V5GraphStore)
+    store.run_versioned = lambda query, **params: calls.append((query, params))
+
+    store._load_near_area_edges()
+
+    build_query, params = calls[1]
+    assert "[:LOCATED_IN]" in build_query
+    assert "point.distance(candidate.location, anchor.location)" in build_query
+    assert "MERGE (candidate)-[nearArea:NEAR_AREA]->(area)" in build_query
+    assert "LOCATED_IN" not in build_query.split("MERGE", 1)[1]
+    assert params["radius_km"] == 5.0
+
+
+def test_v5_geo_scope_paths_expose_scope_semantics() -> None:
+    class Store:
+        def run_versioned(self, query, **params):
+            assert "NEAR_AREA" in query
+            assert params["area_ids"] == ["geo-area:nhon-ly"]
+            return [{
+                "place_id": "attr_qn_033",
+                "area_name": "Nhơn Lý",
+                "relationship": "NEAR_AREA",
+                "score": 0.7,
+            }]
+
+    service = V5RetrievalService.__new__(V5RetrievalService)
+    service.store = Store()
+    paths = service._geo_scope_paths(
+        [EntityResult(
+            place_id="attr_qn_033",
+            name="Kỳ Co",
+            city="Quy Nhơn",
+            entity_type="attraction",
+        )],
+        [TargetResult(
+            target_id="geo-area:nhon-ly",
+            kind=TargetKind.GEO_AREA,
+            name="Nhơn Lý",
+        )],
+    )
+
+    assert paths[0].relationships == ["NEAR_AREA"]
+    assert paths[0].score == 0.7
 
 
 def test_v5_resolver_guards_target_label() -> None:

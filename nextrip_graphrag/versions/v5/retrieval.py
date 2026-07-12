@@ -189,7 +189,16 @@ class V5RetrievalService(V4RetrievalService):
                 resolved = self.resolver.resolve(target, plan.limit, plan.geo_scope.cities)
                 outcome.targets.extend(resolved)
                 if target.kind in {TargetKind.CITY, TargetKind.GEO_AREA} and resolved:
-                    outcome.entities.extend(self._geo_places(resolved[0], plan.limit))
+                    scoped_entities = self._geo_places(resolved[0], plan.limit)
+                    outcome.entities.extend(scoped_entities)
+                    if target.kind == TargetKind.GEO_AREA and not scoped_entities:
+                        outcome.missing_fields.append(
+                            f"verified_geo_candidates:{resolved[0].name}"
+                        )
+            outcome.matched_paths = self._geo_scope_paths(
+                outcome.entities,
+                outcome.targets,
+            )
         elif any(target.kind != TargetKind.PLACE for target in plan.targets):
             for target in plan.targets:
                 resolved = self.resolver.resolve(
@@ -202,6 +211,10 @@ class V5RetrievalService(V4RetrievalService):
                     outcome.recommendations.extend(
                         self._geo_places(resolved[0], min(top_k, plan.limit))
                     )
+            outcome.matched_paths = self._geo_scope_paths(
+                outcome.recommendations,
+                outcome.targets,
+            )
         else:
             limit = min(top_k, plan.limit)
             entity_types = _place_types(plan.targets)
@@ -243,10 +256,13 @@ class V5RetrievalService(V4RetrievalService):
                     entity_types,
                     plan.ranking_criteria,
                 )
-            outcome.matched_paths = self._matched_paths(
-                outcome.recommendations,
-                [*plan.required_concepts, *plan.preferred_concepts],
-            )
+            outcome.matched_paths = [
+                *self._geo_scope_paths(outcome.recommendations, area_targets),
+                *self._matched_paths(
+                    outcome.recommendations,
+                    [*plan.required_concepts, *plan.preferred_concepts],
+                ),
+            ]
         return outcome
 
     def _resolve_geo_areas(
@@ -272,8 +288,7 @@ class V5RetrievalService(V4RetrievalService):
               MATCH (place)-[:LOCATED_IN]->(area:GeoArea {kb_version: $kb_version})
               WHERE area.id IN $area_ids
             } OR EXISTS {
-              MATCH (place)<-[:MENTIONS]-(unit:TextUnit {kb_version: $kb_version})
-                    -[:MENTIONS_GEO_AREA]->(area:GeoArea {kb_version: $kb_version})
+              MATCH (place)-[:NEAR_AREA]->(area:GeoArea {kb_version: $kb_version})
               WHERE area.id IN $area_ids
             }
             RETURN DISTINCT place.id AS place_id
@@ -300,9 +315,8 @@ class V5RetrievalService(V4RetrievalService):
                   MATCH (place:Place {kb_version: $kb_version})-[:LOCATED_IN]->(scope)
                   RETURN place, 1.0 AS scope_score
                   UNION
-                  MATCH (place:Place {kb_version: $kb_version})<-[:MENTIONS]-(unit:TextUnit)
-                        -[:MENTIONS_GEO_AREA]->(scope)
-                  RETURN place, 0.6 AS scope_score
+                  MATCH (place:Place {kb_version: $kb_version})-[:NEAR_AREA]->(scope)
+                  RETURN place, 0.7 AS scope_score
                 }
                 WITH place, max(scope_score) AS score
                 RETURN place {.*, score: score} AS place
@@ -313,6 +327,53 @@ class V5RetrievalService(V4RetrievalService):
                 limit=limit,
             )
         return [_entity(row["place"]) for row in rows]
+
+    def _geo_scope_paths(
+        self,
+        places: list[EntityResult],
+        targets: list[TargetResult],
+    ) -> list[MatchedPath]:
+        area_ids = [
+            target.target_id
+            for target in targets
+            if target.kind == TargetKind.GEO_AREA
+        ]
+        if not places or not area_ids:
+            return []
+        rows = self.store.run_versioned(
+            """
+            MATCH (place:Place {kb_version: $kb_version})
+            WHERE place.id IN $place_ids
+            MATCH (area:GeoArea {kb_version: $kb_version})
+            WHERE area.id IN $area_ids
+            CALL (place, area) {
+              MATCH (place)-[:LOCATED_IN]->(area)
+              RETURN 'LOCATED_IN' AS relationship, 1.0 AS score
+              UNION
+              MATCH (place)-[:NEAR_AREA]->(area)
+              RETURN 'NEAR_AREA' AS relationship, 0.7 AS score
+              UNION
+              MATCH (place)<-[:MENTIONS]-(:TextUnit)-[:MENTIONS_GEO_AREA]->(area)
+              RETURN 'MENTIONS_GEO_AREA' AS relationship, 0.6 AS score
+            }
+            WITH place, area, relationship, score
+            ORDER BY place.id, area.id, score DESC
+            WITH place, area, head(collect({relationship: relationship, score: score})) AS best
+            RETURN place.id AS place_id, area.name AS area_name,
+                   best.relationship AS relationship, best.score AS score
+            """,
+            place_ids=[place.place_id for place in places],
+            area_ids=area_ids,
+        )
+        return [
+            MatchedPath(
+                place_id=row["place_id"],
+                nodes=[row["place_id"], row["area_name"]],
+                relationships=[row["relationship"]],
+                score=float(row["score"]),
+            )
+            for row in rows
+        ]
 
     def _semantic_place_candidates(
         self,

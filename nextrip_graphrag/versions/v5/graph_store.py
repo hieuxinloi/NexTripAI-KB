@@ -3,10 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from ...config import (
+    V5_AREA_PROXIMITY_CONFIDENCE,
+    V5_AREA_PROXIMITY_RADIUS_KM,
+)
 from ...neo4j_store import chunks
 from ..v3.graph_store import FACET_SPECS
 from ..v4.graph_store import V4GraphStore
-from .geo import extract_geo_area_candidates
+from .geo import extract_geo_area_candidates, verified_address_area_vocabulary
 
 
 class V5GraphStore(V4GraphStore):
@@ -65,12 +69,23 @@ class V5GraphStore(V4GraphStore):
     def after_places_loaded(self, places: list[dict[str, Any]]) -> None:
         super().after_places_loaded(places)
         self._load_geo_areas(places)
+        self._load_near_area_edges()
 
     def _load_geo_areas(self, places: list[dict[str, Any]]) -> None:
+        self.run_versioned(
+            """
+            MATCH (area:GeoArea {kb_version: $kb_version})
+            DETACH DELETE area
+            """
+        )
+        verified_address_areas = verified_address_area_vocabulary(places)
         candidates = [
             asdict(candidate)
             for place in places
-            for candidate in extract_geo_area_candidates(place)
+            for candidate in extract_geo_area_candidates(
+                place,
+                verified_address_areas,
+            )
         ]
         for batch in chunks(candidates, 500):
             self.run_versioned(
@@ -78,14 +93,20 @@ class V5GraphStore(V4GraphStore):
                 UNWIND $rows AS row
                 MATCH (city:City {id: row.city_id, kb_version: $kb_version})
                 MERGE (area:GeoArea {id: row.area_id})
-                SET area.name = row.name,
-                    area.normalized_name = toLower(row.name),
+                ON CREATE SET area.name = row.name,
+                              area.normalized_name = toLower(row.name),
+                              area.aliases = [row.name]
+                SET area.aliases = CASE
+                      WHEN row.name IN coalesce(area.aliases, []) THEN area.aliases
+                      ELSE coalesce(area.aliases, []) + row.name
+                    END,
                     area.area_type = row.area_type,
                     area.kb_version = $kb_version
                 MERGE (city)-[:HAS_AREA]->(area)
                 """,
                 rows=batch,
             )
+
         located = [row for row in candidates if row["relation"] == "located_in"]
         for batch in chunks(located, 500):
             self.run_versioned(
@@ -113,6 +134,40 @@ class V5GraphStore(V4GraphStore):
                 """,
                 rows=batch,
             )
+
+    def _load_near_area_edges(self) -> None:
+        self.run_versioned(
+            """
+            MATCH (:Place {kb_version: $kb_version})-[nearArea:NEAR_AREA]->
+                  (:GeoArea {kb_version: $kb_version})
+            DELETE nearArea
+            """
+        )
+        self.run_versioned(
+            """
+            MATCH (anchor:Place {kb_version: $kb_version})-[:LOCATED_IN]->
+                  (area:GeoArea {kb_version: $kb_version})
+            MATCH (candidate:Place {kb_version: $kb_version})
+            WHERE candidate <> anchor
+              AND candidate.city = anchor.city
+              AND candidate.location IS NOT NULL
+              AND anchor.location IS NOT NULL
+              AND NOT EXISTS { (candidate)-[:LOCATED_IN]->(area) }
+            WITH candidate, area, anchor,
+                 point.distance(candidate.location, anchor.location) / 1000.0 AS distanceKm
+            WHERE distanceKm <= $radius_km
+            WITH candidate, area,
+                 min(distanceKm) AS minimumDistanceKm,
+                 collect(DISTINCT anchor.id) AS anchorIds
+            MERGE (candidate)-[nearArea:NEAR_AREA]->(area)
+            SET nearArea.distance_km = round(minimumDistanceKm, 2),
+                nearArea.anchor_place_ids = anchorIds,
+                nearArea.confidence = $confidence,
+                nearArea.derivation = 'point_distance_from_verified_area_anchor'
+            """,
+            radius_km=V5_AREA_PROXIMITY_RADIUS_KM,
+            confidence=V5_AREA_PROXIMITY_CONFIDENCE,
+        )
 
     def planner_catalog(self) -> dict[str, list[str]]:
         rows = self.run_versioned(
@@ -202,7 +257,10 @@ class V5GraphStore(V4GraphStore):
             OPTIONAL MATCH (:Place {kb_version: $kb_version})-[located:LOCATED_IN]->(:GeoArea)
             WITH geo_areas, count(located) AS location_edges
             OPTIONAL MATCH (:TextUnit {kb_version: $kb_version})-[mention:MENTIONS_GEO_AREA]->(:GeoArea)
-            RETURN geo_areas, location_edges, count(mention) AS geo_mentions
+            WITH geo_areas, location_edges, count(mention) AS geo_mentions
+            OPTIONAL MATCH (:Place {kb_version: $kb_version})-[nearArea:NEAR_AREA]->(:GeoArea)
+            RETURN geo_areas, location_edges, geo_mentions,
+                   count(nearArea) AS near_area_edges
             """
         )[0]
         statistics.update({key: int(value) for key, value in row.items()})
@@ -227,8 +285,16 @@ class V5GraphStore(V4GraphStore):
                  count(CASE WHEN located.evidence_id IS NULL OR located.confidence IS NULL THEN 1 END) AS badLocations
             OPTIONAL MATCH (:TextUnit {kb_version: $kb_version})-[mention:MENTIONS_GEO_AREA]->(:GeoArea)
             WITH areas, badParents, locations, badLocations, count(mention) AS mentions
+            OPTIONAL MATCH (:Place {kb_version: $kb_version})-[nearArea:NEAR_AREA]->(:GeoArea)
+            WITH areas, badParents, locations, badLocations, mentions,
+                 count(nearArea) AS nearAreas,
+                 count(CASE WHEN nearArea.distance_km IS NULL
+                                  OR nearArea.confidence IS NULL
+                                  OR nearArea.anchor_place_ids IS NULL
+                            THEN 1 END) AS badNearAreas
             OPTIONAL MATCH (concept:Concept {kb_version: $kb_version})
             RETURN areas, badParents, locations, badLocations, mentions,
+                   nearAreas, badNearAreas,
                    count(concept) AS concepts,
                    count(CASE WHEN concept.embedding IS NOT NULL THEN 1 END) AS embeddedConcepts
             """
@@ -238,6 +304,9 @@ class V5GraphStore(V4GraphStore):
             "geo_areas_have_single_city_parent": row["badParents"] == 0,
             "location_edges_are_grounded": row["badLocations"] == 0,
             "geo_mentions_created": row["mentions"] > 0,
+            "near_area_edges_are_derived": (
+                row["nearAreas"] > 0 and row["badNearAreas"] == 0
+            ),
             "all_concepts_embedded": (
                 row["concepts"] > 0 and row["embeddedConcepts"] == row["concepts"]
             ),
