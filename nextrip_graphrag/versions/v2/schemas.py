@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
+
 
 ENTITY_TYPES = {"attraction", "cafe", "hotel", "nightlife", "restaurant"}
 PREDICATES = {
@@ -56,7 +58,7 @@ class RetrievalTask(BaseModel):
     categories: list[str] = Field(default_factory=list)
     terms: list[str] = Field(default_factory=list)
     hard_constraints: HardConstraints = Field(default_factory=HardConstraints)
-    limit: int = Field(default=5, ge=1, le=30)
+    limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
 
     @model_validator(mode="after")
     def validate_whitelist(self) -> "RetrievalTask":

@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from ..config import ENRICHMENT_HTTP_TIMEOUT_SECONDS, NOMINATIM_DELAY_SECONDS
 from .catalog import load_verified_places
 from .io import cache_path, read_json, utc_now, write_json, write_jsonl
 from .source_crawler import DEFAULT_USER_AGENT
@@ -61,7 +62,12 @@ def score_candidate(place: dict[str, Any], candidate: dict[str, Any]) -> dict[st
 
 
 class NominatimClient:
-    def __init__(self, workspace: str | Path, delay: float = 1.1, timeout: float = 20.0) -> None:
+    def __init__(
+        self,
+        workspace: str | Path,
+        delay: float = NOMINATIM_DELAY_SECONDS,
+        timeout: float = ENRICHMENT_HTTP_TIMEOUT_SECONDS,
+    ) -> None:
         self.cache_dir = Path(workspace) / "cache" / "nominatim"
         self.delay = max(delay, 1.0)
         self.last_request_at = 0.0

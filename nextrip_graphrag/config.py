@@ -5,6 +5,18 @@ from dataclasses import dataclass
 from dataclasses import replace
 
 
+DEFAULT_SEARCH_TOP_K = 8
+DEFAULT_TYPED_QUERY_TOP_K = 5
+MIN_TOP_K = 1
+MAX_TOP_K = 30
+DEFAULT_TEMPERATURE = 0.2
+STRUCTURED_TEMPERATURE = 0.0
+HEALTH_CHECK_TIMEOUT_SECONDS = 0.5
+ENRICHMENT_HTTP_TIMEOUT_SECONDS = 20.0
+SOURCE_CRAWL_DELAY_SECONDS = 0.75
+NOMINATIM_DELAY_SECONDS = 1.1
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None or value.strip() == "":
@@ -46,8 +58,14 @@ class Settings:
     gemini_retry_attempts: int = 3
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = 1536
-    top_k: int = 8
-    temperature: float = 0.2
+    query_embedding_cache: str = "tmp/query_embedding_cache"
+    v5_concept_link_min_score: float = 0.72
+    v5_concept_link_min_margin: float = 0.03
+    v5_concept_link_top_k: int = 5
+    v5_concept_selection_min_confidence: float = 0.75
+    top_k: int = DEFAULT_SEARCH_TOP_K
+    temperature: float = DEFAULT_TEMPERATURE
+    structured_temperature: float = STRUCTURED_TEMPERATURE
     log_level: str = "INFO"
 
     @classmethod
@@ -73,30 +91,13 @@ class Settings:
             neo4j_v5_user=os.getenv("NEO4J_V5_USER", cls.neo4j_v5_user),
             neo4j_v5_password=os.getenv("NEO4J_V5_PASSWORD", cls.neo4j_v5_password),
             neo4j_v5_database=os.getenv("NEO4J_V5_DATABASE", cls.neo4j_v5_database) or None,
-            neo4j_connection_timeout=float(
-                os.getenv("NEO4J_CONNECTION_TIMEOUT", str(cls.neo4j_connection_timeout))
-            ),
-            neo4j_max_transaction_retry_time=float(
-                os.getenv(
-                    "NEO4J_MAX_TRANSACTION_RETRY_TIME",
-                    str(cls.neo4j_max_transaction_retry_time),
-                )
-            ),
             google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
             google_genai_use_vertexai=_env_bool("GOOGLE_GENAI_USE_VERTEXAI"),
             google_application_credentials=os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None,
             google_cloud_project=os.getenv("GOOGLE_CLOUD_PROJECT") or None,
             google_cloud_location=os.getenv("GOOGLE_CLOUD_LOCATION") or cls.google_cloud_location,
             gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
-            gemini_timeout_ms=int(os.getenv("GEMINI_TIMEOUT_MS", str(cls.gemini_timeout_ms))),
-            gemini_retry_attempts=int(
-                os.getenv("GEMINI_RETRY_ATTEMPTS", str(cls.gemini_retry_attempts))
-            ),
             embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", cls.embedding_model),
-            embedding_dim=int(os.getenv("GEMINI_EMBEDDING_DIM", str(cls.embedding_dim))),
-            top_k=int(os.getenv("RAG_TOP_K", str(cls.top_k))),
-            temperature=float(os.getenv("RAG_TEMPERATURE", str(cls.temperature))),
-            log_level=os.getenv("LOG_LEVEL", cls.log_level),
         )
 
     def for_v2(self) -> "Settings":

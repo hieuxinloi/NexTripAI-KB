@@ -7,6 +7,7 @@ from typing import Literal
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
 from ...normalizer import canonical_city, slugify
 from ..v3.schemas import V3_PREDICATES
 from ..v4.query_planner import StructuredPlanner
@@ -22,7 +23,11 @@ Use profile for broad requests about one named target and lookup for requested f
 Use summarize for broad questions about a city or area. Use recommend/list for
 candidate retrieval, aggregate only for counts, and plan_candidates for itinerary
 inputs. Dynamic weather, live routes, booking, current prices and transport status
-must use tool_required with explicit required_tools. Never invent vocabulary values.
+must use tool_required with explicit required_tools. Never invent entities, fields,
+constraints, or tools.
+For required_concepts and preferred_concepts, preserve the user's normalized
+meaning even when no graph concept has the exact same wording. The application
+will link those semantic terms to graph concepts after planning.
 """
 
 
@@ -48,7 +53,7 @@ class V5PlannerDraft(BaseModel):
     ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
     constraints: list[V4Constraint] = Field(default_factory=list)
     duration_days: int | None = Field(default=None, ge=1, le=30)
-    limit: int = Field(default=5, ge=1, le=30)
+    limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
     required_tools: list[str] = Field(default_factory=list)
     clarification_needed: bool = False
     confidence: float = Field(ge=0, le=1)
@@ -102,11 +107,12 @@ def _compile_plan(
     cities = [_canonical_city(value, catalog["cities"]) for value in draft.geo_scope.cities]
     areas = [_canonical_value(value, catalog["areas"], "area") for value in draft.geo_scope.areas]
     concepts = set(catalog["concepts"])
-    required = [_canonical_value(value, concepts, "concept") for value in draft.required_concepts]
+    concepts_by_slug = {slugify(item): item for item in concepts}
+    required = [_canonical_or_raw(value, concepts_by_slug) for value in draft.required_concepts]
     preferred = [
         value
         for value in (
-            _canonical_value(item, concepts, "concept")
+            _canonical_or_raw(item, concepts_by_slug)
             for item in draft.preferred_concepts
         )
         if value not in required
@@ -166,6 +172,10 @@ def _canonical_value(value: str, allowed: list[str] | set[str], label: str) -> s
     if canonical is None:
         raise ValueError(f"Unknown {label}: {value}")
     return canonical
+
+
+def _canonical_or_raw(value: str, allowed_by_slug: dict[str, str]) -> str:
+    return allowed_by_slug.get(slugify(value), value.strip())
 
 
 def _unique(values: list[str]) -> list[str]:

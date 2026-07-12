@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
 from ..v2.schemas import ENTITY_TYPES, EntityResult, FactResult, QueryIntent
 from ..v4.schemas import (
     ConstraintResult,
@@ -68,7 +69,7 @@ class V5QueryPlan(BaseModel):
     ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
     constraints: list[V4Constraint] = Field(default_factory=list)
     duration_days: int | None = Field(default=None, ge=1, le=30)
-    limit: int = Field(default=5, ge=1, le=30)
+    limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
     required_tools: list[str] = Field(default_factory=list)
     clarification_needed: bool = False
     confidence: float = Field(ge=0, le=1)

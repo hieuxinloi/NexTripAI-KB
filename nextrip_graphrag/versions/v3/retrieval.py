@@ -4,6 +4,7 @@ from dataclasses import asdict
 from time import perf_counter
 from typing import Any
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K
 from ..registry import kb_version_manifests
 from ..v2.retrieval import V2RetrievalService, _elapsed_ms, _entity, _fact
 from ..v2.schemas import EntityResult, FactResult, QueryIntent, QueryOperation
@@ -20,7 +21,7 @@ class V3RetrievalService(V2RetrievalService):
     def __init__(self, store: V3GraphStore, gemini: Any | None = None):
         super().__init__(store, gemini)
 
-    def query(self, query: str, top_k: int = 5) -> V3QueryResponse:
+    def query(self, query: str, top_k: int = DEFAULT_TYPED_QUERY_TOP_K) -> V3QueryResponse:
         self._ensure_ready()
         started = perf_counter()
         plan, planner, fallback_reason = plan_query(query, self.gemini)

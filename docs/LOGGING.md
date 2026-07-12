@@ -31,8 +31,8 @@ Xem log realtime:
 Get-Content kb-api.err.log -Wait
 ```
 
-Dieu chinh level trong `.env`:
+Dieu chinh level trong `nextrip_graphrag/config.py`:
 
-```text
-LOG_LEVEL=INFO
+```python
+log_level: str = "INFO"
 ```

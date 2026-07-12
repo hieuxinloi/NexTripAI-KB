@@ -5,6 +5,7 @@ from math import log1p
 from time import perf_counter
 from typing import Any
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K
 from ...normalizer import slugify
 from ..registry import kb_version_manifests
 from ..v2.retrieval import _elapsed_ms, _entity
@@ -34,7 +35,7 @@ class V4RetrievalService(V3RetrievalService):
     def __init__(self, store: V4GraphStore, gemini: Any | None = None):
         super().__init__(store, gemini)
 
-    def query(self, query: str, top_k: int = 5) -> V4QueryResponse:
+    def query(self, query: str, top_k: int = DEFAULT_TYPED_QUERY_TOP_K) -> V4QueryResponse:
         self._ensure_ready()
         started = perf_counter()
         plan, planner, fallback_reason = plan_query(

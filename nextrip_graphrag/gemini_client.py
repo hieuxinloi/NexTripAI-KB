@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, TypeVar
+from threading import Lock
+from typing import Iterable, TypeVar, cast
 
 from pydantic import BaseModel
 
 from .config import Settings
+from .enrichment.io import cache_path, read_json, write_json
 
 
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
@@ -23,6 +25,11 @@ class GeminiClient:
 
         self.settings = settings
         self.types = types
+        self._query_embedding_lock = Lock()
+        self._query_embedding_cache = (
+            Path(settings.query_embedding_cache)
+            / f"{settings.embedding_model.replace('/', '_')}-{settings.embedding_dim}"
+        )
         self.client = self._create_client(genai)
 
     def close(self) -> None:
@@ -79,7 +86,13 @@ class GeminiClient:
         return self._embed(list(texts), task_type="RETRIEVAL_DOCUMENT")
 
     def embed_query(self, query: str) -> list[float]:
-        return self._embed([query], task_type="RETRIEVAL_QUERY")[0]
+        path = cache_path(self._query_embedding_cache, f"query|{query}")
+        with self._query_embedding_lock:
+            if path.exists():
+                return list(read_json(path)["embedding"])
+            embedding = self._embed([query], task_type="RETRIEVAL_QUERY")[0]
+            write_json(path, {"embedding": embedding})
+            return embedding
 
     def _embed(self, contents: list[str], task_type: str) -> list[list[float]]:
         config = self.types.EmbedContentConfig(
@@ -113,7 +126,7 @@ class GeminiClient:
     ) -> StructuredModel:
         config = self.types.GenerateContentConfig(
             system_instruction=system_instruction,
-            temperature=0,
+            temperature=self.settings.structured_temperature,
             response_mime_type="application/json",
             response_schema=response_schema,
         )
@@ -122,6 +135,6 @@ class GeminiClient:
             contents=prompt,
             config=config,
         )
-        if isinstance(response.parsed, response_schema):
-            return response.parsed
-        return response_schema.model_validate_json(response.text or "{}")
+        if response.parsed is None:
+            return response_schema.model_validate_json(response.text or "{}")
+        return cast(StructuredModel, response.parsed)

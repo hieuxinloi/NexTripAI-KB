@@ -10,6 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from bs4 import BeautifulSoup
 
+from ..config import ENRICHMENT_HTTP_TIMEOUT_SECONDS, SOURCE_CRAWL_DELAY_SECONDS
 from .catalog import build_source_catalog, load_verified_places
 from .io import cache_path, read_json, utc_now, write_json, write_jsonl
 
@@ -32,7 +33,12 @@ def extract_page_text(html: str) -> tuple[str | None, str]:
 
 
 class SourceCrawler:
-    def __init__(self, workspace: str | Path, delay: float = 0.75, timeout: float = 20.0) -> None:
+    def __init__(
+        self,
+        workspace: str | Path,
+        delay: float = SOURCE_CRAWL_DELAY_SECONDS,
+        timeout: float = ENRICHMENT_HTTP_TIMEOUT_SECONDS,
+    ) -> None:
         self.workspace = Path(workspace)
         self.cache_dir = self.workspace / "cache" / "source_pages"
         self.delay = delay

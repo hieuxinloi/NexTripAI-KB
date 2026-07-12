@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .config import DEFAULT_SEARCH_TOP_K
 from .gemini_client import GeminiClient
 from .neo4j_store import Neo4jGraphStore
 from .normalizer import CITY_DEFINITIONS, canonical_city
@@ -26,7 +27,7 @@ class TravelGraphRAG:
         question: str,
         city: str | None = None,
         entity_types: list[str] | None = None,
-        top_k: int = 8,
+        top_k: int = DEFAULT_SEARCH_TOP_K,
         strategy: str = "v1",
     ) -> str:
         city_id = None

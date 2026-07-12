@@ -46,8 +46,8 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
             status="experimental",
             dataset="travel_data_verified:519",
             ontology_version="typed-target-geo-provenance-v5",
-            embedding_version="place-profile-v5",
-            retrieval_version="typed-router-local-v5",
-            description="Experimental typed-target and grounded geographic retrieval foundation.",
+            embedding_version="place-concept-evidence-v5",
+            retrieval_version="typed-router-semantic-linking-v5",
+            description="Experimental typed-target, semantic concept-linking and grounded geographic retrieval.",
         ),
     }

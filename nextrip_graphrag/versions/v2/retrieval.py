@@ -6,6 +6,7 @@ import re
 from time import perf_counter
 from typing import Any
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K
 from ...normalizer import CITY_DEFINITIONS
 from ..registry import kb_version_manifests
 from .graph_store import V2GraphStore
@@ -29,7 +30,7 @@ class V2RetrievalService:
         self.store = store
         self.gemini = gemini
 
-    def query(self, query: str, top_k: int = 5) -> V2QueryResponse:
+    def query(self, query: str, top_k: int = DEFAULT_TYPED_QUERY_TOP_K) -> V2QueryResponse:
         self._ensure_ready()
         trace: list[dict[str, Any]] = []
         started = perf_counter()

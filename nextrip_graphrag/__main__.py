@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import Settings
+from .config import DEFAULT_TYPED_QUERY_TOP_K, Settings
 from .evaluation import run_benchmark
 from .evaluation.l1_audit import run_l1_audit
 from .evaluation.v2_runner import run_v2_benchmark
@@ -578,7 +578,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Plan and execute a typed GraphRAG V2 query.",
     )
     v2_query.add_argument("query")
-    v2_query.add_argument("--top-k", type=int, default=5)
+    v2_query.add_argument("--top-k", type=int, default=DEFAULT_TYPED_QUERY_TOP_K)
     v2_query.add_argument("--with-gemini-planner", action="store_true")
     v2_query.set_defaults(func=cmd_v2_query)
 
@@ -628,7 +628,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     v3_query = subparsers.add_parser("v3-query", help="Run a typed graph-first V3 query.")
     v3_query.add_argument("query")
-    v3_query.add_argument("--top-k", type=int, default=5)
+    v3_query.add_argument("--top-k", type=int, default=DEFAULT_TYPED_QUERY_TOP_K)
     v3_query.add_argument("--with-gemini-planner", action="store_true")
     v3_query.set_defaults(func=cmd_v3_query)
 
@@ -662,7 +662,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     v4_query = subparsers.add_parser("v4-query", help="Run ontology-guided adaptive V4 retrieval.")
     v4_query.add_argument("query")
-    v4_query.add_argument("--top-k", type=int, default=5)
+    v4_query.add_argument("--top-k", type=int, default=DEFAULT_TYPED_QUERY_TOP_K)
     v4_query.add_argument("--with-gemini-planner", action="store_true")
     v4_query.set_defaults(func=cmd_v4_query)
 
@@ -696,7 +696,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     v5_query = subparsers.add_parser("v5-query", help="Run typed-target V5 retrieval.")
     v5_query.add_argument("query")
-    v5_query.add_argument("--top-k", type=int, default=5)
+    v5_query.add_argument("--top-k", type=int, default=DEFAULT_TYPED_QUERY_TOP_K)
     v5_query.add_argument("--with-gemini-planner", action="store_true")
     v5_query.set_defaults(func=cmd_v5_query)
 

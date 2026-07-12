@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
 from ..v2.schemas import (
     EntityResult,
     EvidenceResult,
@@ -83,7 +84,7 @@ class V3RetrievalTask(BaseModel):
     predicates: list[str] = Field(default_factory=list)
     filters: V3Filters = Field(default_factory=V3Filters)
     terms: list[str] = Field(default_factory=list)
-    limit: int = Field(default=5, ge=1, le=30)
+    limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
 
     @model_validator(mode="after")
     def validate_predicates(self) -> "V3RetrievalTask":

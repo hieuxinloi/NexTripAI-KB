@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ..config import DEFAULT_SEARCH_TOP_K, DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
+
 
 class HealthResponse(BaseModel):
     status: str = "ok"
@@ -21,7 +23,7 @@ class KbSearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     city: str | None = None
     entity_types: list[str] | None = None
-    top_k: int = Field(default=8, ge=1, le=30)
+    top_k: int = Field(default=DEFAULT_SEARCH_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
     strategy: str = Field(default="v1_provenance", min_length=1)
 
 
@@ -79,4 +81,4 @@ class KbAnswerResponse(BaseModel):
 class TypedQueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
     kb_version: Literal["v2", "v3", "v4", "v5"] = "v2"
-    top_k: int = Field(default=5, ge=1, le=30)
+    top_k: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)

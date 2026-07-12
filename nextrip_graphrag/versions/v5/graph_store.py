@@ -39,6 +39,28 @@ class V5GraphStore(V4GraphStore):
             "CREATE FULLTEXT INDEX v5_geo_area_fulltext IF NOT EXISTS "
             "FOR (n:GeoArea) ON EACH [n.name, n.aliases]"
         )
+        self.run(
+            f"""
+            CREATE VECTOR INDEX v5_concept_embedding IF NOT EXISTS
+            FOR (n:Concept) ON (n.embedding)
+            OPTIONS {{indexConfig: {{
+              `vector.dimensions`: {embedding_dim},
+              `vector.similarity_function`: 'cosine'
+            }}}}
+            """
+        )
+
+    def replace_graph(
+        self,
+        cities: list[dict[str, Any]],
+        places: list[dict[str, Any]],
+        embedder: Any | None = None,
+        batch_size: int = 16,
+    ) -> dict[str, int]:
+        super().replace_graph(cities, places, embedder=embedder, batch_size=batch_size)
+        if embedder is not None:
+            self._embed_concepts(embedder, batch_size)
+        return self.graph_statistics()
 
     def after_places_loaded(self, places: list[dict[str, Any]]) -> None:
         super().after_places_loaded(places)
@@ -110,6 +132,64 @@ class V5GraphStore(V4GraphStore):
             for key in ("cities", "areas", "concepts")
         }
 
+    def semantic_concept_candidates(
+        self,
+        embedding: list[float],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        return self.run_versioned(
+            """
+            CALL db.index.vector.queryNodes('v5_concept_embedding', $limit, $embedding)
+            YIELD node, score
+            WHERE node.kb_version = $kb_version
+            RETURN node.id AS concept_id,
+                   node.name AS name,
+                   node.canonical_name AS canonical_name,
+                   node.concept_type AS concept_type,
+                   node.domain AS domain,
+                   score
+            ORDER BY score DESC
+            """,
+            embedding=embedding,
+            limit=limit,
+        )
+
+    def _embed_concepts(self, embedder: Any, batch_size: int) -> None:
+        rows = self.run_versioned(
+            """
+            MATCH (concept:Concept {kb_version: $kb_version})
+            OPTIONAL MATCH (claim:Claim {kb_version: $kb_version})-[:OBJECT]->(concept)
+            WITH concept, collect(DISTINCT claim.evidence_text)[0..5] AS evidence_samples
+            RETURN concept.id AS id,
+                   concept.name AS name,
+                   concept.canonical_name AS canonical_name,
+                   concept.concept_type AS concept_type,
+                   concept.domain AS domain,
+                   evidence_samples
+            ORDER BY concept.id
+            """
+        )
+        for batch in chunks(rows, batch_size):
+            texts = [_concept_semantic_text(row) for row in batch]
+            embeddings = embedder.embed_documents(texts)
+            updates = [
+                {
+                    "id": row["id"],
+                    "semantic_text": text,
+                    "embedding": embedding,
+                }
+                for row, text, embedding in zip(batch, texts, embeddings, strict=True)
+            ]
+            self.run_versioned(
+                """
+                UNWIND $rows AS row
+                MATCH (concept:Concept {id: row.id, kb_version: $kb_version})
+                SET concept.semantic_text = row.semantic_text,
+                    concept.embedding = row.embedding
+                """,
+                rows=updates,
+            )
+
     def graph_statistics(self) -> dict[str, int]:
         statistics = super().graph_statistics()
         row = self.run_versioned(
@@ -123,6 +203,13 @@ class V5GraphStore(V4GraphStore):
             """
         )[0]
         statistics.update({key: int(value) for key, value in row.items()})
+        embedded = self.run_versioned(
+            """
+            MATCH (concept:Concept {kb_version: $kb_version})
+            RETURN count(CASE WHEN concept.embedding IS NOT NULL THEN 1 END) AS embedded_concepts
+            """
+        )[0]
+        statistics["embedded_concepts"] = int(embedded["embedded_concepts"])
         return statistics
 
     def validate_invariants(self, expected_places: int | None = None) -> dict[str, Any]:
@@ -136,7 +223,11 @@ class V5GraphStore(V4GraphStore):
             WITH areas, badParents, count(located) AS locations,
                  count(CASE WHEN located.evidence_id IS NULL OR located.confidence IS NULL THEN 1 END) AS badLocations
             OPTIONAL MATCH (:TextUnit {kb_version: $kb_version})-[mention:MENTIONS_GEO_AREA]->(:GeoArea)
-            RETURN areas, badParents, locations, badLocations, count(mention) AS mentions
+            WITH areas, badParents, locations, badLocations, count(mention) AS mentions
+            OPTIONAL MATCH (concept:Concept {kb_version: $kb_version})
+            RETURN areas, badParents, locations, badLocations, mentions,
+                   count(concept) AS concepts,
+                   count(CASE WHEN concept.embedding IS NOT NULL THEN 1 END) AS embeddedConcepts
             """
         )[0]
         checks = {
@@ -144,8 +235,22 @@ class V5GraphStore(V4GraphStore):
             "geo_areas_have_single_city_parent": row["badParents"] == 0,
             "location_edges_are_grounded": row["badLocations"] == 0,
             "geo_mentions_created": row["mentions"] > 0,
+            "all_concepts_embedded": (
+                row["concepts"] > 0 and row["embeddedConcepts"] == row["concepts"]
+            ),
         }
         report["checks"].update(checks)
         report["counts"].update({key: int(value) for key, value in row.items()})
         report["status"] = "pass" if all(report["checks"].values()) else "fail"
         return report
+
+
+def _concept_semantic_text(row: dict[str, Any]) -> str:
+    values = (
+        row["name"],
+        row["canonical_name"],
+        row["concept_type"],
+        row["domain"],
+        *row["evidence_samples"],
+    )
+    return " | ".join(str(value) for value in values if value)[:4000]

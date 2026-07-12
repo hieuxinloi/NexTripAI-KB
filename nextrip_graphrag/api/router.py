@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
-from ..config import Settings
+from ..config import HEALTH_CHECK_TIMEOUT_SECONDS, Settings
 from ..logging import safe_text
 from ..normalizer import CITY_DEFINITIONS, canonical_city
 from ..rag import TravelGraphRAG
@@ -115,7 +115,10 @@ def _all_retrieval_sources_failed(trace: list[dict[str, Any]]) -> bool:
 def _store_health(store: Any) -> str:
     try:
         target = urlparse(store.settings.neo4j_uri)
-        with socket.create_connection((target.hostname or "localhost", target.port or 7687), timeout=0.5):
+        with socket.create_connection(
+            (target.hostname or "localhost", target.port or 7687),
+            timeout=HEALTH_CHECK_TIMEOUT_SECONDS,
+        ):
             pass
         store.run("RETURN 1 AS ok")
         return "ready"

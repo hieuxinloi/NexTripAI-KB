@@ -6,6 +6,12 @@ V5 reuses V4's verified Place, Fact, Claim and TextUnit ingestion, then adds
 first-class geographic scopes and target-aware retrieval. V4 and V5 use
 separate Neo4j databases and can be benchmarked independently.
 
+Concept retrieval uses semantic schema linking: Gemini first creates a typed
+plan, exact vocabulary matching runs next, and unknown semantic terms are mapped
+through Concept evidence embeddings. Ambiguous vector candidates are passed to
+Gemini as a strict ID whitelist; unresolved terms stop retrieval instead of
+triggering a broad search.
+
 ```powershell
 docker compose -f docker-compose.v5.yml up -d
 python -m nextrip_graphrag v5-build --processed-dir processed_verified --with-embeddings
