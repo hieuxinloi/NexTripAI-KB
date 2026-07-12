@@ -605,7 +605,7 @@ def build_parser() -> argparse.ArgumentParser:
         "v2-l1-audit",
         help="Run all 100 Level 1 Markdown cases and separate strict accuracy from coverage.",
     )
-    v2_l1_audit.add_argument("--source", default="../docs/test_cases_benchmark.md")
+    v2_l1_audit.add_argument("--source", default="docs/test_cases_benchmark.md")
     v2_l1_audit.add_argument(
         "--canonical",
         default=str(Path(__file__).parent / "evaluation" / "datasets" / "l1_1_v2.json"),
@@ -637,7 +637,7 @@ def build_parser() -> argparse.ArgumentParser:
     v3_validate.set_defaults(func=cmd_v3_validate)
 
     v3_l1_audit = subparsers.add_parser("v3-l1-audit", help="Audit all 100 L1 cases against V3.")
-    v3_l1_audit.add_argument("--source", default="../docs/test_cases_benchmark.md")
+    v3_l1_audit.add_argument("--source", default="docs/test_cases_benchmark.md")
     v3_l1_audit.add_argument(
         "--canonical",
         default=str(Path(__file__).parent / "evaluation" / "datasets" / "l1_1_v2.json"),
@@ -671,7 +671,7 @@ def build_parser() -> argparse.ArgumentParser:
     v4_validate.set_defaults(func=cmd_v4_validate)
 
     v4_l1_audit = subparsers.add_parser("v4-l1-audit", help="Audit all L1 cases against V4.")
-    v4_l1_audit.add_argument("--source", default="../docs/test_cases_benchmark.md")
+    v4_l1_audit.add_argument("--source", default="docs/test_cases_benchmark.md")
     v4_l1_audit.add_argument(
         "--canonical",
         default=str(Path(__file__).parent / "evaluation" / "datasets" / "l1_1_v2.json"),

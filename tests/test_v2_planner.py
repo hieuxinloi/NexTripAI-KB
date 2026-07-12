@@ -140,7 +140,7 @@ def test_benchmark_entity_ids_exist_and_ba_na_has_altitude_fact() -> None:
 
 
 def test_level_1_markdown_contains_100_parseable_cases() -> None:
-    cases = read_l1_cases(Path("../docs/test_cases_benchmark.md"))
+    cases = read_l1_cases(Path("docs/test_cases_benchmark.md"))
 
     assert len(cases) == 100
     assert cases[0]["id"] == "L1-001"
