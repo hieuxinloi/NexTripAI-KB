@@ -6,6 +6,8 @@ from nextrip_graphrag.normalizer import read_processed
 from nextrip_graphrag.versions.v3.graph_store import _facet_is_supported
 from nextrip_graphrag.versions.v3.ontology import claims_open_24h, extract_facts
 from nextrip_graphrag.versions.v3.query_planner import deterministic_plan
+from nextrip_graphrag.versions.v3.retrieval import V3RetrievalService
+from nextrip_graphrag.versions.v3.schemas import V3Filters
 from nextrip_graphrag.versions.v2.retrieval import _fulltext_query
 
 
@@ -56,6 +58,36 @@ def test_v3_recommendation_uses_recommend_operation() -> None:
     assert plan.intent == "recommendation"
     assert plan.tasks[0].operation == "recommend"
     assert plan.tasks[0].filters.category == "work_cafe"
+
+
+def test_v3_rain_recommendation_requires_verified_indoor_places() -> None:
+    plan = deterministic_plan("Trời mưa thì nên đi đâu ở Quy Nhơn?")
+
+    assert plan.intent == "recommendation"
+    assert plan.tasks[0].entity_types == ["attraction"]
+    assert plan.tasks[0].filters.indoor is True
+    assert plan.tasks[0].filters.weather == "rain"
+
+
+def test_v3_rain_filter_compiles_to_indoor_or_all_weather_cypher() -> None:
+    class CapturingStore:
+        def __init__(self) -> None:
+            self.query = ""
+
+        def run(self, query, **params):
+            self.query = query
+            return []
+
+    store = CapturingStore()
+    V3RetrievalService(store)._filter_v3(
+        "Quy Nhơn",
+        ["attraction"],
+        V3Filters(indoor=True, weather="rain"),
+        5,
+    )
+
+    assert "place.is_indoor = true" in store.query
+    assert "'all_weather' IN coalesce(place.weather_suitable, [])" in store.query
 
 
 @pytest.mark.parametrize(
