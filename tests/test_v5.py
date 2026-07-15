@@ -274,33 +274,37 @@ def test_v5_planner_repairs_omitted_geo_area_from_graph_catalog() -> None:
     assert plan.targets == [QueryTarget(kind=TargetKind.GEO_AREA, value="Nhơn Lý")]
 
 
-def test_v5_planner_uses_catalog_geo_fallback_when_gemini_fails() -> None:
+def test_v5_planner_returns_unavailable_for_geo_query_when_gemini_fails() -> None:
     plan, planner, failure = plan_query(
         "Nhơn Lý có nơi nào để đi không?",
         FailingGemini(),
         CATALOG,
     )
 
-    assert planner == "catalog_fallback"
-    assert failure is None
-    assert plan.intent == V5Intent.SUMMARIZE
-    assert plan.targets == [QueryTarget(kind=TargetKind.GEO_AREA, value="Nhơn Lý")]
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert failure.retryable is True
+    assert plan.intent == V5Intent.UNSUPPORTED
+    assert plan.targets == []
 
 
-def test_v5_planner_uses_named_place_fallback_when_gemini_fails() -> None:
+def test_v5_planner_returns_unavailable_for_named_place_when_gemini_fails() -> None:
     plan, planner, failure = plan_query(
         "Mô tả thêm về Kỳ Co Quy Nhơn",
         FailingGemini(),
         CATALOG,
     )
 
-    assert planner == "catalog_fallback"
-    assert failure is None
-    assert plan.intent == V5Intent.PROFILE
-    assert plan.targets == [QueryTarget(kind=TargetKind.PLACE, value="Kỳ Co")]
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert failure.retryable is True
+    assert plan.intent == V5Intent.UNSUPPORTED
+    assert plan.targets == []
 
 
-def test_v5_planner_uses_city_trip_fallback_when_gemini_fails() -> None:
+def test_v5_planner_returns_unavailable_for_city_trip_when_gemini_fails() -> None:
     city = CATALOG["cities"][1]
     plan, planner, failure = plan_query(
         f"Goi y mot chuyen di tai {city}, uu tien canh dep va trai nghiem",
@@ -308,13 +312,13 @@ def test_v5_planner_uses_city_trip_fallback_when_gemini_fails() -> None:
         CATALOG,
     )
 
-    assert planner == "catalog_fallback"
-    assert failure is None
-    assert plan.intent == V5Intent.PLAN_CANDIDATES
-    assert plan.geo_scope.cities == [city]
-    assert plan.targets == [
-        QueryTarget(kind=TargetKind.PLACE, entity_types=["attraction"])
-    ]
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert failure.retryable is True
+    assert plan.intent == V5Intent.UNSUPPORTED
+    assert plan.geo_scope.cities == []
+    assert plan.targets == []
 
 
 def test_v5_planner_does_not_use_city_fallback_for_dynamic_queries() -> None:
