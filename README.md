@@ -127,9 +127,13 @@ uvicorn nextrip_graphrag.api.app:app --reload --port 8010
 
 Endpoints:
 
+- `GET /live` and `GET /ready?version=v3`
 - `GET /health`
 - `POST /api/kb/search`
 - `POST /api/kb/answer`
+
+The KB Cloud Run service is intended to be private. Grant `roles/run.invoker` only to the BE
+runtime service account. Configure `KB_ADMIN_API_KEY` before using the mutating V4 observation API.
 
 API requests that omit `strategy` use `v1_provenance`. Pass `v1` or `v1_hybrid` explicitly for
 baseline experiments.
