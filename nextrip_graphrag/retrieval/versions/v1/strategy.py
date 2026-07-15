@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ...base import trace_error
-from ...models import SearchRequest, SearchResponse
+from ...models import SearchResponse
 
 
 class V1Retriever:

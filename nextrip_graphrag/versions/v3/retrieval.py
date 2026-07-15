@@ -7,7 +7,7 @@ from typing import Any
 from ...config import DEFAULT_TYPED_QUERY_TOP_K
 from ..registry import kb_version_manifests
 from ..v2.retrieval import V2RetrievalService, _elapsed_ms, _entity, _fact
-from ..v2.schemas import EntityResult, FactResult, QueryIntent, QueryOperation
+from ..v2.schemas import EntityResult, FactResult, QueryOperation
 from .graph_store import V3GraphStore
 from .query_planner import plan_query
 from .schemas import V3Filters, V3QueryResponse

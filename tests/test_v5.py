@@ -12,7 +12,7 @@ from nextrip_graphrag.versions.v5.geo import (
     verified_address_area_vocabulary,
 )
 from nextrip_graphrag.versions.v5.graph_store import V5GraphStore, _concept_semantic_text
-from nextrip_graphrag.versions.v5.query_planner import V5PlannerDraft, plan_query
+from nextrip_graphrag.versions.v5.query_planner import plan_query
 from nextrip_graphrag.versions.v5.resolver import V5EntityResolver
 from nextrip_graphrag.versions.v5.retrieval import V5RetrievalService
 from nextrip_graphrag.versions.v5.schemas import (
