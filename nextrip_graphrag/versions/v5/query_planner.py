@@ -229,16 +229,79 @@ def _catalog_fallback_plan(
             confidence=1.0,
         )
     areas = _catalog_mentions(query, catalog["areas"])
-    if not areas:
+    if areas:
+        return V5QueryPlan(
+            intent=V5Intent.SUMMARIZE,
+            targets=[
+                QueryTarget(kind=TargetKind.GEO_AREA, value=area)
+                for area in areas
+            ],
+            geo_scope=GeoScope(areas=areas),
+            confidence=1.0,
+        )
+    return _city_recommendation_fallback(query, catalog)
+
+
+def _city_recommendation_fallback(
+    query: str,
+    catalog: dict[str, list[str]],
+) -> V5QueryPlan | None:
+    cities = _catalog_mentions(query, catalog["cities"])
+    if not cities:
+        return None
+    plain = slugify(query).replace("-", " ")
+    dynamic_terms = (
+        "thoi tiet",
+        "nhiet do",
+        "mua",
+        "duong di",
+        "giao thong",
+        "dat phong",
+        "dat ve",
+        "gia hien tai",
+    )
+    if any(term in plain for term in dynamic_terms):
+        return None
+    entity_type_terms = {
+        "hotel": ("khach san", "nha nghi", "luu tru", "resort"),
+        "restaurant": ("nha hang", "quan an", "an gi", "am thuc"),
+        "cafe": ("cafe", "ca phe", "coffee"),
+        "nightlife": ("nightlife", "quan bar", "bar", "ve dem"),
+        "attraction": (
+            "canh dep",
+            "diem den",
+            "di choi",
+            "tham quan",
+            "trai nghiem",
+        ),
+    }
+    entity_types = [
+        entity_type
+        for entity_type, terms in entity_type_terms.items()
+        if any(term in plain for term in terms)
+    ]
+    planning_terms = (
+        "goi y",
+        "chuyen di",
+        "lich trinh",
+        "di dau",
+        "di choi",
+        "tham quan",
+        "trai nghiem",
+    )
+    planning = any(term in plain for term in planning_terms)
+    if not planning and not entity_types:
         return None
     return V5QueryPlan(
-        intent=V5Intent.SUMMARIZE,
+        intent=V5Intent.PLAN_CANDIDATES if planning else V5Intent.RECOMMEND,
         targets=[
-            QueryTarget(kind=TargetKind.GEO_AREA, value=area)
-            for area in areas
+            QueryTarget(
+                kind=TargetKind.PLACE,
+                entity_types=entity_types or ["attraction"],
+            )
         ],
-        geo_scope=GeoScope(areas=areas),
-        confidence=1.0,
+        geo_scope=GeoScope(cities=cities),
+        confidence=0.7,
     )
 
 

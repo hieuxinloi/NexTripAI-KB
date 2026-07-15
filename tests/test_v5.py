@@ -300,6 +300,36 @@ def test_v5_planner_uses_named_place_fallback_when_gemini_fails() -> None:
     assert plan.targets == [QueryTarget(kind=TargetKind.PLACE, value="Kỳ Co")]
 
 
+def test_v5_planner_uses_city_trip_fallback_when_gemini_fails() -> None:
+    city = CATALOG["cities"][1]
+    plan, planner, failure = plan_query(
+        f"Goi y mot chuyen di tai {city}, uu tien canh dep va trai nghiem",
+        FailingGemini(),
+        CATALOG,
+    )
+
+    assert planner == "catalog_fallback"
+    assert failure is None
+    assert plan.intent == V5Intent.PLAN_CANDIDATES
+    assert plan.geo_scope.cities == [city]
+    assert plan.targets == [
+        QueryTarget(kind=TargetKind.PLACE, entity_types=["attraction"])
+    ]
+
+
+def test_v5_planner_does_not_use_city_fallback_for_dynamic_queries() -> None:
+    city = CATALOG["cities"][1]
+    plan, planner, failure = plan_query(
+        f"Thoi tiet {city} hom nay?",
+        FailingGemini(),
+        CATALOG,
+    )
+
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert plan.intent == V5Intent.UNSUPPORTED
+
+
 def test_v5_planner_does_not_fallback_to_generic_one_word_place() -> None:
     plan, planner, failure = plan_query(
         "Gợi ý cafe",
