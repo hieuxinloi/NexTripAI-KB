@@ -7,10 +7,10 @@ from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from loguru import logger
 
-from ..config import HEALTH_CHECK_TIMEOUT_SECONDS, Settings
+from ..config import HEALTH_CHECK_TIMEOUT_SECONDS
 from ..logging import safe_text
 from ..normalizer import CITY_DEFINITIONS, canonical_city
 from ..rag import TravelGraphRAG
@@ -32,10 +32,11 @@ from .schemas import (
     KbSearchRequest,
     KbSearchResponse,
     KbSearchResult,
+    ReadinessResponse,
     SourceInfo,
     TypedQueryRequest,
 )
-from .dependencies import KbServices, get_kb_services
+from .dependencies import KbServices, get_kb_services, require_admin_api_key
 
 router = APIRouter()
 SEARCH_STEPS = {
@@ -126,26 +127,52 @@ def _store_health(store: Any) -> str:
         return f"not_ready:{exc.__class__.__name__}"
 
 
+def _version_health(services: KbServices) -> dict[str, str]:
+    stores = {
+        "v1": services.store,
+        "v2": services.v2_store,
+        "v3": services.v3_store,
+        "v4": services.v4_store,
+        "v5": services.v5_store,
+    }
+    with ThreadPoolExecutor(max_workers=len(stores), thread_name_prefix="kb-health") as pool:
+        statuses = pool.map(_store_health, stores.values())
+    return dict(zip(stores, statuses, strict=True))
+
+
+@router.get("/live")
+def live() -> dict[str, str]:
+    return {"status": "ok", "service": "nextrip-kb"}
+
+
+@router.get("/ready", response_model=ReadinessResponse)
+def ready(
+    response: Response,
+    version: str | None = Query(default=None, pattern=r"^v[1-5]$"),
+    services: KbServices = Depends(get_kb_services),
+) -> ReadinessResponse:
+    statuses = _version_health(services)
+    ready_versions = [name for name, value in statuses.items() if value == "ready"]
+    is_ready = version in ready_versions if version else bool(ready_versions)
+    if not is_ready:
+        response.status_code = 503
+    return ReadinessResponse(
+        status="ready" if is_ready else "not_ready",
+        ready_versions=ready_versions,
+        versions=statuses,
+    )
+
+
 @router.get("/health", response_model=HealthResponse)
 def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
-    stores = (
-        services.store,
-        services.v2_store,
-        services.v3_store,
-        services.v4_store,
-        services.v5_store,
-    )
-    with ThreadPoolExecutor(max_workers=len(stores), thread_name_prefix="kb-health") as pool:
-        neo4j_status, neo4j_v2_status, neo4j_v3_status, neo4j_v4_status, neo4j_v5_status = pool.map(
-            _store_health,
-            stores,
-        )
+    statuses = _version_health(services)
     return HealthResponse(
-        neo4j=neo4j_status,
-        neo4j_v2=neo4j_v2_status,
-        neo4j_v3=neo4j_v3_status,
-        neo4j_v4=neo4j_v4_status,
-        neo4j_v5=neo4j_v5_status,
+        status="ok" if any(value == "ready" for value in statuses.values()) else "degraded",
+        neo4j=statuses["v1"],
+        neo4j_v2=statuses["v2"],
+        neo4j_v3=statuses["v3"],
+        neo4j_v4=statuses["v4"],
+        neo4j_v5=statuses["v5"],
         embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
@@ -194,6 +221,7 @@ def explain_v4(
 @router.post("/api/kb/v4/observations")
 def upsert_v4_observation(
     observation: DynamicObservationInput,
+    _: None = Depends(require_admin_api_key),
     services: KbServices = Depends(get_kb_services),
 ) -> dict[str, Any]:
     try:

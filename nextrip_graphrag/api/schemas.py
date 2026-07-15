@@ -19,6 +19,13 @@ class HealthResponse(BaseModel):
     retrieval_strategies: list[str] = Field(default_factory=list)
 
 
+class ReadinessResponse(BaseModel):
+    status: Literal["ready", "not_ready"]
+    service: str = "nextrip-kb"
+    ready_versions: list[str] = Field(default_factory=list)
+    versions: dict[str, str] = Field(default_factory=dict)
+
+
 class KbSearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     city: str | None = None

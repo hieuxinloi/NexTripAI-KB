@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from threading import Lock
+from secrets import compare_digest
 
-from fastapi import Request
+from fastapi import Header, HTTPException, Request
 
 from ..config import Settings
 from ..gemini_client import GeminiClient
@@ -44,3 +45,14 @@ class KbServices:
 
 def get_kb_services(request: Request) -> KbServices:
     return request.app.state.kb_services
+
+
+def require_admin_api_key(
+    request: Request,
+    x_kb_admin_key: str | None = Header(default=None),
+) -> None:
+    expected = request.app.state.kb_services.settings.admin_api_key
+    if not expected:
+        raise HTTPException(status_code=403, detail="KB administration API is disabled.")
+    if not x_kb_admin_key or not compare_digest(x_kb_admin_key, expected):
+        raise HTTPException(status_code=403, detail="Invalid KB administration credential.")

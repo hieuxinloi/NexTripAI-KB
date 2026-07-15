@@ -69,6 +69,7 @@ class Settings:
     temperature: float = DEFAULT_TEMPERATURE
     structured_temperature: float = STRUCTURED_TEMPERATURE
     log_level: str = "INFO"
+    admin_api_key: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -100,6 +101,7 @@ class Settings:
             google_cloud_location=os.getenv("GOOGLE_CLOUD_LOCATION") or cls.google_cloud_location,
             gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
             embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", cls.embedding_model),
+            admin_api_key=os.getenv("KB_ADMIN_API_KEY") or None,
         )
 
     def for_v2(self) -> "Settings":
