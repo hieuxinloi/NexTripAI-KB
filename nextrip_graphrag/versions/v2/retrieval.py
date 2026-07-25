@@ -177,7 +177,7 @@ class V2RetrievalService:
             RETURN place {.*, score: 1.0} AS place
             LIMIT 1
             """,
-            subject=fulltext_subject,
+            subject=subject,
             entity_types=allowed_types,
             city=city,
             kb_version=self.kb_version,

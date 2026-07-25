@@ -79,6 +79,7 @@ class RetrievalMode(StrEnum):
 class RankingCriterion(StrEnum):
     RATING = "rating"
     POPULARITY = "popularity"
+    PRICE_LOW = "price_low"
 
 
 class ConstraintMode(StrEnum):
@@ -90,6 +91,7 @@ class ConstraintMode(StrEnum):
 class V4Constraint(BaseModel):
     field: Literal[
         "budget_max",
+        "category",
         "indoor",
         "near_subject",
         "open_24h",
@@ -113,6 +115,8 @@ class V4Constraint(BaseModel):
         if self.field == "budget_max":
             if isinstance(self.value, bool) or not isinstance(self.value, (int, float)) or self.value < 0:
                 raise ValueError("budget_max requires a non-negative number")
+        if self.field == "category" and not str(self.value).strip():
+            raise ValueError("category requires a non-empty value")
         if self.field == "near_subject" and not str(self.value).strip():
             raise ValueError("near_subject requires a named place")
         if self.field == "weather" and self.value not in {"rain", "sunny", "cloudy", "all_weather"}:

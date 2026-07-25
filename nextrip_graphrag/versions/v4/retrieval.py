@@ -329,6 +329,10 @@ class V4RetrievalService(V3RetrievalService):
         if budget:
             clauses.append("EXISTS { MATCH (place)-[:HAS_FACT]->(price:Fact) WHERE price.predicate IN ['price', 'price_min'] AND toFloat(price.value) <= $budget_max }")
             params["budget_max"] = float(budget.value)
+        category = _constraint(constraints, "category")
+        if category:
+            clauses.append("toLower(place.category) = toLower($category)")
+            params["category"] = str(category.value)
         weather = _constraint(constraints, "weather")
         if weather:
             params["weather"] = _plain(str(weather.value))
@@ -413,6 +417,13 @@ class V4RetrievalService(V3RetrievalService):
             (item["review_count"] for item in metadata.values()),
             default=0,
         )
+        known_prices = [
+            item["price_min"]
+            for item in metadata.values()
+            if item["price_min"] > 0
+        ]
+        minimum_price = min(known_prices, default=0)
+        maximum_price = max(known_prices, default=0)
         ranked = []
         for candidate in candidates:
             graph_score = float(candidate.score) if candidate.score is not None else 0.0
@@ -439,6 +450,16 @@ class V4RetrievalService(V3RetrievalService):
                     else 0
                 )
                 ranking_signals.append(popularity_score)
+            if RankingCriterion.PRICE_LOW in ranking_criteria:
+                price = candidate_metadata["price_min"]
+                if price <= 0:
+                    ranking_signals.append(0.0)
+                elif maximum_price == minimum_price:
+                    ranking_signals.append(1.0)
+                else:
+                    ranking_signals.append(
+                        1 - (price - minimum_price) / (maximum_price - minimum_price)
+                    )
             if ranking_signals:
                 explicit_score = sum(ranking_signals) / len(ranking_signals)
                 score = (
@@ -462,9 +483,12 @@ class V4RetrievalService(V3RetrievalService):
             MATCH (place:Place {id: placeId, kb_version: $kb_version})
             OPTIONAL MATCH (place)-[:HAS_OFFERING*0..1]->(subject)
                            <-[:ABOUT]-(claim:Claim {kb_version: $kb_version})
+            OPTIONAL MATCH (place)-[:HAS_FACT]->(price:Fact)
+            WHERE price.predicate IN ['price', 'price_min']
             RETURN place.id AS place_id,
                    coalesce(place.rating, 0) AS rating,
                    coalesce(place.review_count, 0) AS review_count,
+                   coalesce(min(toFloatOrNull(price.value)), 0) AS price_min,
                    CASE WHEN coalesce(place.rating, 0) > 5 THEN 10.0 ELSE 5.0 END AS rating_scale,
                    coalesce(avg(claim.confidence), 0) AS evidence_confidence
             """,
@@ -476,6 +500,7 @@ class V4RetrievalService(V3RetrievalService):
                 "rating": float(row["rating"]),
                 "rating_scale": max(float(row["rating_scale"]), 1.0),
                 "review_count": max(float(row["review_count"]), 0.0),
+                "price_min": max(float(row["price_min"]), 0.0),
                 "evidence_confidence": float(row["evidence_confidence"]),
             }
             for row in rows

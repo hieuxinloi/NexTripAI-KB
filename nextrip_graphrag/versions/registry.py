@@ -50,8 +50,26 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
             dataset="travel_data_verified:519",
             ontology_version="typed-target-geo-provenance-v5",
             embedding_version="place-concept-evidence-v5",
-            retrieval_version="typed-router-semantic-linking-v5",
-            description="Experimental typed-target, semantic concept-linking and grounded geographic retrieval.",
+            retrieval_version="deterministic-resilient-typed-router-v5.1",
+            description="V5.1 adds fail-fast deterministic planning, grounded category filters and direct NEAR-distance retrieval.",
+        ),
+        "v6": KBVersionManifest(
+            kb_version="v6",
+            status="experimental",
+            dataset="travel_data_verified:519",
+            ontology_version="typed-target-geo-provenance-v5",
+            embedding_version="place-concept-evidence-v5",
+            retrieval_version="stateful-grounded-itinerary-router-v6",
+            description="V6 reuses the verified V5 graph and adds explicit conversation state, grounded scheduling and auditable preference relaxation.",
+        ),
+        "v7": KBVersionManifest(
+            kb_version="v7",
+            status="experimental",
+            dataset="travel_data_verified:519",
+            ontology_version="typed-target-geo-provenance-v5",
+            embedding_version="place-concept-evidence-v5",
+            retrieval_version="llm-semantic-grounded-router-v7",
+            description="V7 replaces lexical intent rules with structured semantic planning and closed-candidate graph entity linking.",
         ),
     }
 

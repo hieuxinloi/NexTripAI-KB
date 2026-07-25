@@ -181,13 +181,14 @@ class V5GraphStore(V4GraphStore):
                  collect(DISTINCT concept.canonical_name) AS concepts
             OPTIONAL MATCH (place:Place {kb_version: $kb_version})
             RETURN cities, areas, concepts,
+                   collect(DISTINCT place.category) AS categories,
                    collect(DISTINCT place.name) AS places
             """
         )
         row = rows[0]
         return {
             key: sorted(str(value) for value in row[key] if value)
-            for key in ("cities", "areas", "concepts", "places")
+            for key in ("cities", "areas", "categories", "concepts", "places")
         }
 
     def semantic_concept_candidates(

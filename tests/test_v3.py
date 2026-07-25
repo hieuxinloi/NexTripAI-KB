@@ -177,6 +177,22 @@ def test_fulltext_anchor_skips_empty_sanitized_subject() -> None:
     assert not any("db.index.fulltext.queryNodes" in query for query in store.queries)
 
 
+def test_anchor_uses_raw_exact_name_and_sanitized_fulltext_query() -> None:
+    class CapturingStore:
+        def __init__(self) -> None:
+            self.subjects: list[str] = []
+
+        def run(self, query, **params):
+            if "subject" in params:
+                self.subjects.append(params["subject"])
+            return []
+
+    store = CapturingStore()
+    V3RetrievalService(store)._anchor("Hilton Da Nang:")
+
+    assert store.subjects == ["Hilton Da Nang:", "Hilton Da Nang"]
+
+
 def test_v3_ontology_promotes_existing_properties_to_facts() -> None:
     places = {place["id"]: place for place in read_processed("processed_verified")["places"]}
     hotel_facts = {fact["predicate"] for fact in extract_facts(places["hotel_qn_001"])}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Lock
-from typing import Iterable, TypeVar, cast
+from typing import Iterable, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel
@@ -147,7 +147,7 @@ class GeminiClient:
         self._log_generation_usage(response, "generate_structured")
         if response.parsed is None:
             return response_schema.model_validate_json(response.text or "{}")
-        return cast(StructuredModel, response.parsed)
+        return response_schema.model_validate(response.parsed)
 
     def _log_generation_usage(self, response, operation: str) -> None:
         usage = getattr(response, "usage_metadata", None)

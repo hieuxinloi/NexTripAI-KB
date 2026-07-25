@@ -2,6 +2,15 @@
 
 Typed-target, geo-aware and reliability-focused GraphRAG.
 
+## V5.1 retrieval update
+
+V5.1 keeps the V5 graph and API contract while versioning the retrieval layer as
+`deterministic-resilient-typed-router-v5.1`. High-confidence count, detail,
+category-filter, nearby, distance, dynamic-tool, and itinerary-candidate queries
+now use a deterministic fast path. Gemini remains available for ambiguous
+semantic plans, but provider failure no longer blocks queries covered by the
+deterministic contract.
+
 V5 reuses V4's verified Place, Fact, Claim and TextUnit ingestion, then adds
 first-class geographic scopes and target-aware retrieval. V4 and V5 use
 separate Neo4j databases and can be benchmarked independently.

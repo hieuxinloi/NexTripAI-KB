@@ -541,7 +541,7 @@ def test_v5_planner_returns_unavailable_for_city_trip_when_gemini_fails() -> Non
     assert plan.targets == []
 
 
-def test_v5_planner_does_not_use_city_fallback_for_dynamic_queries() -> None:
+def test_v5_planner_does_not_guess_dynamic_queries_without_gemini() -> None:
     city = CATALOG["cities"][1]
     plan, planner, failure = plan_query(
         f"Thoi tiet {city} hom nay?",
@@ -551,10 +551,11 @@ def test_v5_planner_does_not_use_city_fallback_for_dynamic_queries() -> None:
 
     assert planner == "planner_unavailable"
     assert failure is not None
+    assert failure.code == "planner_unavailable"
     assert plan.intent == V5Intent.UNSUPPORTED
 
 
-def test_v5_planner_does_not_fallback_to_generic_one_word_place() -> None:
+def test_v5_planner_does_not_guess_generic_one_word_place() -> None:
     plan, planner, failure = plan_query(
         "Gợi ý cafe",
         FailingGemini(),
@@ -563,6 +564,7 @@ def test_v5_planner_does_not_fallback_to_generic_one_word_place() -> None:
 
     assert planner == "planner_unavailable"
     assert failure is not None
+    assert failure.code == "planner_unavailable"
     assert plan.intent == V5Intent.UNSUPPORTED
 
 
@@ -600,6 +602,58 @@ def test_v5_planner_preserves_semantic_concept_for_linking() -> None:
     assert planner == "gemini"
     assert failure is None
     assert plan.required_concepts == ["nghỉ ngơi"]
+
+
+def test_v5_planner_does_not_guess_aggregate_without_gemini() -> None:
+    plan, planner, failure = plan_query(
+        "Ở Đà Nẵng có bao nhiêu khách sạn để tôi lựa chọn?",
+        None,
+        CATALOG,
+    )
+
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert plan.intent == V5Intent.UNSUPPORTED
+
+
+def test_v5_planner_does_not_guess_category_without_gemini() -> None:
+    plan, planner, failure = plan_query(
+        "Gợi ý nhà hàng hải sản ở Đà Nẵng",
+        None,
+        CATALOG,
+    )
+
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert plan.intent == V5Intent.UNSUPPORTED
+
+
+def test_v5_planner_does_not_guess_nearby_constraint_without_gemini() -> None:
+    plan, planner, failure = plan_query(
+        "Tôi đang ở Kỳ Co, gần đó có điểm tham quan nào?",
+        None,
+        CATALOG,
+    )
+
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert plan.intent == V5Intent.UNSUPPORTED
+
+
+def test_v5_planner_does_not_guess_distance_comparison_without_gemini() -> None:
+    plan, planner, failure = plan_query(
+        "Từ Kỳ Co đến Eo Gió khoảng bao xa?",
+        None,
+        CATALOG,
+    )
+
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert plan.intent == V5Intent.UNSUPPORTED
 
 
 def test_v5_concept_linker_maps_semantic_synonym_without_hardcoded_rule() -> None:
@@ -882,19 +936,13 @@ def test_v5_tool_required_does_not_query_graph() -> None:
     assert response.trace[0]["status"] == "ok"
 
 
-def test_v5_planner_failure_is_retryable_not_plain_unsupported() -> None:
-    class PlannerFailureService(V5RetrievalService):
-        def _ensure_ready(self):
-            return None
+def test_v5_planner_does_not_guess_geo_scope_without_gemini() -> None:
+    plan, planner, failure = plan_query("Tuy Phước có gì?", None, CATALOG)
 
-    class Store:
-        def planner_catalog(self):
-            return CATALOG
-
-    response = PlannerFailureService(Store(), None).query("Tuy Phước có gì?", 5)
-
-    assert response.error["code"] == "planner_unavailable"
-    assert response.error["retryable"] is True
+    assert planner == "planner_unavailable"
+    assert failure is not None
+    assert failure.code == "planner_unavailable"
+    assert plan.intent == V5Intent.UNSUPPORTED
 
 
 def test_v5_unresolved_preference_does_not_block_semantic_place_fallback() -> None:

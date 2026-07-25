@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import DEFAULT_TYPED_QUERY_TOP_K, Settings
-from .evaluation import run_benchmark
+from .evaluation import OfflinePlanner, run_benchmark, run_v3_benchmark
 from .evaluation.l1_audit import run_l1_audit
 from .evaluation.v2_runner import run_v2_benchmark
 from .enrichment import (
@@ -31,6 +31,8 @@ from .versions.v4.graph_store import V4GraphStore
 from .versions.v4.retrieval import V4RetrievalService
 from .versions.v5.graph_store import V5GraphStore
 from .versions.v5.retrieval import V5RetrievalService
+from .versions.v6.retrieval import V6RetrievalService
+from .versions.v7.retrieval import V7RetrievalService
 
 
 def load_dotenv_if_available() -> None:
@@ -394,8 +396,109 @@ def cmd_v5_validate(args: argparse.Namespace) -> None:
     finally:
         store.close()
     print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def cmd_v5_benchmark(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings) if args.planner_mode == "configured" else OfflinePlanner()
+    try:
+        report = run_v3_benchmark(
+            V5RetrievalService(store, gemini),
+            args.source,
+            output_path=args.output,
+        )
+    finally:
+        store.close()
+        close = getattr(gemini, "close", None)
+        if callable(close):
+            close()
+    print(
+        json.dumps(
+            {key: value for key, value in report.items() if key != "results"},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     if report["status"] != "pass":
         raise SystemExit(1)
+
+
+def cmd_v6_query(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings) if args.with_gemini_planner else None
+    try:
+        response = V6RetrievalService(store, gemini).query(args.query, args.top_k)
+    finally:
+        store.close()
+        if gemini is not None:
+            gemini.close()
+    print(response.model_dump_json(indent=2))
+
+
+def cmd_v6_benchmark(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings) if args.planner_mode == "configured" else OfflinePlanner()
+    service = V6RetrievalService(store, gemini)
+    try:
+        report = run_v3_benchmark(
+            service,
+            args.source,
+            output_path=args.output,
+            conversation_runner=service.query_conversation,
+            benchmark_version="v6",
+        )
+    finally:
+        store.close()
+        close = getattr(gemini, "close", None)
+        if callable(close):
+            close()
+    print(
+        json.dumps(
+            {key: value for key, value in report.items() if key != "results"},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_v7_query(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings)
+    try:
+        response = V7RetrievalService(store, gemini).query(args.query, args.top_k)
+    finally:
+        store.close()
+        gemini.close()
+    print(response.model_dump_json(indent=2))
+
+
+def cmd_v7_benchmark(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings) if args.planner_mode == "configured" else OfflinePlanner()
+    try:
+        report = run_v3_benchmark(
+            V7RetrievalService(store, gemini),
+            args.source,
+            output_path=args.output,
+            benchmark_version="v7",
+        )
+    finally:
+        store.close()
+        close = getattr(gemini, "close", None)
+        if callable(close):
+            close()
+    print(
+        json.dumps(
+            {key: value for key, value in report.items() if key != "results"},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
@@ -703,6 +806,95 @@ def build_parser() -> argparse.ArgumentParser:
     v5_validate = subparsers.add_parser("v5-validate", help="Validate V5 graph invariants.")
     v5_validate.add_argument("--expected-places", type=int, default=None)
     v5_validate.set_defaults(func=cmd_v5_validate)
+
+    v5_benchmark = subparsers.add_parser(
+        "v5-benchmark",
+        help="Run all 500 GraphRAG benchmark v3 cases against V5.",
+    )
+    v5_benchmark.add_argument(
+        "--source",
+        default="../docs/test_cases_benchmark_v3 (1).md",
+    )
+    v5_benchmark.add_argument(
+        "--output",
+        default=str(
+            Path(__file__).parent
+            / "evaluation"
+            / "results"
+            / "benchmark_v3_v5.json"
+        ),
+    )
+    v5_benchmark.add_argument(
+        "--planner-mode",
+        choices=("offline", "configured"),
+        default="offline",
+    )
+    v5_benchmark.set_defaults(func=cmd_v5_benchmark)
+
+    v6_query = subparsers.add_parser(
+        "v6-query",
+        help="Run stateful, itinerary-aware V6 retrieval.",
+    )
+    v6_query.add_argument("query")
+    v6_query.add_argument("--top-k", type=int, default=DEFAULT_TYPED_QUERY_TOP_K)
+    v6_query.add_argument("--with-gemini-planner", action="store_true")
+    v6_query.set_defaults(func=cmd_v6_query)
+
+    v6_benchmark = subparsers.add_parser(
+        "v6-benchmark",
+        help="Run all 500 GraphRAG benchmark v3 cases against V6.",
+    )
+    v6_benchmark.add_argument(
+        "--source",
+        default="../docs/test_cases_benchmark_v3 (1).md",
+    )
+    v6_benchmark.add_argument(
+        "--output",
+        default=str(
+            Path(__file__).parent
+            / "evaluation"
+            / "results"
+            / "benchmark_v3_v6.json"
+        ),
+    )
+    v6_benchmark.add_argument(
+        "--planner-mode",
+        choices=("offline", "configured"),
+        default="offline",
+    )
+    v6_benchmark.set_defaults(func=cmd_v6_benchmark)
+
+    v7_query = subparsers.add_parser(
+        "v7-query",
+        help="Run LLM-native semantic planning with graph entity grounding.",
+    )
+    v7_query.add_argument("query")
+    v7_query.add_argument("--top-k", type=int, default=DEFAULT_TYPED_QUERY_TOP_K)
+    v7_query.set_defaults(func=cmd_v7_query)
+
+    v7_benchmark = subparsers.add_parser(
+        "v7-benchmark",
+        help="Run the GraphRAG benchmark with the semantic-only V7 planner.",
+    )
+    v7_benchmark.add_argument(
+        "--source",
+        default="../docs/test_cases_benchmark_v3 (1).md",
+    )
+    v7_benchmark.add_argument(
+        "--output",
+        default=str(
+            Path(__file__).parent
+            / "evaluation"
+            / "results"
+            / "benchmark_v3_v7.json"
+        ),
+    )
+    v7_benchmark.add_argument(
+        "--planner-mode",
+        choices=("offline", "configured"),
+        default="configured",
+    )
+    v7_benchmark.set_defaults(func=cmd_v7_benchmark)
 
     ask = subparsers.add_parser("ask", help="Ask the GraphRAG chatbot.")
     ask.add_argument("question")

@@ -49,6 +49,8 @@ class V5RetrievalService(V4RetrievalService):
     kb_version = "v5"
     fulltext_index = "v5_place_fulltext"
     vector_index = "v5_place_embedding"
+    manifest_version = "v5"
+    response_model = V5QueryResponse
 
     def __init__(self, store: V5GraphStore, gemini: Any | None = None):
         super().__init__(store, gemini)
@@ -58,7 +60,7 @@ class V5RetrievalService(V4RetrievalService):
         self._ensure_ready()
         started = perf_counter()
         catalog = self.store.planner_catalog()
-        plan, planner, failure = plan_query(query, self.gemini, catalog)
+        plan, planner, failure = self._plan_query(query, catalog)
         trace: list[dict[str, Any]] = [
             {
                 "step": "query_planner",
@@ -71,16 +73,14 @@ class V5RetrievalService(V4RetrievalService):
         ]
         missing_fields: list[str] = []
         outcome = _RetrievalOutcome()
-        required_links = ConceptLinkBatch()
+        grounding_blocked = False
 
-        if not failure and (plan.required_concepts or plan.preferred_concepts):
-            plan, required_links, preferred_links = self._link_concepts(
-                plan,
-                catalog["concepts"],
-                query,
+        if not failure:
+            plan, grounding_missing, grounding_blocked, grounding_trace = (
+                self._ground_plan(plan, catalog, query)
             )
-            missing_fields.extend(f"concept:{term}" for term in required_links.unresolved)
-            trace.append(_concept_link_trace(required_links, preferred_links))
+            missing_fields.extend(grounding_missing)
+            trace.extend(grounding_trace)
 
         if plan.clarification_needed:
             missing_fields.append("query_constraints")
@@ -88,7 +88,7 @@ class V5RetrievalService(V4RetrievalService):
         retrieval_blocked = (
             failure is not None
             or plan.clarification_needed
-            or bool(required_links.unresolved)
+            or grounding_blocked
             or plan.intent in {V5Intent.UNSUPPORTED, V5Intent.TOOL_REQUIRED}
         )
         if not retrieval_blocked:
@@ -120,7 +120,7 @@ class V5RetrievalService(V4RetrievalService):
                 {"step": "total", "status": "ok", "elapsed_ms": _elapsed_ms(started)},
             ]
         )
-        return V5QueryResponse(
+        return self.response_model(
             answer_type=_ANSWER_TYPES[plan.intent],
             intent=plan.intent,
             query_plan=plan,
@@ -133,9 +133,37 @@ class V5RetrievalService(V4RetrievalService):
             constraint_results=outcome.constraint_results,
             required_tools=plan.required_tools,
             missing_fields=missing_fields,
-            error=_planner_error(failure),
+            error=_planner_error(failure, self.manifest_version),
             trace=trace,
-            manifest=asdict(kb_version_manifests()["v5"]),
+            manifest=asdict(kb_version_manifests()[self.manifest_version]),
+        )
+
+    def _plan_query(
+        self,
+        query: str,
+        catalog: dict[str, list[str]],
+    ) -> tuple[V5QueryPlan, str, PlannerFailure | None]:
+        return plan_query(query, self.gemini, catalog)
+
+    def _ground_plan(
+        self,
+        plan: V5QueryPlan,
+        catalog: dict[str, list[str]],
+        query: str,
+    ) -> tuple[V5QueryPlan, list[str], bool, list[dict[str, Any]]]:
+        if not (plan.required_concepts or plan.preferred_concepts):
+            return plan, [], False, []
+        linked, required, preferred = self._link_concepts(
+            plan,
+            catalog["concepts"],
+            query,
+        )
+        missing = [f"concept:{term}" for term in required.unresolved]
+        return (
+            linked,
+            missing,
+            bool(required.unresolved),
+            [_concept_link_trace(required, preferred)],
         )
 
     def _link_concepts(
@@ -163,6 +191,7 @@ class V5RetrievalService(V4RetrievalService):
     ) -> _RetrievalOutcome:
         outcome = _RetrievalOutcome()
         if plan.intent in {V5Intent.LOOKUP, V5Intent.PROFILE, V5Intent.COMPARE}:
+            resolved_targets: list[TargetResult] = []
             for target in plan.targets:
                 resolved = self.resolver.resolve(target, plan.limit, plan.geo_scope.cities)
                 outcome.targets.extend(resolved)
@@ -171,6 +200,7 @@ class V5RetrievalService(V4RetrievalService):
                         f"not_found:{target.kind.value}:{target.value}"
                     )
                     continue
+                resolved_targets.append(resolved[0])
                 if target.kind == TargetKind.PLACE:
                     place_entities, place_facts = self._lookup_v4(
                         resolved[0].name,
@@ -181,6 +211,19 @@ class V5RetrievalService(V4RetrievalService):
                     )
                     outcome.entities.extend(place_entities)
                     outcome.facts.extend(place_facts)
+            if plan.intent == V5Intent.COMPARE and len(resolved_targets) >= 2:
+                path, fact = self._place_distance(
+                    resolved_targets[0],
+                    resolved_targets[1],
+                )
+                if path is None or fact is None:
+                    outcome.missing_fields.append(
+                        "distance_between:"
+                        f"{resolved_targets[0].name}:{resolved_targets[1].name}"
+                    )
+                else:
+                    outcome.matched_paths.append(path)
+                    outcome.facts.append(fact)
         elif plan.intent == V5Intent.AGGREGATE:
             city = _single_city(plan.geo_scope.cities)
             for entity_type in _place_types(plan.targets):
@@ -281,6 +324,47 @@ class V5RetrievalService(V4RetrievalService):
                 ),
             ]
         return outcome
+
+    def _place_distance(
+        self,
+        origin: TargetResult,
+        destination: TargetResult,
+    ) -> tuple[MatchedPath | None, FactResult | None]:
+        if origin.kind != TargetKind.PLACE or destination.kind != TargetKind.PLACE:
+            return None, None
+        rows = self.store.run_versioned(
+            """
+            MATCH (origin:Place {id: $origin_id, kb_version: $kb_version})
+                  -[near:NEAR]-
+                  (destination:Place {id: $destination_id, kb_version: $kb_version})
+            WHERE near.distance_km IS NOT NULL
+            RETURN near.distance_km AS distance_km
+            LIMIT 1
+            """,
+            origin_id=origin.target_id,
+            destination_id=destination.target_id,
+        )
+        if not rows:
+            return None, None
+        distance_km = float(rows[0]["distance_km"])
+        return (
+            MatchedPath(
+                place_id=origin.target_id,
+                nodes=[origin.target_id, destination.target_id],
+                relationships=["NEAR"],
+                score=round(1 / (1 + distance_km), 6),
+            ),
+            FactResult(
+                fact_id=f"distance:{origin.target_id}:{destination.target_id}",
+                subject_id=origin.target_id,
+                predicate="distance_km",
+                value=round(distance_km, 3),
+                value_type="number",
+                unit="km",
+                confidence=1.0,
+                evidence_ids=[],
+            ),
+        )
 
     def _resolve_geo_areas(
         self,
@@ -562,13 +646,16 @@ def _requests_concept_places(plan: V5QueryPlan, query: str) -> bool:
     return any(term in normalized for term in venue_terms)
 
 
-def _planner_error(failure: PlannerFailure | None) -> dict[str, Any] | None:
+def _planner_error(
+    failure: PlannerFailure | None,
+    version: str = "v5",
+) -> dict[str, Any] | None:
     if failure is None:
         return None
     message = (
-        "The V5 query plan did not satisfy the graph contract."
+        f"The {version.upper()} query plan did not satisfy the graph contract."
         if failure.code == "invalid_plan"
-        else "The V5 query planner is temporarily unavailable."
+        else f"The {version.upper()} query planner is temporarily unavailable."
     )
     return {
         "code": failure.code,
