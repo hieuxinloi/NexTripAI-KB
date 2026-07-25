@@ -86,5 +86,5 @@ Graph co hai evidence tiers:
 - `crawled_article`: article chunk co exact-name `MENTIONS`, confidence 1.0.
 - `verified_record`: mot TextUnit cho moi Place, owner relationship confidence 0.7.
 
-Embedding cache nam trong `enrichment_workspace/cache/embeddings`. Loader delay va retry khi Vertex
+Embedding cache nam trong `enrichment_workspace/cache/embeddings`. Loader delay va retry khi Gemini API
 AI tra quota error, nen co the resume ma khong embed lai content da thanh cong.

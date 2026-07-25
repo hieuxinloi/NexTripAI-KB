@@ -62,7 +62,7 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Update `.env` with Neo4j and Gemini/Vertex AI settings.
+Update `.env` with Neo4j and a Gemini Developer API key from Google AI Studio.
 
 Run Neo4j locally:
 

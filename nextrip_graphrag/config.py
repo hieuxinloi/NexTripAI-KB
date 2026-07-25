@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
+import re
 
 
 DEFAULT_SEARCH_TOP_K = 8
@@ -17,13 +19,58 @@ SOURCE_CRAWL_DELAY_SECONDS = 0.75
 NOMINATIM_DELAY_SECONDS = 1.1
 V5_AREA_PROXIMITY_RADIUS_KM = 5.0
 V5_AREA_PROXIMITY_CONFIDENCE = 0.70
+_VERSIONED_NEO4J_KEY = re.compile(
+    r"^NEO4J_(V[1-9][0-9]*)_(URI|USER|PASSWORD|DATABASE)$"
+)
+_NEO4J_CONNECTION_FIELDS = ("URI", "USER", "PASSWORD", "DATABASE")
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None or value.strip() == "":
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+@dataclass(frozen=True)
+class Neo4jConnectionSettings:
+    uri: str
+    user: str
+    password: str
+    database: str | None
+
+
+def _version_sort_key(version: str) -> int:
+    return int(version[1:])
+
+
+def _configured_neo4j_versions() -> dict[str, Neo4jConnectionSettings]:
+    version_names = {
+        match.group(1).lower()
+        for name in os.environ
+        if (match := _VERSIONED_NEO4J_KEY.fullmatch(name))
+    }
+    connections: dict[str, Neo4jConnectionSettings] = {}
+    for version in sorted(version_names, key=_version_sort_key):
+        prefix = f"NEO4J_{version.upper()}_"
+        values = {
+            field_name: (os.getenv(f"{prefix}{field_name}") or "").strip()
+            for field_name in _NEO4J_CONNECTION_FIELDS
+        }
+        if not all(values.values()):
+            continue
+        connections[version] = Neo4jConnectionSettings(
+            uri=values["URI"],
+            user=values["USER"],
+            password=values["PASSWORD"],
+            database=values["DATABASE"] or None,
+        )
+
+    legacy_values = {
+        field_name: (os.getenv(f"NEO4J_{field_name}") or "").strip()
+        for field_name in _NEO4J_CONNECTION_FIELDS
+    }
+    if "v1" not in connections and all(legacy_values.values()):
+        connections["v1"] = Neo4jConnectionSettings(
+            uri=legacy_values["URI"],
+            user=legacy_values["USER"],
+            password=legacy_values["PASSWORD"],
+            database=legacy_values["DATABASE"] or None,
+        )
+    return dict(sorted(connections.items(), key=lambda item: _version_sort_key(item[0])))
 
 
 @dataclass(frozen=True)
@@ -51,13 +98,11 @@ class Settings:
     neo4j_connection_timeout: float = 3.0
     neo4j_max_transaction_retry_time: float = 3.0
     google_api_key: str | None = None
-    google_genai_use_vertexai: bool = False
-    google_application_credentials: str | None = None
-    google_cloud_project: str | None = None
-    google_cloud_location: str = "us-central1"
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-flash-latest"
     gemini_timeout_ms: int = 30000
     gemini_retry_attempts: int = 3
+    structured_gemini_timeout_ms: int = 12000
+    structured_gemini_retry_attempts: int = 1
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = 1536
     query_embedding_cache: str = "tmp/query_embedding_cache"
@@ -70,6 +115,11 @@ class Settings:
     structured_temperature: float = STRUCTURED_TEMPERATURE
     log_level: str = "INFO"
     admin_api_key: str | None = None
+    neo4j_version_connections: dict[str, Neo4jConnectionSettings] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -95,47 +145,59 @@ class Settings:
             neo4j_v5_password=os.getenv("NEO4J_V5_PASSWORD", cls.neo4j_v5_password),
             neo4j_v5_database=os.getenv("NEO4J_V5_DATABASE", cls.neo4j_v5_database) or None,
             google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
-            google_genai_use_vertexai=_env_bool("GOOGLE_GENAI_USE_VERTEXAI"),
-            google_application_credentials=os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None,
-            google_cloud_project=os.getenv("GOOGLE_CLOUD_PROJECT") or None,
-            google_cloud_location=os.getenv("GOOGLE_CLOUD_LOCATION") or cls.google_cloud_location,
             gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
             embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", cls.embedding_model),
             admin_api_key=os.getenv("KB_ADMIN_API_KEY") or None,
+            neo4j_version_connections=_configured_neo4j_versions(),
         )
+
+    @property
+    def configured_kb_versions(self) -> tuple[str, ...]:
+        from .versions.registry import kb_version_manifests
+
+        supported = kb_version_manifests()
+        return tuple(
+            version
+            for version in self.neo4j_version_connections
+            if version in supported
+        )
+
+    def for_version(self, version: str) -> "Settings":
+        normalized = version.strip().lower()
+        connection = self.neo4j_version_connections.get(normalized)
+        if connection is not None:
+            return replace(
+                self,
+                neo4j_uri=connection.uri,
+                neo4j_user=connection.user,
+                neo4j_password=connection.password,
+                neo4j_database=connection.database,
+            )
+        if normalized == "v1":
+            return self
+        suffix = normalized.removeprefix("v")
+        attribute_prefix = f"neo4j_v{suffix}_"
+        if all(
+            hasattr(self, f"{attribute_prefix}{name}")
+            for name in ("uri", "user", "password", "database")
+        ):
+            return replace(
+                self,
+                neo4j_uri=getattr(self, f"{attribute_prefix}uri"),
+                neo4j_user=getattr(self, f"{attribute_prefix}user"),
+                neo4j_password=getattr(self, f"{attribute_prefix}password"),
+                neo4j_database=getattr(self, f"{attribute_prefix}database"),
+            )
+        raise ValueError(f"Unsupported Knowledge Base version: {normalized}")
 
     def for_v2(self) -> "Settings":
-        return replace(
-            self,
-            neo4j_uri=self.neo4j_v2_uri,
-            neo4j_user=self.neo4j_v2_user,
-            neo4j_password=self.neo4j_v2_password,
-            neo4j_database=self.neo4j_v2_database,
-        )
+        return self.for_version("v2")
 
     def for_v3(self) -> "Settings":
-        return replace(
-            self,
-            neo4j_uri=self.neo4j_v3_uri,
-            neo4j_user=self.neo4j_v3_user,
-            neo4j_password=self.neo4j_v3_password,
-            neo4j_database=self.neo4j_v3_database,
-        )
+        return self.for_version("v3")
 
     def for_v4(self) -> "Settings":
-        return replace(
-            self,
-            neo4j_uri=self.neo4j_v4_uri,
-            neo4j_user=self.neo4j_v4_user,
-            neo4j_password=self.neo4j_v4_password,
-            neo4j_database=self.neo4j_v4_database,
-        )
+        return self.for_version("v4")
 
     def for_v5(self) -> "Settings":
-        return replace(
-            self,
-            neo4j_uri=self.neo4j_v5_uri,
-            neo4j_user=self.neo4j_v5_user,
-            neo4j_password=self.neo4j_v5_password,
-            neo4j_database=self.neo4j_v5_database,
-        )
+        return self.for_version("v5")

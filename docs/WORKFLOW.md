@@ -18,7 +18,7 @@ Chi doi retrieval algorithm thi chi la retrieval experiment, khong duoc goi la m
 - Source of truth: `travel_data_verified/`, 519 places.
 - Cities: Da Nang va Quy Nhon.
 - Graph DB: Neo4j local.
-- Embedding/generation: Gemini/Vertex AI, co cache va resume o target V2.
+- Embedding/generation: Gemini Developer API, co cache va resume o target V2.
 - KB tra candidates, graph paths va evidence; BE phu trach hoi thoai, weather orchestration va itinerary.
 
 ## 2. Hai Pipeline Khac Nhau
@@ -136,7 +136,7 @@ V1 embed mot `search_text` lon tren `Place`. Chua tach:
 
 ### 4.5 Ingestion khong resilient
 
-Embedding load chua cache/resume. Vertex quota `429` lam ca load dung va graph van khong co embeddings.
+Embedding load chua cache/resume. Gemini API quota `429` lam ca load dung va graph van khong co embeddings.
 
 ### 4.6 Evaluation con nho
 

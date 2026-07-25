@@ -2,6 +2,7 @@ from threading import Lock
 from types import SimpleNamespace
 
 from pydantic import BaseModel
+import pytest
 
 from nextrip_graphrag.config import Settings
 from nextrip_graphrag.gemini_client import GeminiClient
@@ -45,10 +46,21 @@ def test_gemini_client_configures_sdk_timeout_and_retry_policy() -> None:
 
     client._create_client(FakeGenai)
 
+    assert FakeGenai.captured["api_key"] == "test-key"
+    assert "vertexai" not in FakeGenai.captured
     options = FakeGenai.captured["http_options"]
     assert options["timeout"] == 12000
     assert options["retry_options"]["attempts"] == 4
     assert 429 in options["retry_options"]["http_status_codes"]
+
+
+def test_gemini_client_requires_ai_studio_api_key() -> None:
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = Settings(google_api_key=None)
+    client.types = FakeTypes
+
+    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
+        client._create_client(FakeGenai)
 
 
 def test_gemini_query_embedding_reuses_persistent_cache(tmp_path) -> None:
@@ -105,3 +117,37 @@ def test_gemini_structured_generation_parses_text_when_sdk_cannot_parse() -> Non
     result = client.generate_structured("system", "prompt", StructuredResult)
 
     assert result == StructuredResult(value="fallback")
+
+
+def test_gemini_uses_fail_fast_client_only_for_structured_generation() -> None:
+    calls = []
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = Settings()
+    client.types = FakeTypes
+    client.client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=lambda **kwargs: (
+                calls.append("general")
+                or SimpleNamespace(text="OK", parsed=None)
+            )
+        )
+    )
+    client.structured_client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=lambda **kwargs: (
+                calls.append("structured")
+                or SimpleNamespace(
+                    text='{"value":"structured"}',
+                    parsed=StructuredResult(value="structured"),
+                )
+            )
+        )
+    )
+
+    assert client.generate("system", "prompt") == "OK"
+    assert client.generate_structured(
+        "system",
+        "prompt",
+        StructuredResult,
+    ) == StructuredResult(value="structured")
+    assert calls == ["general", "structured"]

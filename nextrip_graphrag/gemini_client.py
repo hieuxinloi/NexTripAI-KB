@@ -31,15 +31,27 @@ class GeminiClient:
             / f"{settings.embedding_model.replace('/', '_')}-{settings.embedding_dim}"
         )
         self.client = self._create_client(genai)
+        self.structured_client = self._create_client(
+            genai,
+            timeout_ms=settings.structured_gemini_timeout_ms,
+            retry_attempts=settings.structured_gemini_retry_attempts,
+        )
 
     def close(self) -> None:
         self.client.close()
+        self.structured_client.close()
 
-    def _create_client(self, genai):
+    def _create_client(
+        self,
+        genai,
+        *,
+        timeout_ms: int | None = None,
+        retry_attempts: int | None = None,
+    ):
         http_options = self.types.HttpOptions(
-            timeout=self.settings.gemini_timeout_ms,
+            timeout=timeout_ms or self.settings.gemini_timeout_ms,
             retry_options=self.types.HttpRetryOptions(
-                attempts=self.settings.gemini_retry_attempts,
+                attempts=retry_attempts or self.settings.gemini_retry_attempts,
                 initial_delay=1,
                 max_delay=8,
                 exp_base=2,
@@ -47,39 +59,14 @@ class GeminiClient:
                 http_status_codes=[429, 500, 502, 503, 504],
             ),
         )
-        if self.settings.google_genai_use_vertexai:
-            if not self.settings.google_cloud_project:
-                raise RuntimeError(
-                    "GOOGLE_CLOUD_PROJECT is required when GOOGLE_GENAI_USE_VERTEXAI=true."
-                )
-            if not self.settings.google_cloud_location:
-                raise RuntimeError(
-                    "GOOGLE_CLOUD_LOCATION is required when GOOGLE_GENAI_USE_VERTEXAI=true."
-                )
-            if self.settings.google_application_credentials:
-                credentials_path = Path(self.settings.google_application_credentials)
-                if not credentials_path.exists():
-                    raise RuntimeError(
-                        "GOOGLE_APPLICATION_CREDENTIALS points to a missing file: "
-                        f"{credentials_path}"
-                    )
-            return genai.Client(
-                vertexai=True,
-                project=self.settings.google_cloud_project,
-                location=self.settings.google_cloud_location,
-                http_options=http_options,
+        if not self.settings.google_api_key:
+            raise RuntimeError(
+                "Configure Gemini Developer API authentication with "
+                "GOOGLE_API_KEY or GEMINI_API_KEY."
             )
-
-        if self.settings.google_api_key:
-            return genai.Client(
-                api_key=self.settings.google_api_key,
-                http_options=http_options,
-            )
-
-        raise RuntimeError(
-            "Configure Gemini auth with either GOOGLE_API_KEY/GEMINI_API_KEY, or "
-            "set GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_CLOUD_PROJECT, "
-            "GOOGLE_CLOUD_LOCATION, and local ADC such as GOOGLE_APPLICATION_CREDENTIALS."
+        return genai.Client(
+            api_key=self.settings.google_api_key,
+            http_options=http_options,
         )
 
     def embed_documents(self, texts: Iterable[str]) -> list[list[float]]:
@@ -90,16 +77,27 @@ class GeminiClient:
         with self._query_embedding_lock:
             if path.exists():
                 return list(read_json(path)["embedding"])
-            embedding = self._embed([query], task_type="RETRIEVAL_QUERY")[0]
+            interactive_client = getattr(self, "structured_client", None)
+            embedding = self._embed(
+                [query],
+                task_type="RETRIEVAL_QUERY",
+                **({"client": interactive_client} if interactive_client else {}),
+            )[0]
             write_json(path, {"embedding": embedding})
             return embedding
 
-    def _embed(self, contents: list[str], task_type: str) -> list[list[float]]:
+    def _embed(
+        self,
+        contents: list[str],
+        task_type: str,
+        *,
+        client=None,
+    ) -> list[list[float]]:
         config = self.types.EmbedContentConfig(
             task_type=task_type,
             output_dimensionality=self.settings.embedding_dim,
         )
-        response = self.client.models.embed_content(
+        response = (client or self.client).models.embed_content(
             model=self.settings.embedding_model,
             contents=contents,
             config=config,
@@ -130,7 +128,8 @@ class GeminiClient:
             response_mime_type="application/json",
             response_schema=response_schema,
         )
-        response = self.client.models.generate_content(
+        structured_client = getattr(self, "structured_client", self.client)
+        response = structured_client.models.generate_content(
             model=self.settings.gemini_model,
             contents=prompt,
             config=config,
