@@ -1,6 +1,14 @@
 from nextrip_graphrag.config import Settings
 
 
+def _clear_versioned_neo4j_env(monkeypatch) -> None:
+    for version in range(1, 10):
+        for field in ("URI", "USER", "PASSWORD", "DATABASE"):
+            monkeypatch.delenv(f"NEO4J_V{version}_{field}", raising=False)
+    for field in ("URI", "USER", "PASSWORD", "DATABASE"):
+        monkeypatch.delenv(f"NEO4J_{field}", raising=False)
+
+
 def test_from_env_reads_deployment_values_only(monkeypatch) -> None:
     monkeypatch.setenv("NEO4J_V5_URI", "bolt://graph-v5:7687")
     monkeypatch.setenv("GEMINI_MODEL", "deployment-model")
@@ -47,3 +55,30 @@ def test_from_env_reads_deployment_values_only(monkeypatch) -> None:
         == defaults.v5_concept_selection_min_confidence
     )
     assert settings.log_level == defaults.log_level
+
+
+def test_configured_versions_require_complete_supported_env_block(monkeypatch) -> None:
+    _clear_versioned_neo4j_env(monkeypatch)
+    monkeypatch.setenv("NEO4J_V5_URI", "bolt://graph-v5:7687")
+    monkeypatch.setenv("NEO4J_V5_USER", "neo4j")
+    monkeypatch.setenv("NEO4J_V5_PASSWORD", "secret")
+    monkeypatch.setenv("NEO4J_V5_DATABASE", "neo4j")
+    monkeypatch.setenv("NEO4J_V4_URI", "bolt://graph-v4:7687")
+    monkeypatch.setenv("NEO4J_V4_USER", "neo4j")
+
+    settings = Settings.from_env()
+
+    assert settings.configured_kb_versions == ("v5",)
+    assert settings.for_version("v5").neo4j_uri == "bolt://graph-v5:7687"
+
+
+def test_unknown_version_env_is_not_advertised_without_implementation(monkeypatch) -> None:
+    _clear_versioned_neo4j_env(monkeypatch)
+    monkeypatch.setenv("NEO4J_V6_URI", "bolt://graph-v6:7687")
+    monkeypatch.setenv("NEO4J_V6_USER", "neo4j")
+    monkeypatch.setenv("NEO4J_V6_PASSWORD", "secret")
+    monkeypatch.setenv("NEO4J_V6_DATABASE", "neo4j")
+
+    settings = Settings.from_env()
+
+    assert settings.configured_kb_versions == ()

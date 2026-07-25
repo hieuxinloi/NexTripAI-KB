@@ -15,15 +15,11 @@ from ..logging import safe_text
 from ..normalizer import CITY_DEFINITIONS, canonical_city
 from ..rag import TravelGraphRAG
 from ..retrieval import SearchRequest, available_strategies, get_strategy
-from ..versions.registry import kb_version_manifests
-from ..versions.v2.retrieval import V2RetrievalService
-from ..versions.v2.schemas import V2QueryResponse
-from ..versions.v3.retrieval import V3RetrievalService
-from ..versions.v3.schemas import V3QueryResponse
-from ..versions.v4.retrieval import V4RetrievalService
+from ..versions.registry import (
+    kb_version_manifests,
+    version_retrieval_service_class,
+)
 from ..versions.v4.schemas import DynamicObservationInput, V4QueryResponse
-from ..versions.v5.retrieval import V5RetrievalService
-from ..versions.v5.schemas import V5QueryResponse
 from .schemas import (
     GraphContext,
     HealthResponse,
@@ -129,12 +125,11 @@ def _store_health(store: Any) -> str:
 
 def _version_health(services: KbServices) -> dict[str, str]:
     stores = {
-        "v1": services.store,
-        "v2": services.v2_store,
-        "v3": services.v3_store,
-        "v4": services.v4_store,
-        "v5": services.v5_store,
+        version: services.store_for(version)
+        for version in services.settings.configured_kb_versions
     }
+    if not stores:
+        return {}
     with ThreadPoolExecutor(max_workers=len(stores), thread_name_prefix="kb-health") as pool:
         statuses = pool.map(_store_health, stores.values())
     return dict(zip(stores, statuses, strict=True))
@@ -148,7 +143,7 @@ def live() -> dict[str, str]:
 @router.get("/ready", response_model=ReadinessResponse)
 def ready(
     response: Response,
-    version: str | None = Query(default=None, pattern=r"^v[1-5]$"),
+    version: str | None = Query(default=None, pattern=r"^v[1-9][0-9]*$"),
     services: KbServices = Depends(get_kb_services),
 ) -> ReadinessResponse:
     statuses = _version_health(services)
@@ -168,41 +163,53 @@ def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
     statuses = _version_health(services)
     return HealthResponse(
         status="ok" if any(value == "ready" for value in statuses.values()) else "degraded",
-        neo4j=statuses["v1"],
-        neo4j_v2=statuses["v2"],
-        neo4j_v3=statuses["v3"],
-        neo4j_v4=statuses["v4"],
-        neo4j_v5=statuses["v5"],
+        neo4j=statuses.get("v1", "not_configured"),
+        neo4j_v2=statuses.get("v2"),
+        neo4j_v3=statuses.get("v3"),
+        neo4j_v4=statuses.get("v4"),
+        neo4j_v5=statuses.get("v5"),
         embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
 
 
 @router.get("/api/kb/versions")
-def versions() -> dict[str, dict[str, Any]]:
+def versions(
+    services: KbServices = Depends(get_kb_services),
+) -> dict[str, dict[str, Any]]:
+    configured = set(services.settings.configured_kb_versions)
     return {
         version: asdict(manifest)
         for version, manifest in kb_version_manifests().items()
+        if version in configured
     }
 
 
 @router.get("/api/kb/v4/stats")
 def v4_stats(services: KbServices = Depends(get_kb_services)) -> dict[str, Any]:
+    try:
+        store = services.store_for("v4")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
         "kb_version": "v4",
-        "statistics": services.v4_store.graph_statistics(),
-        "subgraphs": services.v4_store.domain_statistics(),
-        "invariants": services.v4_store.validate_invariants(),
+        "statistics": store.graph_statistics(),
+        "subgraphs": store.domain_statistics(),
+        "invariants": store.validate_invariants(),
     }
 
 
 @router.get("/api/kb/v5/stats")
 def v5_stats(services: KbServices = Depends(get_kb_services)) -> dict[str, Any]:
+    try:
+        store = services.store_for("v5")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
         "kb_version": "v5",
-        "statistics": services.v5_store.graph_statistics(),
-        "subgraphs": services.v5_store.domain_statistics(),
-        "invariants": services.v5_store.validate_invariants(),
+        "statistics": store.graph_statistics(),
+        "subgraphs": store.domain_statistics(),
+        "invariants": store.validate_invariants(),
     }
 
 
@@ -215,7 +222,12 @@ def explain_v4(
         gemini = services.gemini
     except RuntimeError:
         gemini = None
-    return V4RetrievalService(services.v4_store, gemini).query(request.query, request.top_k)
+    try:
+        store = services.store_for("v4")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    service_type = version_retrieval_service_class("v4")
+    return service_type(store, gemini).query(request.query, request.top_k)
 
 
 @router.post("/api/kb/v4/observations")
@@ -225,19 +237,16 @@ def upsert_v4_observation(
     services: KbServices = Depends(get_kb_services),
 ) -> dict[str, Any]:
     try:
-        return services.v4_store.upsert_dynamic_observation(observation)
+        return services.store_for("v4").upsert_dynamic_observation(observation)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post(
-    "/api/kb/query",
-    response_model=V2QueryResponse | V3QueryResponse | V4QueryResponse | V5QueryResponse,
-)
+@router.post("/api/kb/query")
 def query_typed(
     request: TypedQueryRequest,
     services: KbServices = Depends(get_kb_services),
-) -> V2QueryResponse | V3QueryResponse | V4QueryResponse | V5QueryResponse:
+) -> Any:
     started_at = perf_counter()
     logger.info(
         "KB typed query start version={} query={!r} top_k={}",
@@ -249,27 +258,20 @@ def query_typed(
         gemini = services.gemini
     except RuntimeError:
         gemini = None
+    if request.kb_version not in services.settings.configured_kb_versions:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Knowledge Base {request.kb_version.upper()} is not configured.",
+        )
+    if request.kb_version == "v1":
+        raise HTTPException(
+            status_code=400,
+            detail="Knowledge Base V1 does not support the typed query endpoint.",
+        )
     try:
-        if request.kb_version == "v5":
-            response = V5RetrievalService(services.v5_store, gemini).query(
-                request.query,
-                request.top_k,
-            )
-        elif request.kb_version == "v4":
-            response = V4RetrievalService(services.v4_store, gemini).query(
-                request.query,
-                request.top_k,
-            )
-        elif request.kb_version == "v3":
-            response = V3RetrievalService(services.v3_store, gemini).query(
-                request.query,
-                request.top_k,
-            )
-        else:
-            response = V2RetrievalService(services.v2_store, gemini).query(
-                request.query,
-                request.top_k,
-            )
+        service_type = version_retrieval_service_class(request.kb_version)
+        store = services.store_for(request.kb_version)
+        response = service_type(store, gemini).query(request.query, request.top_k)
     except Exception as exc:
         logger.exception(
             "KB typed query error version={} error_type={} elapsed_ms={}",

@@ -8,22 +8,38 @@ from fastapi import Header, HTTPException, Request
 from ..config import Settings
 from ..gemini_client import GeminiClient
 from ..neo4j_store import Neo4jGraphStore
-from ..versions.v2.graph_store import V2GraphStore
-from ..versions.v3.graph_store import V3GraphStore
-from ..versions.v4.graph_store import V4GraphStore
-from ..versions.v5.graph_store import V5GraphStore
+from ..versions.registry import version_graph_store_class
 
 
 class KbServices:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.store = Neo4jGraphStore(settings)
-        self.v2_store = V2GraphStore(settings.for_v2())
-        self.v3_store = V3GraphStore(settings.for_v3())
-        self.v4_store = V4GraphStore(settings.for_v4())
-        self.v5_store = V5GraphStore(settings.for_v5())
+        legacy_settings = (
+            settings.for_version("v1")
+            if "v1" in settings.configured_kb_versions
+            else settings
+        )
+        self.store = Neo4jGraphStore(legacy_settings)
+        self.version_stores = {
+            version: version_graph_store_class(version)(
+                settings.for_version(version)
+            )
+            for version in settings.configured_kb_versions
+            if version != "v1"
+        }
         self._gemini: GeminiClient | None = None
         self._gemini_lock = Lock()
+
+    def store_for(self, version: str):
+        normalized = version.strip().lower()
+        if normalized == "v1" and normalized in self.settings.configured_kb_versions:
+            return self.store
+        try:
+            return self.version_stores[normalized]
+        except KeyError as exc:
+            raise ValueError(
+                f"Knowledge Base {normalized.upper()} is not configured."
+            ) from exc
 
     @property
     def gemini(self) -> GeminiClient:
@@ -35,10 +51,8 @@ class KbServices:
 
     def close(self) -> None:
         self.store.close()
-        self.v2_store.close()
-        self.v3_store.close()
-        self.v4_store.close()
-        self.v5_store.close()
+        for store in self.version_stores.values():
+            store.close()
         if self._gemini is not None:
             self._gemini.close()
 

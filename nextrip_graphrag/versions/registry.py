@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from importlib import import_module
+from typing import Any
+
 from .models import KBVersionManifest
 
 
@@ -51,3 +54,22 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
             description="Experimental typed-target, semantic concept-linking and grounded geographic retrieval.",
         ),
     }
+
+
+def version_graph_store_class(version: str) -> type[Any]:
+    normalized = _validated_typed_version(version)
+    module = import_module(f"{__package__}.{normalized}.graph_store")
+    return getattr(module, f"{normalized.upper()}GraphStore")
+
+
+def version_retrieval_service_class(version: str) -> type[Any]:
+    normalized = _validated_typed_version(version)
+    module = import_module(f"{__package__}.{normalized}.retrieval")
+    return getattr(module, f"{normalized.upper()}RetrievalService")
+
+
+def _validated_typed_version(version: str) -> str:
+    normalized = version.strip().lower()
+    if normalized == "v1" or normalized not in kb_version_manifests():
+        raise ValueError(f"Unsupported typed Knowledge Base version: {normalized}")
+    return normalized

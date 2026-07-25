@@ -87,5 +87,5 @@ class KbAnswerResponse(BaseModel):
 
 class TypedQueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
-    kb_version: Literal["v2", "v3", "v4", "v5"] = "v2"
+    kb_version: str = Field(default="v2", pattern=r"^v[1-9][0-9]*$")
     top_k: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
