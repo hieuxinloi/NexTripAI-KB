@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from nextrip_graphrag.config import Settings
+from nextrip_graphrag.versions.v2.retrieval import _entity
 from nextrip_graphrag.versions.v2.schemas import EntityResult
 from nextrip_graphrag.versions.v5.concept_linker import ConceptLinker
 from nextrip_graphrag.versions.v5.geo import (
@@ -20,6 +21,7 @@ from nextrip_graphrag.versions.v5.schemas import (
     TargetKind,
     TargetResult,
     V5Intent,
+    V5QueryPlan,
 )
 
 
@@ -47,6 +49,17 @@ class FailingGemini:
         raise RuntimeError("planner unavailable")
 
 
+class SequencedGemini:
+    def __init__(self, payloads: list[dict[str, Any]]):
+        self.payloads = payloads
+        self.calls = 0
+
+    def generate_structured(self, system_instruction, prompt, response_schema):
+        payload = self.payloads[self.calls]
+        self.calls += 1
+        return response_schema.model_validate(payload)
+
+
 class FakeResolverStore:
     def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
         if "MATCH (node:GeoArea" not in query:
@@ -67,6 +80,37 @@ class CapturingConceptStore:
     def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
         self.params = params
         assert "place.entity_type = 'restaurant'" in query
+        return []
+
+
+class DishPlaceStore:
+    def __init__(self):
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        self.calls.append((query, params))
+        if "MATCH (node:Dish" in query:
+            return [{
+                "id": "concept:dish:banh-trang",
+                "name": "bánh tráng",
+                "description": None,
+                "evidence_ids": ["unit:dish:banh-trang"],
+                "score": 1.0,
+            }]
+        if "UNWIND $targets AS target" in query:
+            return [{
+                "place": {
+                    "id": "rest_qn_001",
+                    "name": "Quán Anh Nhật Gia Viên",
+                    "city": "Quy Nhơn",
+                    "entity_type": "restaurant",
+                    "category": "Ẩm thực",
+                    "address": "1087 Trần Hưng Đạo, Quy Nhơn",
+                    "matched_targets": ["bánh tráng"],
+                    "support_count": 2,
+                    "score": 1.0,
+                }
+            }]
         return []
 
 
@@ -107,6 +151,24 @@ def concept_candidate(
         "concept_type": concept_type,
         "domain": "experience",
         "score": score,
+    }
+
+
+def test_place_projection_preserves_travel_details_for_answer_generation() -> None:
+    entity = _entity({
+        "id": "rest_qn_001",
+        "name": "Quán Anh Nhật Gia Viên",
+        "city": "Quy Nhơn",
+        "entity_type": "restaurant",
+        "address": "1087 Trần Hưng Đạo, Quy Nhơn",
+        "rating": 4.5,
+        "opening_hours": "06:00-22:00",
+    })
+
+    assert entity.attributes == {
+        "address": "1087 Trần Hưng Đạo, Quy Nhơn",
+        "opening_hours": "06:00-22:00",
+        "rating": 4.5,
     }
 
 
@@ -272,6 +334,164 @@ def test_v5_planner_repairs_omitted_geo_area_from_graph_catalog() -> None:
     assert failure is None
     assert plan.geo_scope.areas == ["Nhơn Lý"]
     assert plan.targets == [QueryTarget(kind=TargetKind.GEO_AREA, value="Nhơn Lý")]
+
+
+def test_v5_planner_repairs_city_trip_target_to_attractions() -> None:
+    plan, planner, failure = plan_query(
+        "Lên lịch trình một ngày khám phá Quy Nhơn",
+        FakeGemini({
+            "intent": "plan_candidates",
+            "targets": [{"kind": "city", "value": "Quy Nhơn"}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "duration_days": 1,
+            "confidence": 1.0,
+        }),
+        CATALOG,
+    )
+
+    assert planner == "gemini"
+    assert failure is None
+    assert plan.geo_scope.cities == ["Quy Nhơn"]
+    assert plan.targets == [
+        QueryTarget(kind=TargetKind.PLACE, entity_types=["attraction"])
+    ]
+
+
+def test_v5_planner_repairs_missing_restaurant_entity_type() -> None:
+    plan, planner, failure = plan_query(
+        "Gợi ý nhà hàng ở Đà Nẵng",
+        FakeGemini({
+            "intent": "recommend",
+            "targets": [{"kind": "place"}],
+            "geo_scope": {"cities": ["Đà Nẵng"]},
+            "confidence": 0.9,
+        }),
+        CATALOG,
+    )
+
+    assert planner == "gemini"
+    assert failure is None
+    assert plan.targets == [
+        QueryTarget(kind=TargetKind.PLACE, entity_types=["restaurant"])
+    ]
+
+
+def test_v5_planner_treats_ngon_as_a_soft_preference() -> None:
+    plan, planner, failure = plan_query(
+        "Ở Quy Nhơn có món gì ngon?",
+        FakeGemini({
+            "intent": "recommend",
+            "targets": [{"kind": "dish"}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "required_concepts": ["ngon"],
+            "confidence": 0.9,
+        }),
+        CATALOG,
+    )
+
+    assert planner == "gemini"
+    assert failure is None
+    assert plan.required_concepts == []
+    assert plan.preferred_concepts == ["ngon"]
+
+
+def test_v5_planner_repairs_food_discovery_misclassified_as_attractions() -> None:
+    plan, planner, failure = plan_query(
+        "Ở Quy Nhơn có món gì ngon?",
+        FakeGemini({
+            "intent": "recommend",
+            "targets": [{"kind": "place", "entity_types": ["attraction"]}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "required_concepts": ["hải sản"],
+            "confidence": 0.9,
+        }),
+        CATALOG,
+    )
+
+    assert planner == "gemini"
+    assert failure is None
+    assert plan.intent == V5Intent.LIST
+    assert plan.targets == [QueryTarget(kind=TargetKind.DISH)]
+    assert plan.required_concepts == []
+    assert plan.preferred_concepts == ["ngon"]
+
+
+def test_v5_planner_does_not_clarify_an_actionable_named_dish_query() -> None:
+    plan, planner, failure = plan_query(
+        "Cho tôi địa chỉ quán bán hải sản ở Quy Nhơn",
+        FakeGemini({
+            "intent": "recommend",
+            "targets": [{"kind": "dish", "value": "hải sản"}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "requested_fields": ["address"],
+            "clarification_needed": True,
+            "confidence": 0.8,
+        }),
+        CATALOG,
+    )
+
+    assert planner == "gemini"
+    assert failure is None
+    assert plan.clarification_needed is False
+
+
+def test_v5_planner_expands_contextual_dish_list_into_named_targets() -> None:
+    catalog = CATALOG | {
+        "concepts": [*CATALOG["concepts"], "bánh tráng", "bún cá"],
+    }
+    plan, planner, failure = plan_query(
+        "Cho tôi địa chỉ quán bán các món này ở Quy Nhơn.\n"
+        "Các món được nhắc đến ở lượt trước: bánh tráng, bún cá.",
+        FakeGemini({
+            "intent": "list",
+            "targets": [{"kind": "place", "entity_types": ["restaurant"]}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "required_concepts": ["bánh tráng", "bún cá"],
+            "confidence": 0.9,
+        }),
+        catalog,
+    )
+
+    assert planner == "gemini"
+    assert failure is None
+    assert plan.intent == V5Intent.RECOMMEND
+    assert plan.targets == [
+        QueryTarget(kind=TargetKind.DISH, value="bánh tráng"),
+        QueryTarget(kind=TargetKind.DISH, value="bún cá"),
+    ]
+    assert plan.required_concepts == []
+
+
+def test_v5_planner_retries_invalid_known_city_plan_with_gemini() -> None:
+    gemini = SequencedGemini([
+        {
+            "intent": "plan_candidates",
+            "targets": [{"kind": "activity", "value": "khám phá"}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "duration_days": 1,
+            "confidence": 0.9,
+        },
+        {
+            "intent": "plan_candidates",
+            "targets": [{"kind": "place", "entity_types": ["attraction"]}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "duration_days": 1,
+            "confidence": 0.95,
+        },
+    ])
+
+    plan, planner, failure = plan_query(
+        "Lên lịch trình một ngày khám phá Quy Nhơn",
+        gemini,
+        CATALOG,
+    )
+
+    assert gemini.calls == 2
+    assert planner == "gemini_repair"
+    assert failure is None
+    assert plan.targets == [
+        QueryTarget(kind=TargetKind.PLACE, entity_types=["attraction"])
+    ]
 
 
 def test_v5_planner_returns_unavailable_for_geo_query_when_gemini_fails() -> None:
@@ -510,6 +730,47 @@ def test_v5_dish_retrieval_is_scoped_to_city_and_restaurants() -> None:
 
     assert store.params["cities"] == ["Đà Nẵng"]
     assert store.params["target_kind"] == "dish"
+
+
+def test_v5_named_dish_recommendation_returns_restaurants_with_addresses() -> None:
+    store = DishPlaceStore()
+    service = V5RetrievalService(store)
+    plan = V5QueryPlan(
+        intent=V5Intent.RECOMMEND,
+        targets=[QueryTarget(kind=TargetKind.DISH, value="bánh tráng")],
+        geo_scope={"cities": ["Quy Nhơn"]},
+        requested_fields=["address"],
+        confidence=1.0,
+    )
+
+    outcome = service._execute_plan(
+        plan,
+        "Cho tôi các điểm bán bánh tráng ở Quy Nhơn",
+        5,
+    )
+
+    assert outcome.retrieval_strategy == "concept_place_path"
+    assert outcome.recommendations[0].place_id == "rest_qn_001"
+    assert outcome.recommendations[0].attributes["address"].startswith("1087")
+    assert outcome.recommendations[0].attributes["matched_targets"] == ["bánh tráng"]
+
+
+def test_v5_unnamed_dish_request_keeps_dish_results_instead_of_venues() -> None:
+    store = DishPlaceStore()
+    service = V5RetrievalService(store)
+    plan = V5QueryPlan(
+        intent=V5Intent.RECOMMEND,
+        targets=[QueryTarget(kind=TargetKind.DISH)],
+        geo_scope={"cities": ["Quy Nhơn"]},
+        preferred_concepts=["ngon"],
+        confidence=1.0,
+    )
+
+    outcome = service._execute_plan(plan, "Ở Quy Nhơn có món gì ngon?", 5)
+
+    assert outcome.targets[0].kind == TargetKind.DISH
+    assert outcome.recommendations == []
+    assert not any("UNWIND $targets AS target" in query for query, _ in store.calls)
 
 
 def test_v5_tool_required_does_not_query_graph() -> None:

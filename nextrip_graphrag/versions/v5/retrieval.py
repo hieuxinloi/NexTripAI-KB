@@ -5,6 +5,7 @@ from time import perf_counter
 from typing import Any
 
 from ...config import DEFAULT_TYPED_QUERY_TOP_K
+from ...normalizer import slugify
 from ..registry import kb_version_manifests
 from ..v2.retrieval import _elapsed_ms, _entity
 from ..v2.schemas import EntityResult, FactResult, QueryIntent
@@ -200,6 +201,7 @@ class V5RetrievalService(V4RetrievalService):
                 outcome.targets,
             )
         elif any(target.kind != TargetKind.PLACE for target in plan.targets):
+            concept_targets: list[TargetResult] = []
             for target in plan.targets:
                 resolved = self.resolver.resolve(
                     target,
@@ -211,6 +213,21 @@ class V5RetrievalService(V4RetrievalService):
                     outcome.recommendations.extend(
                         self._geo_places(resolved[0], min(top_k, plan.limit))
                     )
+                elif target.kind in {
+                    TargetKind.DISH,
+                    TargetKind.ACTIVITY,
+                    TargetKind.CONCEPT,
+                }:
+                    concept_targets.extend(resolved)
+            if concept_targets and _requests_concept_places(plan, query):
+                outcome.recommendations.extend(
+                    self._concept_places(
+                        concept_targets,
+                        plan.geo_scope.cities,
+                        min(top_k, plan.limit),
+                    )
+                )
+                outcome.retrieval_strategy = "concept_place_path"
             outcome.matched_paths = self._geo_scope_paths(
                 outcome.recommendations,
                 outcome.targets,
@@ -326,6 +343,40 @@ class V5RetrievalService(V4RetrievalService):
                 target_id=target.target_id,
                 limit=limit,
             )
+        return [_entity(row["place"]) for row in rows]
+
+    def _concept_places(
+        self,
+        targets: list[TargetResult],
+        cities: list[str],
+        limit: int,
+    ) -> list[EntityResult]:
+        rows = self.store.run_versioned(
+            """
+            UNWIND $targets AS target
+            MATCH (concept:Concept {id: target.id, kb_version: $kb_version})
+            MATCH (claim:Claim {kb_version: $kb_version})-[:OBJECT]->(concept)
+            MATCH (claim)-[:ABOUT]->(subject)
+            MATCH (place:Place {kb_version: $kb_version})-[:HAS_OFFERING*0..1]->(subject)
+            WHERE ($cities = [] OR place.city IN $cities)
+              AND (target.kind <> 'dish' OR place.entity_type = 'restaurant')
+            WITH place,
+                 collect(DISTINCT coalesce(concept.name, concept.canonical_name)) AS matchedTargets,
+                 count(DISTINCT claim) AS supportCount
+            RETURN place {.*,
+                          score: 1.0,
+                          matched_targets: matchedTargets,
+                          support_count: supportCount} AS place
+            ORDER BY supportCount DESC, coalesce(place.rating, 0) DESC, place.name
+            LIMIT $limit
+            """,
+            targets=[
+                {"id": target.target_id, "kind": target.kind.value}
+                for target in targets
+            ],
+            cities=cities,
+            limit=limit,
+        )
         return [_entity(row["place"]) for row in rows]
 
     def _geo_scope_paths(
@@ -486,6 +537,29 @@ def _place_types(targets: list[QueryTarget]) -> list[str]:
         if target.kind == TargetKind.PLACE
         for entity_type in target.entity_types
     ))
+
+
+def _requests_concept_places(plan: V5QueryPlan, query: str) -> bool:
+    named_concept_target = any(
+        target.kind in {TargetKind.DISH, TargetKind.ACTIVITY, TargetKind.CONCEPT}
+        and bool(target.value)
+        for target in plan.targets
+    )
+    if not named_concept_target:
+        return False
+    if {"address", "location"} & set(plan.requested_fields):
+        return True
+    normalized = slugify(query).replace("-", " ")
+    venue_terms = (
+        "dia chi",
+        "diem ban",
+        "nha hang",
+        "noi ban",
+        "o dau",
+        "quan",
+        "cho nao",
+    )
+    return any(term in normalized for term in venue_terms)
 
 
 def _planner_error(failure: PlannerFailure | None) -> dict[str, Any] | None:

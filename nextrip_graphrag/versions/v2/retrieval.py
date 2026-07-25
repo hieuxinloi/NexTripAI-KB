@@ -352,7 +352,19 @@ def _entity(place: dict[str, Any]) -> EntityResult:
         attributes={
             key: value
             for key, value in {
+                "address": place.get("address"),
+                "amenities": place.get("amenities"),
+                "cuisine": place.get("cuisine"),
+                "description": place.get("description"),
                 "is_indoor": place.get("is_indoor"),
+                "matched_targets": place.get("matched_targets"),
+                "opening_hours": place.get("opening_hours"),
+                "phone": place.get("phone"),
+                "price": place.get("price"),
+                "rating": place.get("rating"),
+                "review_count": place.get("review_count"),
+                "signature_dishes": place.get("signature_dishes"),
+                "support_count": place.get("support_count"),
                 "weather_suitable": place.get("weather_suitable"),
             }.items()
             if value is not None and value != []
