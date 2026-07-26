@@ -5389,7 +5389,7 @@
     {
       "id": "hotel_dn_040",
       "entity_type": "hotel",
-      "name": "Hilton Da Nang:",
+      "name": "Hilton Da Nang",
       "city": "Đà Nẵng",
       "district": null,
       "address": "50 Bạch Đằng, Hải Châu, Đà Nẵng 50000, Việt Nam",
@@ -5437,7 +5437,7 @@
         "crawled_at": "2026-05-27T11:56:48.232735",
         "source_name": "nestahotel.com.vn"
       },
-      "embedding_text": "Hilton Da Nang: | Đà Nẵng | hotel | Tọa lạc ngay chân cầu quay Sông Hàn, Hilton Da Nang khẳng định đẳng cấp của một hotel Đà Nẵng chuẩn 5 sao quốc tế, mỗi phòng đều có view ra sông hoặc ra thành phố tùy hướng. Điểm đặc biệt là hồ bơi ngoài trời rộng lớn và nhà hàng trên tầng cao phục vụ ẩm thực Á – Âu với tầm nhìn tuyệt đẹp. Nếu bạn ưu tiên khách sạn đẹp Đà Nẵng ở trung tâm với thương hiệu uy tín toàn cầu, Hilton là lựa chọn an toàn và đáng tin. | pool",
+      "embedding_text": "Hilton Da Nang | Đà Nẵng | hotel | Tọa lạc ngay chân cầu quay Sông Hàn, Hilton Da Nang khẳng định đẳng cấp của một hotel Đà Nẵng chuẩn 5 sao quốc tế, mỗi phòng đều có view ra sông hoặc ra thành phố tùy hướng. Điểm đặc biệt là hồ bơi ngoài trời rộng lớn và nhà hàng trên tầng cao phục vụ ẩm thực Á – Âu với tầm nhìn tuyệt đẹp. Nếu bạn ưu tiên khách sạn đẹp Đà Nẵng ở trung tâm với thương hiệu uy tín toàn cầu, Hilton là lựa chọn an toàn và đáng tin. | pool",
       "last_updated": "2026-05-27T16:53:49.542789",
       "star_rating": 5,
       "price_per_night": {
@@ -5464,8 +5464,8 @@
         "city_center"
       ],
       "booking_links": {
-        "booking": "https://www.booking.com/searchresults.vi.html?ss=Hilton%20Da%20Nang%3A+%C4%90%C3%A0%20N%E1%BA%B5ng&checkin=2026-06-01&checkout=2026-06-02",
-        "agoda": "https://www.agoda.com/vi-vn/search?city=%C4%90%C3%A0%20N%E1%BA%B5ng&checkIn=2026-06-01&checkOut=2026-06-02&searchText=Hilton%20Da%20Nang%3A",
+        "booking": "https://www.booking.com/searchresults.vi.html?ss=Hilton%20Da%20Nang+%C4%90%C3%A0%20N%E1%BA%B5ng&checkin=2026-06-01&checkout=2026-06-02",
+        "agoda": "https://www.agoda.com/vi-vn/search?city=%C4%90%C3%A0%20N%E1%BA%B5ng&checkIn=2026-06-01&checkOut=2026-06-02&searchText=Hilton%20Da%20Nang",
         "traveloka": "https://www.traveloka.com/vi-vn/hotel/search?spec=20260601.20260602.1.1.CITY.%c4%90%c3%a0%20n%e1%ba%b5ng"
       },
       "distance_to_center": "3.1 km",
