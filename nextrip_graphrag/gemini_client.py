@@ -4,6 +4,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Iterable, TypeVar, cast
 
+from loguru import logger
 from pydantic import BaseModel
 
 from .config import Settings
@@ -24,6 +25,8 @@ class GeminiClient:
             ) from exc
 
         self.settings = settings
+        if not settings.gemini_planner_model:
+            raise RuntimeError("GEMINI_PLANNER_MODEL is required.")
         self.types = types
         self._query_embedding_lock = Lock()
         self._query_embedding_cache = (
@@ -108,12 +111,16 @@ class GeminiClient:
         config = self.types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=self.settings.temperature,
+            thinking_config=self.types.ThinkingConfig(
+                thinking_level=self.settings.gemini_thinking_level,
+            ),
         )
         response = self.client.models.generate_content(
-            model=self.settings.gemini_model,
+            model=self.settings.gemini_planner_model,
             contents=prompt,
             config=config,
         )
+        self._log_generation_usage(response, "generate")
         return (response.text or "").strip()
 
     def generate_structured(
@@ -127,13 +134,32 @@ class GeminiClient:
             temperature=self.settings.structured_temperature,
             response_mime_type="application/json",
             response_schema=response_schema,
+            thinking_config=self.types.ThinkingConfig(
+                thinking_level=self.settings.gemini_thinking_level,
+            ),
         )
         structured_client = getattr(self, "structured_client", self.client)
         response = structured_client.models.generate_content(
-            model=self.settings.gemini_model,
+            model=self.settings.gemini_planner_model,
             contents=prompt,
             config=config,
         )
+        self._log_generation_usage(response, "generate_structured")
         if response.parsed is None:
             return response_schema.model_validate_json(response.text or "{}")
         return cast(StructuredModel, response.parsed)
+
+    def _log_generation_usage(self, response, operation: str) -> None:
+        usage = getattr(response, "usage_metadata", None)
+        input_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+        output_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
+        thinking_tokens = int(getattr(usage, "thoughts_token_count", 0) or 0)
+        logger.info(
+            "Gemini usage operation={} model={} input_tokens={} output_tokens={} "
+            "thinking_tokens={}",
+            operation,
+            self.settings.gemini_planner_model,
+            input_tokens,
+            output_tokens,
+            thinking_tokens,
+        )

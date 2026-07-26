@@ -21,6 +21,10 @@ class FakeTypes:
     def GenerateContentConfig(**kwargs):
         return kwargs
 
+    @staticmethod
+    def ThinkingConfig(**kwargs):
+        return kwargs
+
 
 class FakeGenai:
     captured = None
@@ -39,6 +43,7 @@ def test_gemini_client_configures_sdk_timeout_and_retry_policy() -> None:
     client = GeminiClient.__new__(GeminiClient)
     client.settings = Settings(
         google_api_key="test-key",
+        gemini_planner_model="test-planner-model",
         gemini_timeout_ms=12000,
         gemini_retry_attempts=4,
     )
@@ -84,14 +89,21 @@ def test_gemini_query_embedding_reuses_persistent_cache(tmp_path) -> None:
 
 def test_gemini_structured_generation_uses_sdk_parsed_model() -> None:
     expected = StructuredResult(value="parsed")
+    captured = {}
     client = GeminiClient.__new__(GeminiClient)
-    client.settings = Settings()
+    client.settings = Settings(
+        gemini_planner_model="test-planner-model",
+        gemini_thinking_level="minimal",
+    )
     client.types = FakeTypes
     client.client = SimpleNamespace(
         models=SimpleNamespace(
-            generate_content=lambda **kwargs: SimpleNamespace(
-                parsed=expected,
-                text='{"value":"text"}',
+            generate_content=lambda **kwargs: (
+                captured.update(kwargs)
+                or SimpleNamespace(
+                    parsed=expected,
+                    text='{"value":"text"}',
+                )
             )
         )
     )
@@ -99,11 +111,13 @@ def test_gemini_structured_generation_uses_sdk_parsed_model() -> None:
     result = client.generate_structured("system", "prompt", StructuredResult)
 
     assert result is expected
+    assert captured["model"] == "test-planner-model"
+    assert captured["config"]["thinking_config"] == {"thinking_level": "minimal"}
 
 
 def test_gemini_structured_generation_parses_text_when_sdk_cannot_parse() -> None:
     client = GeminiClient.__new__(GeminiClient)
-    client.settings = Settings()
+    client.settings = Settings(gemini_planner_model="test-planner-model")
     client.types = FakeTypes
     client.client = SimpleNamespace(
         models=SimpleNamespace(
@@ -122,7 +136,7 @@ def test_gemini_structured_generation_parses_text_when_sdk_cannot_parse() -> Non
 def test_gemini_uses_fail_fast_client_only_for_structured_generation() -> None:
     calls = []
     client = GeminiClient.__new__(GeminiClient)
-    client.settings = Settings()
+    client.settings = Settings(gemini_planner_model="test-planner-model")
     client.types = FakeTypes
     client.client = SimpleNamespace(
         models=SimpleNamespace(

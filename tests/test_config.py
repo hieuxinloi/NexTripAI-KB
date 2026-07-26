@@ -11,7 +11,8 @@ def _clear_versioned_neo4j_env(monkeypatch) -> None:
 
 def test_from_env_reads_deployment_values_only(monkeypatch) -> None:
     monkeypatch.setenv("NEO4J_V5_URI", "bolt://graph-v5:7687")
-    monkeypatch.setenv("GEMINI_MODEL", "deployment-model")
+    monkeypatch.setenv("GEMINI_PLANNER_MODEL", "deployment-planner-model")
+    monkeypatch.setenv("GEMINI_THINKING_LEVEL", "low")
     monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "deployment-embedding-model")
 
     policy_overrides = {
@@ -36,7 +37,8 @@ def test_from_env_reads_deployment_values_only(monkeypatch) -> None:
     defaults = Settings()
 
     assert settings.neo4j_v5_uri == "bolt://graph-v5:7687"
-    assert settings.gemini_model == "deployment-model"
+    assert settings.gemini_planner_model == "deployment-planner-model"
+    assert settings.gemini_thinking_level == "low"
     assert settings.embedding_model == "deployment-embedding-model"
     assert settings.neo4j_connection_timeout == defaults.neo4j_connection_timeout
     assert settings.neo4j_max_transaction_retry_time == defaults.neo4j_max_transaction_retry_time
@@ -59,6 +61,7 @@ def test_from_env_reads_deployment_values_only(monkeypatch) -> None:
 
 def test_configured_versions_require_complete_supported_env_block(monkeypatch) -> None:
     _clear_versioned_neo4j_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_PLANNER_MODEL", "test-planner-model")
     monkeypatch.setenv("NEO4J_V5_URI", "bolt://graph-v5:7687")
     monkeypatch.setenv("NEO4J_V5_USER", "neo4j")
     monkeypatch.setenv("NEO4J_V5_PASSWORD", "secret")
@@ -74,6 +77,7 @@ def test_configured_versions_require_complete_supported_env_block(monkeypatch) -
 
 def test_unknown_version_env_is_not_advertised_without_implementation(monkeypatch) -> None:
     _clear_versioned_neo4j_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_PLANNER_MODEL", "test-planner-model")
     monkeypatch.setenv("NEO4J_V6_URI", "bolt://graph-v6:7687")
     monkeypatch.setenv("NEO4J_V6_USER", "neo4j")
     monkeypatch.setenv("NEO4J_V6_PASSWORD", "secret")
@@ -82,3 +86,14 @@ def test_unknown_version_env_is_not_advertised_without_implementation(monkeypatc
     settings = Settings.from_env()
 
     assert settings.configured_kb_versions == ()
+
+
+def test_from_env_requires_explicit_planner_model(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_PLANNER_MODEL", raising=False)
+
+    try:
+        Settings.from_env()
+    except RuntimeError as exc:
+        assert "GEMINI_PLANNER_MODEL" in str(exc)
+    else:
+        raise AssertionError("Expected missing planner model to fail fast")

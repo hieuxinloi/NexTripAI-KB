@@ -98,7 +98,8 @@ class Settings:
     neo4j_connection_timeout: float = 3.0
     neo4j_max_transaction_retry_time: float = 3.0
     google_api_key: str | None = None
-    gemini_model: str = "gemini-flash-latest"
+    gemini_planner_model: str = ""
+    gemini_thinking_level: str = "minimal"
     gemini_timeout_ms: int = 30000
     gemini_retry_attempts: int = 3
     structured_gemini_timeout_ms: int = 12000
@@ -123,6 +124,18 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        planner_model = (os.getenv("GEMINI_PLANNER_MODEL") or "").strip()
+        if not planner_model:
+            raise RuntimeError("GEMINI_PLANNER_MODEL is required.")
+        thinking_level = (
+            os.getenv("GEMINI_THINKING_LEVEL", cls.gemini_thinking_level)
+            .strip()
+            .lower()
+        )
+        if thinking_level not in {"minimal", "low", "medium", "high"}:
+            raise RuntimeError(
+                "GEMINI_THINKING_LEVEL must be minimal, low, medium, or high."
+            )
         return cls(
             neo4j_uri=os.getenv("NEO4J_URI", cls.neo4j_uri),
             neo4j_user=os.getenv("NEO4J_USER", cls.neo4j_user),
@@ -145,7 +158,8 @@ class Settings:
             neo4j_v5_password=os.getenv("NEO4J_V5_PASSWORD", cls.neo4j_v5_password),
             neo4j_v5_database=os.getenv("NEO4J_V5_DATABASE", cls.neo4j_v5_database) or None,
             google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
-            gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
+            gemini_planner_model=planner_model,
+            gemini_thinking_level=thinking_level,
             embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", cls.embedding_model),
             admin_api_key=os.getenv("KB_ADMIN_API_KEY") or None,
             neo4j_version_connections=_configured_neo4j_versions(),
