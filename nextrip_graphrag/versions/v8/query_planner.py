@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Literal, TypeVar
 
+from google.genai.errors import APIError
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from ...config import DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
-from ...normalizer import slugify
-from ..v2.schemas import ENTITY_TYPES
-from ..v3.schemas import V3_PREDICATES
 from ..v4.query_planner import StructuredPlanner
 from ..v4.schemas import RankingCriterion, V4Constraint
 from ..v5.schemas import (
@@ -21,6 +20,10 @@ from ..v5.schemas import (
     V5Intent,
     V5QueryPlan,
 )
+from ..v7.query_planner import EntityType, RequestedField, ToolKind
+
+
+EnumValue = TypeVar("EnumValue", bound=StrEnum)
 
 
 SYSTEM_INSTRUCTION = """You are the semantic query planner for NexTripAI GraphRAG V8.
@@ -46,14 +49,14 @@ If the request cannot be grounded safely, set clarification_needed.
 
 
 class V8TargetDraft(BaseModel):
-    kind: str = Field(
+    kind: TargetKind = Field(
         description=(
             "place for venue recommendations; city or geo_area for scope; "
             "activity/dish/concept only for concept discovery"
         )
     )
     value: str | None = None
-    entity_types: list[str] = Field(default_factory=list)
+    entity_types: list[EntityType] = Field(default_factory=list)
 
 
 class V8GeoScopeDraft(BaseModel):
@@ -62,49 +65,33 @@ class V8GeoScopeDraft(BaseModel):
     near_entities: list[str] = Field(default_factory=list)
 
 
-class V8ConstraintDraft(BaseModel):
-    field: str = Field(
-        description=(
-            "Canonical constraint field. Use distance_to_beach_max, "
-            "distance_to_center_max, or party_size for numeric travel requirements."
-        )
-    )
-    value: str | int | float | bool | None = None
-    mode: str = "hard"
-
-
 class V8TaskDraft(BaseModel):
-    name: str = "task"
-    intent: str = "plan_candidates"
+    name: str = Field(default="task", min_length=1, max_length=80)
+    intent: V5Intent = V5Intent.PLAN_CANDIDATES
     targets: list[V8TargetDraft] = Field(default_factory=list)
     geo_scope: V8GeoScopeDraft = Field(default_factory=V8GeoScopeDraft)
     required_concepts: list[str] = Field(default_factory=list)
     preferred_concepts: list[str] = Field(default_factory=list)
-    ranking_criteria: list[str] = Field(default_factory=list)
-    constraints: list[V8ConstraintDraft] = Field(default_factory=list)
+    ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
+    constraints: list[V4Constraint] = Field(default_factory=list)
     limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
 
 
 class V8PlannerDraft(BaseModel):
-    """LLM-facing schema intentionally uses strings for recoverable enums.
+    """Strict LLM-facing contract consumed by Gemini structured output."""
 
-    Gemini structured output is still constrained to objects, arrays, strings,
-    numbers and booleans, but a single spelling variation must not discard the
-    whole plan before graph grounding can repair it.
-    """
-
-    intent: str
+    intent: V5Intent
     targets: list[V8TargetDraft] = Field(default_factory=list)
     geo_scope: V8GeoScopeDraft = Field(default_factory=V8GeoScopeDraft)
-    requested_fields: list[str] = Field(default_factory=list)
+    requested_fields: list[RequestedField] = Field(default_factory=list)
     required_concepts: list[str] = Field(default_factory=list)
     preferred_concepts: list[str] = Field(default_factory=list)
-    ranking_criteria: list[str] = Field(default_factory=list)
-    constraints: list[V8ConstraintDraft] = Field(default_factory=list)
+    ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
+    constraints: list[V4Constraint] = Field(default_factory=list)
     tasks: list[V8TaskDraft] = Field(default_factory=list)
     duration_days: int | None = Field(default=None, ge=1, le=30)
     limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
-    required_tools: list[str] = Field(default_factory=list)
+    required_tools: list[ToolKind] = Field(default_factory=list)
     clarification_needed: bool = False
     confidence: float = Field(default=0.0, ge=0, le=1)
 
@@ -135,64 +122,37 @@ def plan_query(
             prompt,
             V8PlannerDraft,
         )
-        plan = _compile_plan(draft, catalog)
+        plan = _compile_plan(draft)
     except (ValidationError, ValueError, TypeError) as exc:
         logger.warning(
-            "V8 planner normalization failed; retrying with a repair prompt "
+            "V8 planner violated structured graph contract "
             "error_type={} error={} query_length={}",
             exc.__class__.__name__,
             str(exc),
             len(query),
         )
-        try:
-            repaired = gemini.generate_structured(
-                _repair_instruction(exc),
-                prompt,
-                V8PlannerDraft,
-            )
-            plan = _compile_plan(repaired, catalog)
-        except (ValidationError, ValueError, TypeError) as repair_exc:
-            logger.warning(
-                "V8 planner repair failed error_type={} error={} query_length={}",
-                repair_exc.__class__.__name__,
-                str(repair_exc),
-                len(query),
-            )
-            return _unavailable_plan(), "planner_invalid", PlannerFailure(
-                code="invalid_plan",
-                reason=repair_exc.__class__.__name__,
-                retryable=False,
-            )
-        except Exception as repair_exc:
-            return _unavailable_plan(), "planner_unavailable", PlannerFailure(
-                code="planner_unavailable",
-                reason=_error_reason(repair_exc),
-                retryable=True,
-            )
-        planner_name = "gemini_semantic_v8_repair"
+        return _unavailable_plan(), "planner_invalid", PlannerFailure(
+            code="invalid_plan",
+            reason=exc.__class__.__name__,
+            retryable=False,
+        )
     except Exception as exc:
+        failure = _planner_failure(exc)
         logger.warning(
-            "V8 planner unavailable error_type={} query_length={}",
-            exc.__class__.__name__,
+            "V8 planner unavailable reason={} query_length={}",
+            failure.reason,
             len(query),
         )
-        return _unavailable_plan(), "planner_unavailable", PlannerFailure(
-            code="planner_unavailable",
-            reason=_error_reason(exc),
-            retryable=True,
-        )
-    else:
-        planner_name = "gemini_semantic_v8"
+        return _unavailable_plan(), "planner_unavailable", failure
 
     logger.info("V8 planner output plan={}", plan.model_dump_json())
-    return plan, planner_name, None
+    return plan, "gemini_semantic_v8", None
 
 
 def _compile_plan(
     draft: V8PlannerDraft,
-    catalog: dict[str, list[str]],
 ) -> V5QueryPlan:
-    intent = _enum_value(draft.intent, V5Intent)
+    intent = draft.intent
     targets = [_compile_target(raw) for raw in draft.targets]
     if intent == V5Intent.LOOKUP:
         named_places = [
@@ -247,14 +207,9 @@ def _compile_plan(
     cities = _clean_values(draft.geo_scope.cities)
     areas = _clean_values(draft.geo_scope.areas)
     near_entities = _clean_values(draft.geo_scope.near_entities)
-    requested = _canonical_values(draft.requested_fields, V3_PREDICATES)
-    ranking = [
-        _enum_value(value, RankingCriterion)
-        for value in draft.ranking_criteria
-        if _is_enum_value(value, RankingCriterion)
-    ]
-    tools = _clean_values(draft.required_tools)
-    constraints = _compile_constraints(draft.constraints)
+    requested = _enum_values(draft.requested_fields)
+    ranking = list(dict.fromkeys(draft.ranking_criteria))
+    tools = _enum_values(draft.required_tools)
     tasks = [_compile_task(raw) for raw in draft.tasks]
     if (
         intent == V5Intent.PLAN_CANDIDATES
@@ -277,8 +232,8 @@ def _compile_plan(
         requested_fields=requested,
         required_concepts=required_concepts,
         preferred_concepts=preferred_concepts,
-        ranking_criteria=list(dict.fromkeys(ranking)),
-        constraints=constraints,
+        ranking_criteria=ranking,
+        constraints=draft.constraints,
         tasks=tasks,
         duration_days=draft.duration_days,
         limit=draft.limit,
@@ -289,15 +244,9 @@ def _compile_plan(
 
 
 def _compile_task(raw: V8TaskDraft) -> QueryTask:
-    intent = _enum_value(raw.intent, V5Intent)
-    ranking = [
-        _enum_value(value, RankingCriterion)
-        for value in raw.ranking_criteria
-        if _is_enum_value(value, RankingCriterion)
-    ]
     return QueryTask(
-        name=str(raw.name or "task").strip()[:80] or "task",
-        intent=intent,
+        name=raw.name.strip(),
+        intent=raw.intent,
         targets=[_compile_target(target) for target in raw.targets],
         geo_scope=GeoScope(
             cities=_clean_values(raw.geo_scope.cities),
@@ -306,70 +255,38 @@ def _compile_task(raw: V8TaskDraft) -> QueryTask:
         ),
         required_concepts=_clean_values(raw.required_concepts),
         preferred_concepts=_clean_values(raw.preferred_concepts),
-        ranking_criteria=list(dict.fromkeys(ranking)),
-        constraints=_compile_constraints(raw.constraints),
+        ranking_criteria=list(dict.fromkeys(raw.ranking_criteria)),
+        constraints=raw.constraints,
         limit=raw.limit,
     )
 
 
 def _compile_target(raw: V8TargetDraft) -> QueryTarget:
-    kind = _enum_value(raw.kind, TargetKind)
-    value = raw.value
-    if value is not None and not isinstance(value, str):
-        value = str(value)
-    entity_types = _canonical_values(raw.entity_types, ENTITY_TYPES)
-    if kind != TargetKind.PLACE:
+    entity_types = _enum_values(raw.entity_types)
+    if raw.kind != TargetKind.PLACE:
         entity_types = []
     return QueryTarget(
-        kind=kind,
-        value=value.strip() if isinstance(value, str) and value.strip() else None,
+        kind=raw.kind,
+        value=_clean(raw.value),
         entity_types=entity_types,
     )
 
 
-def _compile_constraints(raw_constraints: list[V8ConstraintDraft]) -> list[V4Constraint]:
-    constraints: list[V4Constraint] = []
-    for raw in raw_constraints:
-        try:
-            constraints.append(V4Constraint.model_validate(raw.model_dump()))
-        except ValidationError:
-            # Optional malformed constraints must not erase a valid plan. The
-            # graph executor remains conservative and simply does not apply it.
-            continue
-    return constraints
+def _clean(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    return cleaned
 
 
-def _canonical_values(values: Any, allowed: set[str] | list[str] | None = None) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    cleaned = [str(value).strip() for value in values if str(value).strip()]
-    if allowed is None:
-        return list(dict.fromkeys(cleaned))
-    by_slug = {slugify(value): value for value in allowed}
-    return list(dict.fromkeys(by_slug[slugify(value)] for value in cleaned if slugify(value) in by_slug))
+def _clean_values(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
-def _enum_value(value: Any, enum_type: Any) -> Any:
-    normalized = slugify(str(value or "")).replace("-", "_")
-    for item in enum_type:
-        if normalized in {
-            slugify(item.value).replace("-", "_"),
-            slugify(item.name).replace("-", "_"),
-        }:
-            return item
-    raise ValueError(f"Unsupported {enum_type.__name__}: {value}")
-
-
-def _is_enum_value(value: Any, enum_type: Any) -> bool:
-    try:
-        _enum_value(value, enum_type)
-        return True
-    except ValueError:
-        return False
-
-
-def _clean_values(values: Any) -> list[str]:
-    return _canonical_values(values)
+def _enum_values(values: list[EnumValue]) -> list[str]:
+    return list(dict.fromkeys(value.value for value in values))
 
 
 def _user_prompt(query: str, catalog: dict[str, list[str]]) -> str:
@@ -380,37 +297,10 @@ def _user_prompt(query: str, catalog: dict[str, list[str]]) -> str:
                 "known_cities": catalog.get("cities", []),
                 "known_geo_areas": catalog.get("areas", []),
                 "known_concepts": catalog.get("concepts", []),
-                "entity_types": sorted(ENTITY_TYPES),
-                "requested_fields": sorted(V3_PREDICATES),
-                "ranking_criteria": [item.value for item in RankingCriterion],
-                "intents": [item.value for item in V5Intent],
-                "target_kinds": [item.value for item in TargetKind],
-                "constraint_fields": [
-                    "budget_max",
-                    "category",
-                    "distance_to_beach_max",
-                    "distance_to_center_max",
-                    "indoor",
-                    "near_subject",
-                    "open_24h",
-                    "party_size",
-                    "star_rating",
-                    "weather",
-                ],
             },
         },
         ensure_ascii=False,
         separators=(",", ":"),
-    )
-
-
-def _repair_instruction(exc: Exception) -> str:
-    return (
-        SYSTEM_INSTRUCTION
-        + "\nA previous JSON plan could not be normalized: "
-        + f"{exc.__class__.__name__}: {exc}. "
-        + "Return canonical enum values exactly as listed in graph_contract; "
-        + "omit uncertain optional constraints instead of inventing values."
     )
 
 
@@ -422,15 +312,24 @@ def _unavailable_plan() -> V5QueryPlan:
     )
 
 
-def _error_reason(exc: Exception) -> str:
-    message = str(exc).upper()
-    if "BILLING_DISABLED" in message:
-        return "GeminiBillingDisabled"
-    if "PERMISSION_DENIED" in message:
-        return "GeminiPermissionDenied"
-    if "RESOURCE_EXHAUSTED" in message:
-        return "GeminiQuotaExceeded"
-    return exc.__class__.__name__
+def _planner_failure(exc: Exception) -> PlannerFailure:
+    if not isinstance(exc, APIError):
+        return PlannerFailure(
+            code="planner_unavailable",
+            reason=exc.__class__.__name__,
+            retryable=True,
+        )
+    reasons = {
+        "PERMISSION_DENIED": "GeminiPermissionDenied",
+        "RESOURCE_EXHAUSTED": "GeminiQuotaExceeded",
+        "FAILED_PRECONDITION": "GeminiFailedPrecondition",
+    }
+    status = exc.status if exc.status is not None else ""
+    return PlannerFailure(
+        code="planner_unavailable",
+        reason=reasons.get(status, f"GeminiHTTP{exc.code}"),
+        retryable=exc.code == 429 or exc.code >= 500,
+    )
 
 
 __all__ = ["V8PlannerDraft", "PlannerFailure", "plan_query"]

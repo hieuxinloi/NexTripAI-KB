@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import re
-from collections import defaultdict
-from typing import Any
+from neo4j_graphrag.indexes import create_fulltext_index, create_vector_index
 
 from ..v5.graph_store import V5GraphStore
 
@@ -18,6 +16,7 @@ class V8GraphStore(V5GraphStore):
     kb_version = "v8"
     source_kb_version = "v5"
     place_label = "V8Place"
+    entity_label = "V8Entity"
     place_fulltext_index = "v8_place_fulltext"
     place_vector_index = "v8_place_embedding"
 
@@ -32,100 +31,112 @@ class V8GraphStore(V5GraphStore):
             kb_version=self.kb_version,
         )
 
-        nodes = self.run(
+        id_prefix = f"{self.kb_version}:"
+        node_rows = self.run(
             """
-            MATCH (node)
-            WHERE node.kb_version = $source_kb_version AND node.id IS NOT NULL
-            RETURN labels(node) AS labels, properties(node) AS properties
+            MATCH (source)
+            WHERE source.kb_version = $source_kb_version
+              AND source.id IS NOT NULL
+            WITH source, labels(source) AS source_labels
+            CREATE (copy:$(source_labels + [$entity_label]) {
+              id: $id_prefix + toString(source.id)
+            })
+            FOREACH (
+              key IN [key IN keys(source) WHERE key <> 'id'] |
+              SET copy[key] = source[key]
+            )
+            SET copy.kb_version = $kb_version
+            FOREACH (
+              key IN [
+                key IN keys(copy)
+                WHERE key <> 'id'
+                  AND key ENDS WITH '_id'
+                  AND copy[key] IS :: STRING
+              ] |
+              SET copy[key] = $id_prefix + copy[key]
+            )
+            FOREACH (
+              key IN [
+                key IN keys(copy)
+                WHERE key ENDS WITH '_ids'
+                  AND copy[key] IS :: LIST<STRING>
+              ] |
+              SET copy[key] = [item IN copy[key] | $id_prefix + item]
+            )
+            FOREACH (
+              ignored IN CASE
+                WHEN 'TravelCatalog' IN source_labels THEN [1]
+                ELSE []
+              END |
+              SET copy.status = 'building'
+            )
+            RETURN count(copy) AS nodes
             """,
             source_kb_version=self.source_kb_version,
+            kb_version=self.kb_version,
+            entity_label=self.entity_label,
+            id_prefix=id_prefix,
         )
-        grouped_nodes: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
-        for row in nodes:
-            labels = tuple(
-                sorted(
-                    label
-                    for label in row["labels"]
-                    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label)
-                )
-            )
-            if not labels:
-                continue
-            properties = dict(row["properties"])
-            source_id = properties.get("id")
-            if not source_id:
-                continue
-            properties = self._namespace_reference_properties(properties)
-            properties["id"] = self._namespaced_id(str(source_id))
-            properties["kb_version"] = self.kb_version
-            if "TravelCatalog" in labels:
-                properties["status"] = "building"
-            grouped_nodes[labels].append({"properties": properties})
+        projected_nodes = int(node_rows[0]["nodes"])
 
-        for labels, rows in grouped_nodes.items():
-            label_expression = ":" + ":".join(labels)
-            self.run(
-                f"""
-                UNWIND $rows AS row
-                CREATE (node{label_expression})
-                SET node = row.properties
-                """,
-                rows=rows,
-            )
+        self.run(
+            """
+            CREATE RANGE INDEX v8_entity_id IF NOT EXISTS
+            FOR (node:V8Entity) ON (node.id)
+            """
+        )
+        self.run("CALL db.awaitIndexes(60)")
 
         self._ensure_search_schema()
 
-        relationships = self.run(
+        relationship_rows = self.run(
             """
-            MATCH (source)-[relationship]->(target)
+            MATCH (source)-[original]->(target)
             WHERE source.kb_version = $source_kb_version
               AND target.kb_version = $source_kb_version
               AND source.id IS NOT NULL
               AND target.id IS NOT NULL
-            RETURN source.id AS source_id,
-                   target.id AS target_id,
-                   labels(source) AS source_labels,
-                   labels(target) AS target_labels,
-                   type(relationship) AS relationship_type,
-                   properties(relationship) AS properties
+            MATCH (source_copy:V8Entity {
+              id: $id_prefix + toString(source.id),
+              kb_version: $kb_version
+            })
+            MATCH (target_copy:V8Entity {
+              id: $id_prefix + toString(target.id),
+              kb_version: $kb_version
+            })
+            CREATE (source_copy)-[copy:$(type(original))]->(target_copy)
+            SET copy = properties(original)
+            FOREACH (
+              key IN [
+                key IN keys(copy)
+                WHERE key ENDS WITH '_id'
+                  AND copy[key] IS :: STRING
+              ] |
+              SET copy[key] = $id_prefix + copy[key]
+            )
+            FOREACH (
+              key IN [
+                key IN keys(copy)
+                WHERE key ENDS WITH '_ids'
+                  AND copy[key] IS :: LIST<STRING>
+              ] |
+              SET copy[key] = [item IN copy[key] | $id_prefix + item]
+            )
+            RETURN count(copy) AS relationships
             """,
             source_kb_version=self.source_kb_version,
+            kb_version=self.kb_version,
+            id_prefix=id_prefix,
         )
-        grouped_relationships: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-        for row in relationships:
-            relationship_type = str(row["relationship_type"])
-            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", relationship_type):
-                continue
-            source_label = _primary_label(row["source_labels"])
-            target_label = _primary_label(row["target_labels"])
-            if not source_label or not target_label:
-                continue
-            grouped_relationships[(source_label, target_label)].append(
-                {
-                    "source_id": self._namespaced_id(str(row["source_id"])),
-                    "target_id": self._namespaced_id(str(row["target_id"])),
-                    "relationship_type": relationship_type,
-                    "properties": self._namespace_reference_properties(
-                        dict(row["properties"])
-                    ),
-                }
-            )
-
-        for (source_label, target_label), rows in grouped_relationships.items():
-            for start in range(0, len(rows), 1000):
-                self.run(
-                    f"""
-                    UNWIND $rows AS row
-                    MATCH (source:{source_label} {{id: row.source_id, kb_version: $kb_version}})
-                    MATCH (target:{target_label} {{id: row.target_id, kb_version: $kb_version}})
-                    CREATE (source)-[relationship:$(row.relationship_type)]->(target)
-                    SET relationship = row.properties
-                    """,
-                    rows=rows[start : start + 1000],
-                    kb_version=self.kb_version,
-                )
+        projected_relationships = int(relationship_rows[0]["relationships"])
 
         statistics = self.projection_statistics()
+        if statistics["nodes"] != projected_nodes:
+            raise RuntimeError("V8 node projection count changed during materialization")
+        if statistics["relationships"] != projected_relationships:
+            raise RuntimeError(
+                "V8 relationship projection count changed during materialization"
+            )
         self.run(
             """
             MATCH (catalog:TravelCatalog {kb_version: $kb_version})
@@ -166,22 +177,21 @@ class V8GraphStore(V5GraphStore):
         if not dimensions:
             raise RuntimeError("V8 projection has no place embeddings")
         embedding_dimensions = int(dimensions[0]["dimensions"])
-        self.run(
-            """
-            CREATE FULLTEXT INDEX v8_place_fulltext IF NOT EXISTS
-            FOR (place:V8Place)
-            ON EACH [place.name, place.aliases, place.entity_profile]
-            """
+        create_fulltext_index(
+            self.driver,
+            self.place_fulltext_index,
+            label=self.place_label,
+            node_properties=["name", "aliases", "entity_profile"],
+            neo4j_database=self.settings.neo4j_database,
         )
-        self.run(
-            f"""
-            CREATE VECTOR INDEX v8_place_embedding IF NOT EXISTS
-            FOR (place:V8Place) ON (place.embedding)
-            OPTIONS {{indexConfig: {{
-              `vector.dimensions`: {embedding_dimensions},
-              `vector.similarity_function`: 'cosine'
-            }}}}
-            """
+        create_vector_index(
+            self.driver,
+            self.place_vector_index,
+            label=self.place_label,
+            embedding_property="embedding",
+            dimensions=embedding_dimensions,
+            similarity_fn="cosine",
+            neo4j_database=self.settings.neo4j_database,
         )
         self.run(
             """
@@ -202,8 +212,8 @@ class V8GraphStore(V5GraphStore):
         row = rows[0] if rows else {}
         return {
             "kb_version": self.kb_version,
-            "nodes": int(row.get("nodes", 0)),
-            "relationships": int(row.get("relationships", 0)),
+            "nodes": int(row["nodes"]) if rows else 0,
+            "relationships": int(row["relationships"]) if rows else 0,
         }
 
     def _projection_ready(self) -> bool:
@@ -216,53 +226,5 @@ class V8GraphStore(V5GraphStore):
             kb_version=self.kb_version,
         )
         return bool(rows and rows[0]["status"] == "ready")
-
-    @staticmethod
-    def _namespaced_id(source_id: str) -> str:
-        return f"v8:{source_id}"
-
-    @classmethod
-    def _namespace_reference_properties(
-        cls,
-        properties: dict[str, Any],
-    ) -> dict[str, Any]:
-        updated = dict(properties)
-        for key, value in properties.items():
-            if key == "id":
-                continue
-            if key.endswith("_id") and isinstance(value, str):
-                updated[key] = cls._namespaced_id(value)
-            elif key.endswith("_ids") and isinstance(value, list):
-                updated[key] = [
-                    cls._namespaced_id(str(item))
-                    for item in value
-                ]
-        return updated
-
-
-def _primary_label(labels: list[str]) -> str | None:
-    preferred = (
-        "Place",
-        "City",
-        "GeoArea",
-        "Offering",
-        "Concept",
-        "Claim",
-        "TextUnit",
-        "Document",
-        "Fact",
-        "TravelCatalog",
-        "Community",
-        "CommunityReport",
-        "Source",
-    )
-    for label in preferred:
-        if label in labels:
-            return label
-    for label in labels:
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
-            return label
-    return None
-
 
 __all__ = ["V8GraphStore"]

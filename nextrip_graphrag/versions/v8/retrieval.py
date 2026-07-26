@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from functools import cached_property
 from typing import Any
 
-from ...retrieval.rank_fusion import fuse_ranked_ids
+from neo4j import Record
+from neo4j_graphrag.retrievers import HybridCypherRetriever
+from neo4j_graphrag.retrievers.hybrid import HybridSearchRanker
+from neo4j_graphrag.types import RetrieverResultItem
+
 from ..v2.retrieval import _entity, _fulltext_query
 from ..v2.schemas import EntityResult, FactResult
 from ..v4.policy import POLICY
@@ -32,9 +37,28 @@ class V8RetrievalService(V6RetrievalService):
     api_kb_version = "v8"
     manifest_version = "v8"
     response_model = V8QueryResponse
-    place_fallback_strategy = "hybrid_place_rrf_evidence_v8"
+    place_fallback_strategy = "neo4j_graphrag_hybrid_evidence_v8"
     fulltext_index = "v8_place_fulltext"
     vector_index = "v8_place_embedding"
+
+    @cached_property
+    def _place_hybrid_retriever(self) -> HybridCypherRetriever:
+        return HybridCypherRetriever(
+            driver=self.store.driver,
+            vector_index_name=self.vector_index,
+            fulltext_index_name=self.fulltext_index,
+            retrieval_query="""
+            WHERE node.kb_version = $kb_version
+              AND ($city IS NULL OR node.city = $city)
+              AND ($entity_types = [] OR node.entity_type IN $entity_types)
+              AND ($place_ids IS NULL OR node.id IN $place_ids)
+            RETURN node {.*} AS place, score
+            ORDER BY score DESC
+            LIMIT $result_limit
+            """,
+            result_formatter=_format_place_result,
+            neo4j_database=self.store.settings.neo4j_database,
+        )
 
     def _resolve_turn(
         self,
@@ -63,7 +87,9 @@ class V8RetrievalService(V6RetrievalService):
         )
 
     def _planner_input(self, resolved: ResolvedTurn) -> str:
-        return resolved.planner_query or resolved.query
+        if resolved.planner_query is not None:
+            return resolved.planner_query
+        return resolved.query
 
     def _initial_itinerary_request(self, resolved: ResolvedTurn) -> bool:
         del resolved
@@ -110,7 +136,9 @@ class V8RetrievalService(V6RetrievalService):
             city=city,
             entity_types=entity_types,
         )
-        city_id = rows[0]["city_id"] or city or "all"
+        city_id = rows[0]["city_id"]
+        if city_id is None:
+            city_id = city if city is not None else "all"
         return FactResult(
             fact_id=f"aggregate:{city_id}:{'-'.join(entity_types)}",
             subject_id=str(city_id),
@@ -295,78 +323,28 @@ class V8RetrievalService(V6RetrievalService):
         limit: int,
         place_ids: list[str] | None = None,
     ) -> list[EntityResult]:
-        """Use Neo4j's current SEARCH vector syntax plus full-text RRF."""
+        """Use Neo4j GraphRAG's validated hybrid retrieval implementation."""
         candidate_limit = max(
             limit * POLICY.candidate_multiplier,
             POLICY.minimum_vector_pool,
         )
-        vector_rows = self.store.run_versioned(
-            f"""
-            MATCH (place:Place)
-            SEARCH place IN (
-              VECTOR INDEX {self.vector_index}
-              FOR $embedding
-              LIMIT $candidate_limit
-            )
-            SCORE AS score
-            WHERE place.kb_version = $kb_version
-              AND ($city IS NULL OR place.city = $city)
-              AND ($entity_types = [] OR place.entity_type IN $entity_types)
-              AND ($place_ids IS NULL OR place.id IN $place_ids)
-            RETURN place {{.*}} AS place, score
-            """,
-            embedding=query_embedding,
-            city=city,
-            entity_types=entity_types,
-            place_ids=place_ids,
-            candidate_limit=candidate_limit,
-        )
         query_text = _fulltext_query(query)
-        fulltext_rows = (
-            self.store.run_versioned(
-                f"""
-                CALL db.index.fulltext.queryNodes(
-                  '{self.fulltext_index}', $query_text, {{limit: $candidate_limit}}
-                )
-                YIELD node AS place, score
-                WHERE place.kb_version = $kb_version
-                  AND ($city IS NULL OR place.city = $city)
-                  AND ($entity_types = [] OR place.entity_type IN $entity_types)
-                  AND ($place_ids IS NULL OR place.id IN $place_ids)
-                RETURN place {{.*}} AS place, score
-                ORDER BY score DESC
-                """,
-                query_text=query_text,
-                city=city,
-                entity_types=entity_types,
-                place_ids=place_ids,
-                candidate_limit=candidate_limit,
-            )
-            if query_text
-            else []
+        if not query_text:
+            return []
+        result = self._place_hybrid_retriever.search(
+            query_text=query_text,
+            query_vector=query_embedding,
+            top_k=candidate_limit,
+            ranker=HybridSearchRanker.NAIVE,
+            query_params={
+                "kb_version": self.graph_kb_version,
+                "city": city,
+                "entity_types": entity_types,
+                "place_ids": place_ids,
+                "result_limit": limit,
+            },
         )
-        rows_by_id = {
-            str(row["place"]["id"]): row
-            for row in [*vector_rows, *fulltext_rows]
-        }
-        fused = fuse_ranked_ids(
-            {
-                source: [
-                    str(row["place"]["id"])
-                    for row in rows
-                ]
-                for source, rows in {
-                    "vector": vector_rows,
-                    "fulltext": fulltext_rows,
-                }.items()
-            }
-        )
-        results: list[EntityResult] = []
-        for item in fused[:limit]:
-            place = dict(rows_by_id[item.item_id]["place"])
-            place["score"] = item.score
-            results.append(_entity(place))
-        return results
+        return [_entity(_place_payload(item)) for item in result.items]
 
 
 def _public_missing_fields(diagnostics: list[str]) -> list[str]:
@@ -485,6 +463,19 @@ def _unique_by(items: list[Any], key: Callable[[Any], Any]) -> list[Any]:
     for item in items:
         unique.setdefault(key(item), item)
     return list(unique.values())
+
+
+def _format_place_result(record: Record) -> RetrieverResultItem:
+    return RetrieverResultItem(
+        content=dict(record["place"]),
+        metadata={"score": float(record["score"])},
+    )
+
+
+def _place_payload(item: RetrieverResultItem) -> dict[str, Any]:
+    place = dict(item.content)
+    place["score"] = item.metadata["score"]
+    return place
 
 
 __all__ = ["V8RetrievalService", "V8QueryResponse"]

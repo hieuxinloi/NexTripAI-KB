@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+from types import SimpleNamespace
 from typing import Any
+
+from neo4j_graphrag.types import RetrieverResultItem
 
 from nextrip_graphrag.versions.v5.schemas import (
     GeoScope,
@@ -54,10 +57,10 @@ def test_v8_structured_schema_is_compatible_with_gemini_developer_api() -> None:
     assert_no_open_objects(schema)
 
 
-def test_v8_normalizes_optional_invalid_constraints_without_dropping_plan() -> None:
+def test_v8_rejects_invalid_constraints_in_the_structured_schema() -> None:
     planner = FakePlanner(
         {
-            "intent": "AGGREGATE",
+            "intent": "aggregate",
             "targets": [{"kind": "place", "entity_types": ["restaurant"]}],
             "geo_scope": {"cities": ["Đà Nẵng"]},
             "constraints": [
@@ -69,11 +72,11 @@ def test_v8_normalizes_optional_invalid_constraints_without_dropping_plan() -> N
 
     plan, planner_name, failure = plan_query("đếm nhà hàng ở Đà Nẵng", planner, CATALOG)
 
-    assert failure is None
-    assert planner_name == "gemini_semantic_v8"
-    assert plan.intent == V5Intent.AGGREGATE
-    assert plan.geo_scope.cities == ["Đà Nẵng"]
-    assert plan.constraints == []
+    assert plan.intent == V5Intent.UNSUPPORTED
+    assert planner_name == "planner_invalid"
+    assert failure is not None
+    assert failure.code == "invalid_plan"
+    assert failure.retryable is False
 
 
 def test_v8_uses_v6_stateful_executor_and_v8_response_contract() -> None:
@@ -83,33 +86,75 @@ def test_v8_uses_v6_stateful_executor_and_v8_response_contract() -> None:
     assert V8RetrievalService.response_model.model_fields["kb_version"].default == "v8"
 
 
-def test_v8_projection_namespaces_graph_reference_properties() -> None:
-    projected = V8GraphStore._namespace_reference_properties(
-        {
-            "id": "fact:hotel:price",
-            "subject_id": "hotel-1",
-            "anchor_place_ids": ["hotel-1", "beach-1"],
-            "name": "verified fact",
-        }
-    )
+def test_v8_projection_uses_server_side_dynamic_graph_copy() -> None:
+    source = (
+        Path(__file__).parents[1]
+        / "nextrip_graphrag"
+        / "versions"
+        / "v8"
+        / "graph_store.py"
+    ).read_text(encoding="utf-8")
 
-    assert projected["id"] == "fact:hotel:price"
-    assert projected["subject_id"] == "v8:hotel-1"
-    assert projected["anchor_place_ids"] == ["v8:hotel-1", "v8:beach-1"]
-    assert projected["name"] == "verified fact"
+    assert "CREATE (copy:$(source_labels + [$entity_label])" in source
+    assert "SET copy[key] = source[key]" in source
+    assert "SET copy = properties(source)" not in source
+    assert "CREATE (source_copy)-[copy:$(type(original))]->(target_copy)" in source
+    assert "create_vector_index(" in source
+    assert "create_fulltext_index(" in source
+    assert "defaultdict" not in source
+    assert "_primary_label" not in source
 
 
-def test_v8_fallback_uses_current_search_clause_and_keeps_filters_safe() -> None:
+def test_v8_fallback_uses_official_hybrid_retriever_and_keeps_filters_safe() -> None:
     source = (
         Path(__file__).parents[1] / "nextrip_graphrag" / "versions" / "v8" / "retrieval.py"
     ).read_text(encoding="utf-8")
 
-    assert "SEARCH place IN" in source
-    assert "db.index.vector.queryNodes" not in source
-    assert "WHERE place.kb_version = $kb_version" in source
+    assert "HybridCypherRetriever" in source
+    assert "fuse_ranked_ids" not in source
+    assert "WHERE node.kb_version = $kb_version" in source
     assert "v5_place_fulltext" not in source
     assert 'fulltext_index = "v8_place_fulltext"' in source
     assert 'vector_index = "v8_place_embedding"' in source
+
+
+def test_v8_hybrid_retriever_adapts_sdk_results_to_entities() -> None:
+    class FakeHybridRetriever:
+        def __init__(self) -> None:
+            self.call: dict[str, Any] | None = None
+
+        def search(self, **kwargs: Any) -> SimpleNamespace:
+            self.call = kwargs
+            return SimpleNamespace(
+                items=[
+                    RetrieverResultItem(
+                        content={
+                            "id": "v8:cafe-1",
+                            "name": "Cafe One",
+                            "city": "Quy Nhơn",
+                            "entity_type": "cafe",
+                        },
+                        metadata={"score": 0.8},
+                    )
+                ]
+            )
+
+    service = object.__new__(V8RetrievalService)
+    retriever = FakeHybridRetriever()
+    service.__dict__["_place_hybrid_retriever"] = retriever
+
+    results = service._place_fallback_candidates(
+        "cafe yên tĩnh",
+        [0.1, 0.2],
+        "Quy Nhơn",
+        ["cafe"],
+        5,
+    )
+
+    assert [item.place_id for item in results] == ["v8:cafe-1"]
+    assert results[0].score == 0.8
+    assert retriever.call is not None
+    assert retriever.call["query_params"]["kb_version"] == "v8"
 
 
 def test_v8_does_not_expose_grounding_diagnostics_as_missing_fields() -> None:

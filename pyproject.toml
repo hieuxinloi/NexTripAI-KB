@@ -10,6 +10,7 @@ dependencies = [
   "httpx>=0.27.0",
   "loguru>=0.7.2",
   "neo4j>=5.20.0,<7",
+  "neo4j-graphrag>=1.18.0,<2",
   "pydantic>=2.8.0",
   "python-dotenv>=1.0.1",
   "uvicorn[standard]>=0.30.0",
