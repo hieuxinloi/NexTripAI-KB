@@ -1,5 +1,6 @@
 google-genai>=2.14.0,<3
 neo4j>=5.20.0,<7
+neo4j-graphrag>=1.18.0,<2
 python-dotenv>=1.0.1
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
