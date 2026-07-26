@@ -33,6 +33,7 @@ from .versions.v5.graph_store import V5GraphStore
 from .versions.v5.retrieval import V5RetrievalService
 from .versions.v6.retrieval import V6RetrievalService
 from .versions.v7.retrieval import V7RetrievalService
+from .versions.v8.retrieval import V8RetrievalService
 
 
 def load_dotenv_if_available() -> None:
@@ -501,6 +502,45 @@ def cmd_v7_benchmark(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_v8_query(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings)
+    try:
+        response = V8RetrievalService(store, gemini).query(args.query, args.top_k)
+    finally:
+        store.close()
+        gemini.close()
+    print(response.model_dump_json(indent=2))
+
+
+def cmd_v8_benchmark(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V5GraphStore(settings.for_v5())
+    gemini = GeminiClient(settings) if args.planner_mode == "configured" else OfflinePlanner()
+    service = V8RetrievalService(store, gemini)
+    try:
+        report = run_v3_benchmark(
+            service,
+            args.source,
+            output_path=args.output,
+            conversation_runner=service.query_conversation,
+            benchmark_version="v8",
+        )
+    finally:
+        store.close()
+        close = getattr(gemini, "close", None)
+        if callable(close):
+            close()
+    print(
+        json.dumps(
+            {key: value for key, value in report.items() if key != "results"},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def cmd_ask(args: argparse.Namespace) -> None:
     settings = Settings.from_env()
     store = Neo4jGraphStore(settings)
@@ -895,6 +935,38 @@ def build_parser() -> argparse.ArgumentParser:
         default="configured",
     )
     v7_benchmark.set_defaults(func=cmd_v7_benchmark)
+
+    v8_query = subparsers.add_parser(
+        "v8-query",
+        help="Run V8 tolerant semantic, stateful GraphRAG retrieval.",
+    )
+    v8_query.add_argument("query")
+    v8_query.add_argument("--top-k", type=int, default=DEFAULT_TYPED_QUERY_TOP_K)
+    v8_query.set_defaults(func=cmd_v8_query)
+
+    v8_benchmark = subparsers.add_parser(
+        "v8-benchmark",
+        help="Run the GraphRAG benchmark against V8.",
+    )
+    v8_benchmark.add_argument(
+        "--source",
+        default="../docs/test_cases_benchmark_v3 (1).md",
+    )
+    v8_benchmark.add_argument(
+        "--output",
+        default=str(
+            Path(__file__).parent
+            / "evaluation"
+            / "results"
+            / "benchmark_v3_v8.json"
+        ),
+    )
+    v8_benchmark.add_argument(
+        "--planner-mode",
+        choices=("offline", "configured"),
+        default="configured",
+    )
+    v8_benchmark.set_defaults(func=cmd_v8_benchmark)
 
     ask = subparsers.add_parser("ask", help="Ask the GraphRAG chatbot.")
     ask.add_argument("question")

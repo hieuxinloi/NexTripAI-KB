@@ -71,6 +71,15 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
             retrieval_version="llm-semantic-grounded-hybrid-rrf-v7.1",
             description="V7.1 adds rank-based full-text/vector fusion to semantic planning and closed-candidate graph entity linking.",
         ),
+        "v8": KBVersionManifest(
+            kb_version="v8",
+            status="experimental",
+            dataset="travel_data_verified:519",
+            ontology_version="typed-target-geo-provenance-v5-with-evidence-chunks",
+            embedding_version="place-concept-evidence-v5",
+            retrieval_version="semantic-tolerant-stateful-hybrid-evidence-v8",
+            description="V8 combines tolerant semantic planning, closed-world entity grounding, V6 conversation/itinerary state, and multi-chunk claim evidence.",
+        ),
     }
 
 

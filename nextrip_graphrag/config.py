@@ -189,11 +189,17 @@ class Settings:
         from .versions.registry import kb_version_manifests
 
         supported = kb_version_manifests()
-        return tuple(
+        configured = [
             version
             for version in self.neo4j_version_connections
             if version in supported
-        )
+        ]
+        # V8 is a read-only retrieval projection over the verified V5 graph.
+        # It intentionally reuses the V5 connection unless a dedicated V8
+        # snapshot is configured later.
+        if "v5" in configured and "v8" in supported and "v8" not in configured:
+            configured.append("v8")
+        return tuple(configured)
 
     def for_version(self, version: str) -> "Settings":
         normalized = version.strip().lower()
@@ -208,6 +214,15 @@ class Settings:
             )
         if normalized == "v1":
             return self
+        if normalized == "v8" and "v5" in self.neo4j_version_connections:
+            connection = self.neo4j_version_connections["v5"]
+            return replace(
+                self,
+                neo4j_uri=connection.uri,
+                neo4j_user=connection.user,
+                neo4j_password=connection.password,
+                neo4j_database=connection.database,
+            )
         suffix = normalized.removeprefix("v")
         attribute_prefix = f"neo4j_v{suffix}_"
         if all(
@@ -234,3 +249,6 @@ class Settings:
 
     def for_v5(self) -> "Settings":
         return self.for_version("v5")
+
+    def for_v8(self) -> "Settings":
+        return self.for_version("v8")

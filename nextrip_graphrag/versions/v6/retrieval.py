@@ -24,6 +24,8 @@ class V6RetrievalService(V5RetrievalService):
 
     kb_version = "v5"
     graph_kb_version = "v5"
+    api_kb_version = "v6"
+    response_model = V6QueryResponse
 
     def _ensure_ready(self) -> None:
         rows = self.store.run(
@@ -80,10 +82,10 @@ class V6RetrievalService(V5RetrievalService):
         payload = response.model_dump(mode="json")
         payload.update(
             {
-                "kb_version": "v6",
+                "kb_version": self.api_kb_version,
                 "itinerary": [day.model_dump(mode="json") for day in itinerary],
                 "conversation_context": current.model_dump(mode="json"),
-                "manifest": asdict(kb_version_manifests()["v6"]),
+                "manifest": asdict(kb_version_manifests()[self.manifest_version]),
             }
         )
         payload["trace"].append(
@@ -94,7 +96,7 @@ class V6RetrievalService(V5RetrievalService):
                 "itinerary_days": len(itinerary),
             }
         )
-        return V6QueryResponse.model_validate(payload)
+        return self.response_model.model_validate(payload)
 
     def query_conversation(
         self,

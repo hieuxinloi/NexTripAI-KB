@@ -1,4 +1,4 @@
-# NexTripAI GraphRAG V8 architecture proposal
+# NexTripAI GraphRAG V8 architecture
 
 ## Decision
 
@@ -7,8 +7,11 @@ of truth, add evidence-grounded community projections for broad questions, and
 route each query to a bounded retrieval mode. Do not replace the typed executor
 with unrestricted LLM-generated Cypher.
 
-V7.1 implements the first safe step: full-text and vector entity candidates are
-fused by reciprocal rank rather than by incomparable raw scores.
+V8 implements the first production-shaped slice of this design: tolerant
+structured planning, closed-world entity grounding, V6 conversation/itinerary
+state, reciprocal-rank candidate fusion, and multi-chunk evidence retrieval.
+Community reports remain a rebuildable next phase because the current Aura
+snapshot has verified claims and TextUnits but no published V8 community index.
 
 ## Why this design
 
@@ -96,6 +99,20 @@ Full-text, vector, graph-path, and community sources are fused by rank. Hard
 constraints remain gates and are never traded away for semantic similarity.
 Generated Cypher is not accepted; the planner emits a validated retrieval mode and
 typed parameters consumed by reviewed Cypher templates.
+
+V8's evidence path is deliberately explicit:
+
+```
+Place -> HAS_OFFERING -> Subject <- ABOUT - Claim
+Claim -> SUPPORTED_BY -> TextUnit -> PART_OF -> Document
+Place <- MENTIONS - TextUnit
+```
+
+The retriever returns up to three chunks per candidate, preferring claim-backed
+chunks and retaining the verified place record. An unresolved semantic phrase is
+demoted from a hard graph concept to a soft retrieval hint; an unresolved city,
+area, or named place still blocks execution. This preserves grounding without
+turning vocabulary gaps into hallucinated nodes.
 
 ## Evaluation gates
 
