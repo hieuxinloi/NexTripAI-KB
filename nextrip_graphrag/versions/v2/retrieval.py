@@ -164,6 +164,7 @@ class V2RetrievalService:
         city: str | None = None,
     ) -> dict[str, Any] | None:
         allowed_types = entity_types or []
+        fulltext_subject = _fulltext_query(subject)
         exact = self.store.run(
             """
             MATCH (place:Place {kb_version: $kb_version})
@@ -176,30 +177,32 @@ class V2RetrievalService:
             RETURN place {.*, score: 1.0} AS place
             LIMIT 1
             """,
-            subject=_fulltext_query(subject),
+            subject=fulltext_subject,
             entity_types=allowed_types,
             city=city,
             kb_version=self.kb_version,
         )
         if exact:
             return exact[0]["place"]
-        rows = self.store.run(
-            """
-            CALL db.index.fulltext.queryNodes($index_name, $subject, {limit: 10})
-            YIELD node, score
-            WHERE node.kb_version = $kb_version
-              AND ($entity_types = [] OR node.entity_type IN $entity_types)
-              AND ($city IS NULL OR node.city = $city)
-            RETURN node {.*, score: score} AS place
-            ORDER BY score DESC
-            LIMIT 10
-            """,
-            subject=subject,
-            index_name=self.fulltext_index,
-            entity_types=allowed_types,
-            city=city,
-            kb_version=self.kb_version,
-        )
+        rows = []
+        if fulltext_subject:
+            rows = self.store.run(
+                """
+                CALL db.index.fulltext.queryNodes($index_name, $subject, {limit: 10})
+                YIELD node, score
+                WHERE node.kb_version = $kb_version
+                  AND ($entity_types = [] OR node.entity_type IN $entity_types)
+                  AND ($city IS NULL OR node.city = $city)
+                RETURN node {.*, score: score} AS place
+                ORDER BY score DESC
+                LIMIT 10
+                """,
+                subject=fulltext_subject,
+                index_name=self.fulltext_index,
+                entity_types=allowed_types,
+                city=city,
+                kb_version=self.kb_version,
+            )
         for row in rows:
             place = row["place"]
             if _is_compatible_anchor(subject, place):

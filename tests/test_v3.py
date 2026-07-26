@@ -130,6 +130,53 @@ def test_fulltext_anchor_sanitizes_lucene_operators() -> None:
     assert _fulltext_query("Sài Gòn - Đà Nẵng?") == "Sài Gòn Đà Nẵng"
 
 
+def test_fulltext_anchor_uses_sanitized_subject() -> None:
+    class CapturingStore:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def run(self, query, **params):
+            self.calls.append((query, params))
+            if "db.index.fulltext.queryNodes" in query:
+                return [{"place": {"name": "Hilton Da Nang:"}}]
+            return []
+
+    store = CapturingStore()
+    result = V3RetrievalService(store)._anchor("Hilton Da Nang:")
+
+    fulltext_calls = [
+        params
+        for query, params in store.calls
+        if "db.index.fulltext.queryNodes" in query
+    ]
+    assert result == {"name": "Hilton Da Nang:"}
+    assert fulltext_calls == [
+        {
+            "subject": "Hilton Da Nang",
+            "index_name": "v3_place_fulltext",
+            "entity_types": [],
+            "city": None,
+            "kb_version": "v3",
+        }
+    ]
+
+
+def test_fulltext_anchor_skips_empty_sanitized_subject() -> None:
+    class CapturingStore:
+        def __init__(self) -> None:
+            self.queries = []
+
+        def run(self, query, **params):
+            self.queries.append(query)
+            return []
+
+    store = CapturingStore()
+    result = V3RetrievalService(store)._anchor(":::???")
+
+    assert result is None
+    assert not any("db.index.fulltext.queryNodes" in query for query in store.queries)
+
+
 def test_v3_ontology_promotes_existing_properties_to_facts() -> None:
     places = {place["id"]: place for place in read_processed("processed_verified")["places"]}
     hotel_facts = {fact["predicate"] for fact in extract_facts(places["hotel_qn_001"])}
