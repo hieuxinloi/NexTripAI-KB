@@ -719,6 +719,90 @@ def test_v5_resolver_guards_target_label() -> None:
     assert result[0].name == "Nhơn Lý"
 
 
+def test_v5_place_resolver_removes_entity_type_prefix_before_contains_lookup() -> None:
+    class PrefixResolverStore:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
+            self.calls.append((query, params))
+            if " CONTAINS " not in query:
+                return []
+            return [{
+                "id": "hotel_dn_040",
+                "name": "Hilton Da Nang:",
+                "description": None,
+                "evidence_ids": [],
+                "score": 0.7,
+            }]
+
+    store = PrefixResolverStore()
+    result = V5EntityResolver(store).resolve(
+        QueryTarget(
+            kind=TargetKind.PLACE,
+            value="Khách sạn Hilton Da Nang",
+            entity_types=["hotel"],
+        ),
+        cities=["Đà Nẵng"],
+    )
+
+    assert result[0].target_id == "hotel_dn_040"
+    assert store.calls[0][1]["values"] == [
+        "Hilton Da Nang",
+        "Khách sạn Hilton Da Nang",
+    ]
+    assert not any("db.index.fulltext.queryNodes" in query for query, _ in store.calls)
+
+
+def test_v5_place_resolver_falls_back_to_safe_fuzzy_fulltext_lookup() -> None:
+    class FulltextResolverStore:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
+            self.calls.append((query, params))
+            if "db.index.fulltext.queryNodes" not in query:
+                return []
+            return [
+                {
+                    "id": "hotel_dn_040",
+                    "name": "Hilton Da Nang",
+                    "aliases": [],
+                    "description": None,
+                    "evidence_ids": [],
+                    "score": 4.2,
+                },
+                {
+                    "id": "hotel_dn_042",
+                    "name": "Belle Maison Parosand Da Nang",
+                    "aliases": [],
+                    "description": None,
+                    "evidence_ids": [],
+                    "score": 4.1,
+                },
+            ]
+
+    store = FulltextResolverStore()
+    result = V5EntityResolver(store).resolve(
+        QueryTarget(
+            kind=TargetKind.PLACE,
+            value="Khách sạn Hiltn Da Nang:",
+            entity_types=["hotel"],
+        ),
+        cities=["Đà Nẵng"],
+    )
+
+    assert [item.target_id for item in result] == ["hotel_dn_040"]
+    fulltext_calls = [
+        params
+        for query, params in store.calls
+        if "db.index.fulltext.queryNodes" in query
+    ]
+    assert fulltext_calls[0]["query_text"] == "Hiltn Da Nang"
+    assert fulltext_calls[0]["entity_types"] == ["hotel"]
+    assert fulltext_calls[0]["cities"] == ["Đà Nẵng"]
+
+
 def test_v5_dish_retrieval_is_scoped_to_city_and_restaurants() -> None:
     store = CapturingConceptStore()
 
