@@ -73,6 +73,16 @@ def _configured_neo4j_versions() -> dict[str, Neo4jConnectionSettings]:
     return dict(sorted(connections.items(), key=lambda item: _version_sort_key(item[0])))
 
 
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    parsed = int(value)
+    if parsed < minimum:
+        raise ValueError(f"{name} must be at least {minimum}.")
+    return parsed
+
+
 @dataclass(frozen=True)
 class Settings:
     neo4j_uri: str = "bolt://localhost:7687"
@@ -160,6 +170,15 @@ class Settings:
             google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
             gemini_planner_model=planner_model,
             gemini_thinking_level=thinking_level,
+            gemini_timeout_ms=_env_int(
+                "GEMINI_TIMEOUT_MS",
+                cls.gemini_timeout_ms,
+                minimum=1_000,
+            ),
+            gemini_retry_attempts=_env_int(
+                "GEMINI_RETRY_ATTEMPTS",
+                cls.gemini_retry_attempts,
+            ),
             embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", cls.embedding_model),
             admin_api_key=os.getenv("KB_ADMIN_API_KEY") or None,
             neo4j_version_connections=_configured_neo4j_versions(),

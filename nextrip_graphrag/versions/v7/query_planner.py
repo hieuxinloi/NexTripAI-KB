@@ -205,9 +205,38 @@ def _compile_plan(draft: V7PlannerDraft) -> V5QueryPlan:
         duration_days=draft.duration_days,
         limit=draft.limit,
         required_tools=_unique([value.value for value in draft.required_tools]),
-        clarification_needed=draft.clarification_needed,
+        clarification_needed=_keep_material_clarification(draft),
         confidence=draft.confidence,
     )
+
+
+def _keep_material_clarification(draft: V7PlannerDraft) -> bool:
+    if not draft.clarification_needed:
+        return False
+    has_anchor = bool(
+        draft.targets
+        or draft.geo_scope.cities
+        or draft.geo_scope.areas
+        or draft.geo_scope.near_entities
+    )
+    has_semantics = bool(
+        draft.required_concepts
+        or draft.preferred_concepts
+        or any(target.entity_types for target in draft.targets)
+    )
+    if has_anchor and has_semantics:
+        return False
+    if draft.intent == V5Intent.COMPARE:
+        return len(draft.targets) < 2
+    if draft.intent in {
+        V5Intent.LIST,
+        V5Intent.RECOMMEND,
+        V5Intent.SUMMARIZE,
+        V5Intent.AGGREGATE,
+        V5Intent.PLAN_CANDIDATES,
+    }:
+        return not has_anchor
+    return True
 
 
 def _user_prompt(query: str, catalog: dict[str, list[str]]) -> str:

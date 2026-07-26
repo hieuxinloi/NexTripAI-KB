@@ -5,6 +5,7 @@ from typing import Any
 
 from nextrip_graphrag.api.schemas import TypedQueryRequest
 from nextrip_graphrag.config import Settings
+from nextrip_graphrag.normalizer import CITY_DEFINITIONS
 from nextrip_graphrag.versions.v5.schemas import (
     GeoScope,
     QueryTarget,
@@ -13,6 +14,7 @@ from nextrip_graphrag.versions.v5.schemas import (
     V5QueryPlan,
 )
 from nextrip_graphrag.versions.v7.entity_linker import (
+    GraphCandidateProvider,
     NodeSelection,
     SemanticEntityLinker,
 )
@@ -101,6 +103,32 @@ class CandidateStore:
         return []
 
 
+class PerturbedScoreStore(CandidateStore):
+    def run_versioned(self, query: str, **_params: Any) -> list[dict[str, Any]]:
+        if "fulltext.queryNodes" in query:
+            return [
+                {
+                    "candidate_id": "place:dragon-bridge",
+                    "canonical_value": "Cáº§u Rá»“ng",
+                    "score": 0.1,
+                }
+            ]
+        if "vector.queryNodes" in query:
+            return [
+                {
+                    "candidate_id": "place:thi-nai-bridge",
+                    "canonical_value": "Cáº§u Thá»‹ Náº¡i",
+                    "score": 10_000.0,
+                },
+                {
+                    "candidate_id": "place:dragon-bridge",
+                    "canonical_value": "Cáº§u Rá»“ng",
+                    "score": 0.01,
+                },
+            ]
+        return []
+
+
 class ReadyPlannerStore:
     def __init__(self):
         self.settings = Settings()
@@ -110,6 +138,59 @@ class ReadyPlannerStore:
 
     def planner_catalog(self) -> dict[str, list[str]]:
         return CATALOG
+
+
+class HybridPlaceStore:
+    settings = Settings()
+
+    def run_versioned(self, query: str, **_params: Any) -> list[dict[str, Any]]:
+        if "vector.queryNodes" in query:
+            return [
+                {
+                    "place": {
+                        "id": "place:semantic-only",
+                        "name": "Semantic only",
+                        "city": "Quy NhÆ¡n",
+                        "entity_type": "hotel",
+                    },
+                    "score": 10_000.0,
+                },
+                {
+                    "place": {
+                        "id": "place:cross-source",
+                        "name": "Cross source",
+                        "city": "Quy NhÆ¡n",
+                        "entity_type": "hotel",
+                    },
+                    "score": 0.01,
+                },
+            ]
+        if "fulltext.queryNodes" in query:
+            return [
+                {
+                    "place": {
+                        "id": "place:cross-source",
+                        "name": "Cross source",
+                        "city": "Quy NhÆ¡n",
+                        "entity_type": "hotel",
+                    },
+                    "score": 0.1,
+                }
+            ]
+        return []
+
+
+class GraphVersionStore:
+    settings = Settings()
+
+    def __init__(self):
+        self.params: dict[str, Any] = {}
+
+    def run(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        self.params = params
+        if "RETURN count(DISTINCT place) AS count" in query:
+            return [{"count": 42}]
+        return [{"status": "ready"}]
 
 
 def test_v7_requires_semantic_planner_instead_of_lexical_fallback() -> None:
@@ -136,6 +217,20 @@ def test_v7_service_exposes_planner_unavailable_without_fallback() -> None:
     assert response.error["code"] == "planner_unavailable"
     assert response.error["message"].startswith("The V7 query planner")
     assert response.trace[0]["planner"] == "planner_unavailable"
+
+
+def test_v7_queries_the_reused_v5_graph_version() -> None:
+    store = GraphVersionStore()
+
+    fact = V7RetrievalService(store, None)._count_fact(
+        next(iter(CITY_DEFINITIONS)),
+        ["attraction"],
+    )
+
+    assert fact.value == 42
+    assert store.params["kb_version"] == "v5"
+    assert V7RetrievalService.kb_version == "v5"
+    assert V7RetrievalService.response_model.model_fields["kb_version"].default == "v7"
 
 
 def test_v7_accepts_llm_semantics_without_phrase_rules() -> None:
@@ -176,6 +271,25 @@ def test_v7_accepts_llm_semantics_without_phrase_rules() -> None:
     ]
 
 
+def test_v7_does_not_block_actionable_plan_when_llm_marks_clarification() -> None:
+    ai = PlannerAI(
+        {
+            "intent": "recommend",
+            "targets": [{"kind": "place", "entity_types": ["attraction"]}],
+            "geo_scope": {"cities": ["Quy Nhơn", "Đà Nẵng"]},
+            "preferred_concepts": ["cảnh đẹp", "trải nghiệm địa phương"],
+            "clarification_needed": True,
+            "confidence": 0.8,
+        }
+    )
+
+    plan, _planner, failure = plan_query("Gợi ý chuyến đi", ai, CATALOG)
+
+    assert failure is None
+    assert plan.clarification_needed is False
+    assert plan.geo_scope.cities == ["Quy Nhơn", "Đà Nẵng"]
+
+
 def test_v7_place_grounding_selects_only_from_graph_candidates() -> None:
     linker = SemanticEntityLinker(
         CandidateStore(),
@@ -192,6 +306,57 @@ def test_v7_place_grounding_selects_only_from_graph_candidates() -> None:
     assert link.resolved_value == "Cầu Rồng"
     assert link.method == "llm_candidate_selection"
     assert link.candidates[0].candidate_id == "place:dragon-bridge"
+    assert link.candidates[0].retrieval == {
+        "fulltext_rank": 1,
+        "fulltext_score": 0.81,
+        "vector_rank": 1,
+        "vector_score": 0.93,
+    }
+
+
+def test_v7_candidate_fusion_uses_ranks_not_incomparable_raw_scores() -> None:
+    candidates = GraphCandidateProvider(
+        CandidateStore(),
+        SelectingAI(None),
+    ).candidates("cÃ¢y cáº§u", "place", CATALOG["places"])
+
+    assert [candidate.candidate_id for candidate in candidates] == [
+        "place:dragon-bridge",
+        "place:thi-nai-bridge",
+    ]
+    assert candidates[0].score < 0.1
+    assert candidates[0].retrieval["fulltext_score"] == 0.81
+    assert candidates[0].retrieval["vector_score"] == 0.93
+
+
+def test_v7_candidate_fusion_is_stable_when_source_score_scales_change() -> None:
+    candidates = GraphCandidateProvider(
+        PerturbedScoreStore(),
+        SelectingAI(None),
+    ).candidates("cÃ¢y cáº§u", "place", CATALOG["places"])
+
+    assert candidates[0].candidate_id == "place:dragon-bridge"
+    assert candidates[0].retrieval["fulltext_rank"] == 1
+    assert candidates[0].retrieval["vector_rank"] == 2
+    assert candidates[1].retrieval["vector_score"] == 10_000.0
+
+
+def test_v7_recommendation_fallback_uses_hybrid_rank_fusion() -> None:
+    service = V7RetrievalService(HybridPlaceStore(), SelectingAI(None))
+
+    candidates = service._place_fallback_candidates(
+        "khÃ¡ch sáº¡n cÃ³ mÃ´ táº£ phÃ¹ há»£p",
+        [0.1, 0.2],
+        None,
+        ["hotel"],
+        5,
+    )
+
+    assert [candidate.place_id for candidate in candidates] == [
+        "place:cross-source",
+        "place:semantic-only",
+    ]
+    assert service.place_fallback_strategy == "hybrid_place_rrf_fallback"
 
 
 def test_v7_rejects_selector_id_outside_candidate_whitelist() -> None:
@@ -255,7 +420,8 @@ def test_v7_source_has_no_lexical_planner_tables_or_query_regex() -> None:
     assert "planner_lexicon" not in source
     assert "_ALIASES" not in source
     assert "_SUBJECT_PATTERNS" not in source
-    assert "import re" not in source
+    assert "\nimport re\n" not in source
+    assert "\nfrom re import" not in source
 
 
 def test_v7_is_exposed_by_typed_api_contract() -> None:

@@ -9,17 +9,17 @@ def _clear_versioned_neo4j_env(monkeypatch) -> None:
         monkeypatch.delenv(f"NEO4J_{field}", raising=False)
 
 
-def test_from_env_reads_deployment_values_only(monkeypatch) -> None:
+def test_from_env_reads_deployment_and_runtime_budget_values(monkeypatch) -> None:
     monkeypatch.setenv("NEO4J_V5_URI", "bolt://graph-v5:7687")
     monkeypatch.setenv("GEMINI_PLANNER_MODEL", "deployment-planner-model")
     monkeypatch.setenv("GEMINI_THINKING_LEVEL", "low")
     monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "deployment-embedding-model")
+    monkeypatch.setenv("GEMINI_TIMEOUT_MS", "12000")
+    monkeypatch.setenv("GEMINI_RETRY_ATTEMPTS", "2")
 
     policy_overrides = {
         "NEO4J_CONNECTION_TIMEOUT": "99",
         "NEO4J_MAX_TRANSACTION_RETRY_TIME": "99",
-        "GEMINI_TIMEOUT_MS": "99",
-        "GEMINI_RETRY_ATTEMPTS": "99",
         "GEMINI_EMBEDDING_DIM": "99",
         "QUERY_EMBEDDING_CACHE": "external-cache",
         "RAG_TOP_K": "99",
@@ -42,8 +42,8 @@ def test_from_env_reads_deployment_values_only(monkeypatch) -> None:
     assert settings.embedding_model == "deployment-embedding-model"
     assert settings.neo4j_connection_timeout == defaults.neo4j_connection_timeout
     assert settings.neo4j_max_transaction_retry_time == defaults.neo4j_max_transaction_retry_time
-    assert settings.gemini_timeout_ms == defaults.gemini_timeout_ms
-    assert settings.gemini_retry_attempts == defaults.gemini_retry_attempts
+    assert settings.gemini_timeout_ms == 12000
+    assert settings.gemini_retry_attempts == 2
     assert settings.embedding_dim == defaults.embedding_dim
     assert settings.query_embedding_cache == defaults.query_embedding_cache
     assert settings.top_k == defaults.top_k
@@ -75,7 +75,7 @@ def test_configured_versions_require_complete_supported_env_block(monkeypatch) -
     assert settings.for_version("v5").neo4j_uri == "bolt://graph-v5:7687"
 
 
-def test_unknown_version_env_is_not_advertised_without_implementation(monkeypatch) -> None:
+def test_supported_v6_version_is_advertised_when_configured(monkeypatch) -> None:
     _clear_versioned_neo4j_env(monkeypatch)
     monkeypatch.setenv("GEMINI_PLANNER_MODEL", "test-planner-model")
     monkeypatch.setenv("NEO4J_V6_URI", "bolt://graph-v6:7687")
@@ -85,7 +85,7 @@ def test_unknown_version_env_is_not_advertised_without_implementation(monkeypatc
 
     settings = Settings.from_env()
 
-    assert settings.configured_kb_versions == ()
+    assert settings.configured_kb_versions == ("v6",)
 
 
 def test_from_env_requires_explicit_planner_model(monkeypatch) -> None:

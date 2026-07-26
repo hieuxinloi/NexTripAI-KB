@@ -42,7 +42,9 @@ class _RetrievalOutcome:
     matched_paths: list[MatchedPath] = field(default_factory=list)
     constraint_results: list[ConstraintResult] = field(default_factory=list)
     missing_fields: list[str] = field(default_factory=list)
+    trace: list[dict[str, Any]] = field(default_factory=list)
     retrieval_strategy: str = "typed_graph"
+    place_evidence_required: bool = False
 
 
 class V5RetrievalService(V4RetrievalService):
@@ -51,6 +53,7 @@ class V5RetrievalService(V4RetrievalService):
     vector_index = "v5_place_embedding"
     manifest_version = "v5"
     response_model = V5QueryResponse
+    place_fallback_strategy = "semantic_place_fallback"
 
     def __init__(self, store: V5GraphStore, gemini: Any | None = None):
         super().__init__(store, gemini)
@@ -98,13 +101,14 @@ class V5RetrievalService(V4RetrievalService):
         evidence = self._merge_evidence(
             self._target_evidence(outcome.targets),
             self._place_evidence(outcome.recommendations)
-            if outcome.retrieval_strategy == "semantic_place_fallback"
+            if outcome.place_evidence_required
             else [],
             self._claim_evidence(
                 [*outcome.entities, *outcome.recommendations],
                 [*plan.required_concepts, *plan.preferred_concepts],
             ),
         )
+        trace.extend(outcome.trace)
         trace.extend(
             [
                 {
@@ -217,9 +221,13 @@ class V5RetrievalService(V4RetrievalService):
                     resolved_targets[1],
                 )
                 if path is None or fact is None:
-                    outcome.missing_fields.append(
-                        "distance_between:"
-                        f"{resolved_targets[0].name}:{resolved_targets[1].name}"
+                    outcome.trace.append(
+                        {
+                            "step": "distance_lookup",
+                            "status": "unavailable",
+                            "origin": resolved_targets[0].name,
+                            "destination": resolved_targets[1].name,
+                        }
                     )
                 else:
                     outcome.matched_paths.append(path)
@@ -300,14 +308,16 @@ class V5RetrievalService(V4RetrievalService):
                 else None
             )
             if query_embedding is not None:
-                outcome.recommendations = self._semantic_place_candidates(
+                outcome.recommendations = self._place_fallback_candidates(
+                    query,
                     query_embedding,
                     _single_city(plan.geo_scope.cities),
                     entity_types,
                     limit,
                     place_ids=place_ids,
                 )
-                outcome.retrieval_strategy = "semantic_place_fallback"
+                outcome.retrieval_strategy = self.place_fallback_strategy
+                outcome.place_evidence_required = True
             else:
                 outcome.recommendations = self._rank_candidates(
                     query,
@@ -544,6 +554,23 @@ class V5RetrievalService(V4RetrievalService):
             limit=limit,
         )
         return [_entity(row["place"]) for row in rows]
+
+    def _place_fallback_candidates(
+        self,
+        query: str,
+        query_embedding: list[float],
+        city: str | None,
+        entity_types: list[str],
+        limit: int,
+        place_ids: list[str] | None = None,
+    ) -> list[EntityResult]:
+        return self._semantic_place_candidates(
+            query_embedding,
+            city,
+            entity_types,
+            limit,
+            place_ids=place_ids,
+        )
 
     def _target_evidence(self, targets: list[TargetResult]) -> list[V4EvidenceResult]:
         rows = [

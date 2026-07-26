@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ...config import Settings
 from ...normalizer import slugify
+from ...retrieval.rank_fusion import fuse_ranked_ids
 from ..v2.retrieval import _fulltext_query
 from ..v4.schemas import V4Constraint
 from ..v5.concept_linker import ConceptLinkBatch, ConceptLinker
@@ -31,6 +32,7 @@ class NodeCandidate(BaseModel):
     score: float = 0.0
     city: str | None = None
     entity_type: str | None = None
+    retrieval: dict[str, float | int] = Field(default_factory=dict)
 
 
 class NodeSelection(BaseModel):
@@ -84,11 +86,86 @@ class EntityAIClient(Protocol):
     ) -> NodeSelection: ...
 
 
+class GraphCandidateProvider:
+    """Retrieve a closed candidate set from graph indexes and catalog values."""
+
+    def __init__(self, store: EntityStore, ai_client: EntityAIClient | None):
+        self.store = store
+        self.ai_client = ai_client
+        self.limit = store.settings.v5_concept_link_top_k
+
+    def candidates(
+        self,
+        term: str,
+        kind: LinkKind,
+        vocabulary: list[str],
+    ) -> list[NodeCandidate]:
+        if kind != "place":
+            return [
+                NodeCandidate(
+                    candidate_id=f"{kind}:{index}",
+                    canonical_value=value,
+                    kind=kind,
+                )
+                for index, value in enumerate(vocabulary)
+            ]
+        return self._place_candidates(term)
+
+    def _place_candidates(self, term: str) -> list[NodeCandidate]:
+        sources: dict[str, list[NodeCandidate]] = {}
+        query_text = _fulltext_query(term)
+        if query_text:
+            sources["fulltext"] = self._query_places(
+                """
+                CALL db.index.fulltext.queryNodes(
+                  'v5_place_fulltext', $query_text, {limit: $limit}
+                )
+                YIELD node, score
+                WHERE node.kb_version = $kb_version
+                RETURN node.id AS candidate_id,
+                       node.name AS canonical_value,
+                       node.city AS city,
+                       node.entity_type AS entity_type,
+                       score
+                ORDER BY score DESC
+                """,
+                query_text=query_text,
+            )
+
+        if self.ai_client is not None:
+            sources["vector"] = self._query_places(
+                """
+                CALL db.index.vector.queryNodes(
+                  'v5_place_embedding', $limit, $embedding
+                )
+                YIELD node, score
+                WHERE node.kb_version = $kb_version
+                RETURN node.id AS candidate_id,
+                       node.name AS canonical_value,
+                       node.city AS city,
+                       node.entity_type AS entity_type,
+                       score
+                ORDER BY score DESC
+                """,
+                embedding=self.ai_client.embed_query(term),
+            )
+        return _fuse_place_candidates(sources, self.limit)
+
+    def _query_places(
+        self,
+        query: str,
+        **params: object,
+    ) -> list[NodeCandidate]:
+        rows = self.store.run_versioned(query, limit=self.limit, **params)
+        return [_place_candidate(row) for row in rows]
+
+
 class SemanticEntityLinker:
     def __init__(self, store: EntityStore, ai_client: EntityAIClient | None):
         self.store = store
         self.ai_client = ai_client
         self.settings = store.settings
+        self.candidate_provider = GraphCandidateProvider(store, ai_client)
 
     def ground_plan(
         self,
@@ -426,72 +503,7 @@ class SemanticEntityLinker:
         kind: LinkKind,
         vocabulary: list[str],
     ) -> list[NodeCandidate]:
-        if kind in {"city", "geo_area", "category"}:
-            return [
-                NodeCandidate(
-                    candidate_id=f"{kind}:{index}",
-                    canonical_value=value,
-                    kind=kind,
-                )
-                for index, value in enumerate(vocabulary)
-            ]
-        return self._place_candidates(term)
-
-    def _place_candidates(self, term: str) -> list[NodeCandidate]:
-        limit = self.settings.v5_concept_link_top_k
-        candidates: dict[str, NodeCandidate] = {}
-        query_text = _fulltext_query(term)
-        if query_text:
-            rows = self.store.run_versioned(
-                """
-                CALL db.index.fulltext.queryNodes(
-                  'v5_place_fulltext', $query_text, {limit: $limit}
-                )
-                YIELD node, score
-                WHERE node.kb_version = $kb_version
-                RETURN node.id AS candidate_id,
-                       node.name AS canonical_value,
-                       node.city AS city,
-                       node.entity_type AS entity_type,
-                       score
-                ORDER BY score DESC
-                """,
-                query_text=query_text,
-                limit=limit,
-            )
-            for row in rows:
-                candidate = _place_candidate(row)
-                candidates[candidate.candidate_id] = candidate
-
-        embedding = self.ai_client.embed_query(term) if self.ai_client else None
-        if embedding is not None:
-            rows = self.store.run_versioned(
-                """
-                CALL db.index.vector.queryNodes(
-                  'v5_place_embedding', $limit, $embedding
-                )
-                YIELD node, score
-                WHERE node.kb_version = $kb_version
-                RETURN node.id AS candidate_id,
-                       node.name AS canonical_value,
-                       node.city AS city,
-                       node.entity_type AS entity_type,
-                       score
-                ORDER BY score DESC
-                """,
-                embedding=embedding,
-                limit=limit,
-            )
-            for row in rows:
-                candidate = _place_candidate(row)
-                current = candidates.get(candidate.candidate_id)
-                if current is None or candidate.score > current.score:
-                    candidates[candidate.candidate_id] = candidate
-        return sorted(
-            candidates.values(),
-            key=lambda candidate: candidate.score,
-            reverse=True,
-        )[:limit]
+        return self.candidate_provider.candidates(term, kind, vocabulary)
 
 
 def _place_candidate(row: Mapping[str, object]) -> NodeCandidate:
@@ -505,3 +517,38 @@ def _place_candidate(row: Mapping[str, object]) -> NodeCandidate:
             str(row["entity_type"]) if row.get("entity_type") else None
         ),
     )
+
+
+def _fuse_place_candidates(
+    sources: Mapping[str, Sequence[NodeCandidate]],
+    limit: int,
+) -> list[NodeCandidate]:
+    source_candidates = {
+        source: {candidate.candidate_id: candidate for candidate in candidates}
+        for source, candidates in sources.items()
+    }
+    by_id = {
+        candidate_id: candidate
+        for candidates in source_candidates.values()
+        for candidate_id, candidate in candidates.items()
+    }
+    fused = fuse_ranked_ids(
+        {
+            source: [candidate.candidate_id for candidate in candidates]
+            for source, candidates in sources.items()
+        }
+    )
+    results: list[NodeCandidate] = []
+    for item in fused[:limit]:
+        candidate = by_id[item.item_id]
+        retrieval: dict[str, float | int] = {}
+        for source, rank in item.ranks.items():
+            retrieval[f"{source}_rank"] = rank
+            source_candidate = source_candidates[source][item.item_id]
+            retrieval[f"{source}_score"] = source_candidate.score
+        results.append(
+            candidate.model_copy(
+                update={"score": item.score, "retrieval": retrieval}
+            )
+        )
+    return results

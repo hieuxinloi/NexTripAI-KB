@@ -261,6 +261,13 @@ def _evaluate_information(query: str, payload: dict[str, Any]) -> tuple[bool, st
     ):
         if payload.get("answer_type") != "aggregate_count" or not facts:
             return False, "count_not_aggregated"
+        if not any(
+            fact.get("predicate") == "count"
+            and isinstance(fact.get("value"), int)
+            and fact["value"] > 0
+            for fact in facts
+        ):
+            return False, "count_empty"
         return True, "count_fact_returned"
 
     required = _requested_predicates(plain)

@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ..config import DEFAULT_SEARCH_TOP_K, DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
+from ..versions.v6.schemas import ConversationContext
 
 
 class HealthResponse(BaseModel):
@@ -89,3 +90,4 @@ class TypedQueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
     kb_version: str = Field(default="v2", pattern=r"^v[1-9][0-9]*$")
     top_k: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
+    conversation_context: ConversationContext | None = None

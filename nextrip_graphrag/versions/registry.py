@@ -68,8 +68,8 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
             dataset="travel_data_verified:519",
             ontology_version="typed-target-geo-provenance-v5",
             embedding_version="place-concept-evidence-v5",
-            retrieval_version="llm-semantic-grounded-router-v7",
-            description="V7 replaces lexical intent rules with structured semantic planning and closed-candidate graph entity linking.",
+            retrieval_version="llm-semantic-grounded-hybrid-rrf-v7.1",
+            description="V7.1 adds rank-based full-text/vector fusion to semantic planning and closed-candidate graph entity linking.",
         ),
     }
 
