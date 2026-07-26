@@ -37,6 +37,11 @@ from .versions.v8.retrieval import V8RetrievalService
 from .versions.v8.graph_store import V8GraphStore
 
 
+DEFAULT_V3_BENCHMARK = (
+    Path(__file__).resolve().parents[1] / "docs" / "test_cases_benchmark_v3.md"
+)
+
+
 def load_dotenv_if_available() -> None:
     try:
         from dotenv import load_dotenv
@@ -864,7 +869,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v5_benchmark.add_argument(
         "--source",
-        default="../docs/test_cases_benchmark_v3 (1).md",
+        default=str(DEFAULT_V3_BENCHMARK),
     )
     v5_benchmark.add_argument(
         "--output",
@@ -897,7 +902,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v6_benchmark.add_argument(
         "--source",
-        default="../docs/test_cases_benchmark_v3 (1).md",
+        default=str(DEFAULT_V3_BENCHMARK),
     )
     v6_benchmark.add_argument(
         "--output",
@@ -929,7 +934,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v7_benchmark.add_argument(
         "--source",
-        default="../docs/test_cases_benchmark_v3 (1).md",
+        default=str(DEFAULT_V3_BENCHMARK),
     )
     v7_benchmark.add_argument(
         "--output",
@@ -961,7 +966,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v8_benchmark.add_argument(
         "--source",
-        default="../docs/test_cases_benchmark_v3 (1).md",
+        default=str(DEFAULT_V3_BENCHMARK),
     )
     v8_benchmark.add_argument(
         "--output",

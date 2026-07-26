@@ -7,7 +7,7 @@ from nextrip_graphrag.evaluation.v3_runner import (
 )
 
 
-BENCHMARK = Path(__file__).parents[2] / "docs" / "test_cases_benchmark_v3 (1).md"
+BENCHMARK = Path(__file__).parents[1] / "docs" / "test_cases_benchmark_v3.md"
 
 
 def test_v3_benchmark_has_expected_500_case_shape() -> None:
