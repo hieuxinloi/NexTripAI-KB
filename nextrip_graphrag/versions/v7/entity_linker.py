@@ -13,7 +13,7 @@ from ...retrieval.rank_fusion import fuse_ranked_ids
 from ..v2.retrieval import _fulltext_query
 from ..v4.schemas import V4Constraint
 from ..v5.concept_linker import ConceptLinkBatch, ConceptLinker
-from ..v5.schemas import GeoScope, QueryTarget, TargetKind, V5QueryPlan
+from ..v5.schemas import GeoScope, QueryTarget, TargetKind, V5Intent, V5QueryPlan
 
 
 SELECTOR_INSTRUCTION = """Ground a raw user mention to the supplied graph candidates.
@@ -281,6 +281,20 @@ class SemanticEntityLinker:
                 "preferred_concepts": preferred.resolved,
             }
         )
+        # An unresolved named target is a safe clarification state, not a
+        # runtime validation failure. V5's plan validator explicitly allows
+        # incomplete plans when clarification_needed is true.
+        if grounded_plan.intent in {
+            V5Intent.LOOKUP,
+            V5Intent.PROFILE,
+            V5Intent.COMPARE,
+        }:
+            minimum_named = 2 if grounded_plan.intent == V5Intent.COMPARE else 1
+            named_count = sum(1 for target in targets if target.value)
+            if named_count < minimum_named:
+                grounded_plan = grounded_plan.model_copy(
+                    update={"clarification_needed": True}
+                )
         concept_links = [
             *concept_target_links,
             *(link.model_dump() for link in required.links),
