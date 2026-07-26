@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...retrieval.rank_fusion import fuse_ranked_ids
+from ..v2.retrieval import _entity, _fulltext_query
 from ..v2.schemas import EntityResult
+from ..v4.policy import POLICY
 from ..v4.schemas import V4EvidenceResult
 from ..v6.retrieval import V6RetrievalService
 from ..v5.schemas import V5QueryPlan
@@ -136,6 +139,88 @@ class V8RetrievalService(V6RetrievalService):
             place_ids=[place.place_id for place in places],
         )
         return [V4EvidenceResult.model_validate(row) for row in rows]
+
+    def _place_fallback_candidates(
+        self,
+        query: str,
+        query_embedding: list[float],
+        city: str | None,
+        entity_types: list[str],
+        limit: int,
+        place_ids: list[str] | None = None,
+    ) -> list[EntityResult]:
+        """Use Neo4j's current SEARCH vector syntax plus full-text RRF."""
+        candidate_limit = max(
+            limit * POLICY.candidate_multiplier,
+            POLICY.minimum_vector_pool,
+        )
+        vector_rows = self.store.run_versioned(
+            f"""
+            MATCH (place:Place)
+            SEARCH place IN (
+              VECTOR INDEX {self.vector_index}
+              FOR $embedding
+              LIMIT $candidate_limit
+            )
+            SCORE AS score
+            WHERE place.kb_version = $kb_version
+              AND ($city IS NULL OR place.city = $city)
+              AND ($entity_types = [] OR place.entity_type IN $entity_types)
+              AND ($place_ids IS NULL OR place.id IN $place_ids)
+            RETURN place {{.*}} AS place, score
+            """,
+            embedding=query_embedding,
+            city=city,
+            entity_types=entity_types,
+            place_ids=place_ids,
+            candidate_limit=candidate_limit,
+        )
+        query_text = _fulltext_query(query)
+        fulltext_rows = (
+            self.store.run_versioned(
+                """
+                CALL db.index.fulltext.queryNodes(
+                  'v5_place_fulltext', $query_text, {limit: $candidate_limit}
+                )
+                YIELD node AS place, score
+                WHERE place.kb_version = $kb_version
+                  AND ($city IS NULL OR place.city = $city)
+                  AND ($entity_types = [] OR place.entity_type IN $entity_types)
+                  AND ($place_ids IS NULL OR place.id IN $place_ids)
+                RETURN place {.*} AS place, score
+                ORDER BY score DESC
+                """,
+                query_text=query_text,
+                city=city,
+                entity_types=entity_types,
+                place_ids=place_ids,
+                candidate_limit=candidate_limit,
+            )
+            if query_text
+            else []
+        )
+        rows_by_id = {
+            str(row["place"]["id"]): row
+            for row in [*vector_rows, *fulltext_rows]
+        }
+        fused = fuse_ranked_ids(
+            {
+                source: [
+                    str(row["place"]["id"])
+                    for row in rows
+                ]
+                for source, rows in {
+                    "vector": vector_rows,
+                    "fulltext": fulltext_rows,
+                }.items()
+            }
+        )
+        results: list[EntityResult] = []
+        for item in fused[:limit]:
+            place = dict(rows_by_id[item.item_id]["place"])
+            place["score"] = item.score
+            results.append(_entity(place))
+        return results
 
 
 __all__ = ["V8RetrievalService", "V8QueryResponse"]
