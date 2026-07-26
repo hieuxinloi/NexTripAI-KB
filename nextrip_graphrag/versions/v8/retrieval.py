@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..v2.schemas import EntityResult
+from ..v4.schemas import V4EvidenceResult
 from ..v6.retrieval import V6RetrievalService
 from ..v5.schemas import V5QueryPlan
 from ..v7.entity_linker import SemanticEntityLinker
@@ -93,8 +95,8 @@ class V8RetrievalService(V6RetrievalService):
 
     def _place_evidence(
         self,
-        places: list[Any],
-    ) -> list[Any]:
+        places: list[EntityResult],
+    ) -> list[V4EvidenceResult]:
         """Return several evidence chunks linked through claim and mention edges."""
         if not places:
             return []
@@ -133,13 +135,7 @@ class V8RetrievalService(V6RetrievalService):
             """,
             place_ids=[place.place_id for place in places],
         )
-        return [self._evidence_model(row) for row in rows]
-
-    @staticmethod
-    def _evidence_model(row: dict[str, Any]) -> Any:
-        from ..v4.schemas import V4EvidenceResult
-
-        return V4EvidenceResult.model_validate(row)
+        return [V4EvidenceResult.model_validate(row) for row in rows]
 
 
 __all__ = ["V8RetrievalService", "V8QueryResponse"]
