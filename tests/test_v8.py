@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from nextrip_graphrag.versions.v5.schemas import V5Intent
@@ -65,3 +66,13 @@ def test_v8_uses_v6_stateful_executor_and_v8_response_contract() -> None:
     assert V8RetrievalService.api_kb_version == "v8"
     assert V8RetrievalService.graph_kb_version == "v5"
     assert V8RetrievalService.response_model.model_fields["kb_version"].default == "v8"
+
+
+def test_v8_fallback_uses_current_search_clause_and_keeps_filters_safe() -> None:
+    source = (
+        Path(__file__).parents[1] / "nextrip_graphrag" / "versions" / "v8" / "retrieval.py"
+    ).read_text(encoding="utf-8")
+
+    assert "SEARCH place IN" in source
+    assert "db.index.vector.queryNodes" not in source
+    assert "WHERE place.kb_version = $kb_version" in source
