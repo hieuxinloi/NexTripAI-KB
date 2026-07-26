@@ -11,16 +11,16 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ...config import DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
 from ..v4.query_planner import StructuredPlanner
-from ..v4.schemas import RankingCriterion, V4Constraint
+from ..v4.schemas import ConstraintMode, RankingCriterion, V4Constraint
 from ..v5.schemas import (
     GeoScope,
     QueryTarget,
     QueryTask,
     TargetKind,
     V5Intent,
-    V5QueryPlan,
 )
 from ..v7.query_planner import EntityType, RequestedField, ToolKind
+from .schemas import EntityMention, MentionKind, MentionRole, V8QueryPlan
 
 
 EnumValue = TypeVar("EnumValue", bound=StrEnum)
@@ -29,9 +29,19 @@ EnumValue = TypeVar("EnumValue", bound=StrEnum)
 SYSTEM_INSTRUCTION = """You are the semantic query planner for NexTripAI GraphRAG V8.
 Return only JSON matching the schema. Never emit Cypher or prose.
 Choose one canonical intent and preserve raw user meaning for grounding.
+First extract contiguous named venue or brand spans into entity_mentions. A word
+inside a named span must not be reinterpreted as a requested field, category, or
+preference. For example, an unknown proper name remains one venue_or_brand
+target even when part of its name resembles a field. Do not require a named
+venue or brand lookup to include a city; the graph grounding stage resolves it.
 The user_query may contain a JSON object with current_message and
 conversation_context. Treat current_message as the new request and use the
 explicit context fields only to resolve omitted city, duration, or entity type.
+When conversation_context.resolved_query is present, use it only to resolve an
+omitted reference in current_message. Never let inherited context split or
+replace a complete named venue/brand span in current_message. city_source tells
+whether a city is explicit or inherited; inherited scope is a preference, not
+proof that a named entity must belong to that city.
 Use only canonical values listed in graph_contract; do not invent IDs.
 Use aggregate for counts, plan_candidates for itinerary candidates, and
 tool_required for live weather, price, traffic, booking, or availability.
@@ -42,8 +52,11 @@ the application resolves them against graph concepts and evidence chunks.
 For plan_candidates, create one place target per venue type (attraction,
 restaurant, cafe, hotel, or nightlife). Do not encode a venue type as an
 activity/dish/concept target; those kinds are reserved for concept discovery.
-Use constraints for numeric requirements: distance_to_beach_max and
-distance_to_center_max are kilometres, party_size is the number of travellers.
+Use only hard constraints for explicit requirements. Numeric duration such as
+"2 days" belongs in duration_days and must never become party_size. Use
+distance_to_beach_max and distance_to_center_max in kilometres; party_size is
+only the explicitly stated number of travellers. Put preferences in
+preferred_concepts instead of soft constraints.
 If the request cannot be grounded safely, set clarification_needed.
 """
 
@@ -65,6 +78,25 @@ class V8GeoScopeDraft(BaseModel):
     near_entities: list[str] = Field(default_factory=list)
 
 
+class V8ConstraintDraft(BaseModel):
+    """Lenient LLM boundary; invalid preferences are dropped at compilation."""
+
+    field: Literal[
+        "budget_max",
+        "category",
+        "distance_to_beach_max",
+        "distance_to_center_max",
+        "indoor",
+        "near_subject",
+        "open_24h",
+        "party_size",
+        "star_rating",
+        "weather",
+    ]
+    value: str | float | int | bool
+    mode: ConstraintMode = ConstraintMode.HARD
+
+
 class V8TaskDraft(BaseModel):
     name: str = Field(default="task", min_length=1, max_length=80)
     intent: V5Intent = V5Intent.PLAN_CANDIDATES
@@ -73,7 +105,7 @@ class V8TaskDraft(BaseModel):
     required_concepts: list[str] = Field(default_factory=list)
     preferred_concepts: list[str] = Field(default_factory=list)
     ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
-    constraints: list[V4Constraint] = Field(default_factory=list)
+    constraints: list[V8ConstraintDraft] = Field(default_factory=list)
     limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
 
 
@@ -87,8 +119,15 @@ class V8PlannerDraft(BaseModel):
     required_concepts: list[str] = Field(default_factory=list)
     preferred_concepts: list[str] = Field(default_factory=list)
     ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
-    constraints: list[V4Constraint] = Field(default_factory=list)
+    constraints: list[V8ConstraintDraft] = Field(default_factory=list)
     tasks: list[V8TaskDraft] = Field(default_factory=list)
+    entity_mentions: list[EntityMention] = Field(
+        default_factory=list,
+        description=(
+            "Contiguous semantic spans extracted before choosing intent. "
+            "Keep a venue or brand name intact even when it is not in the catalog."
+        ),
+    )
     duration_days: int | None = Field(default=None, ge=1, le=30)
     limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
     required_tools: list[ToolKind] = Field(default_factory=list)
@@ -107,7 +146,7 @@ def plan_query(
     query: str,
     gemini: StructuredPlanner | None,
     catalog: dict[str, list[str]],
-) -> tuple[V5QueryPlan, str, PlannerFailure | None]:
+) -> tuple[V8QueryPlan, str, PlannerFailure | None]:
     if gemini is None:
         return _unavailable_plan(), "planner_unavailable", PlannerFailure(
             code="planner_unavailable",
@@ -151,9 +190,49 @@ def plan_query(
 
 def _compile_plan(
     draft: V8PlannerDraft,
-) -> V5QueryPlan:
+) -> V8QueryPlan:
     intent = draft.intent
     targets = [_compile_target(raw) for raw in draft.targets]
+    mentions = _compile_mentions(draft.entity_mentions)
+    named_mentions = [
+        mention
+        for mention in mentions
+        if mention.role == MentionRole.TARGET
+        and mention.kind
+        in {
+            MentionKind.VENUE_NAME,
+            MentionKind.BRAND_NAME,
+            MentionKind.VENUE_OR_BRAND,
+        }
+    ]
+    if named_mentions:
+        inferred_types = list(
+            dict.fromkeys(
+                entity_type
+                for target in targets
+                if target.kind == TargetKind.PLACE
+                for entity_type in target.entity_types
+            )
+        )
+        targets = [
+            QueryTarget(
+                kind=TargetKind.PLACE,
+                value=mention.surface,
+                entity_types=inferred_types,
+            )
+            for mention in named_mentions
+        ]
+        if intent in {
+            V5Intent.LOOKUP,
+            V5Intent.PROFILE,
+            V5Intent.LIST,
+            V5Intent.RECOMMEND,
+        }:
+            intent = (
+                V5Intent.COMPARE
+                if len(targets) >= 2
+                else V5Intent.LOOKUP
+            )
     if intent == V5Intent.LOOKUP:
         named_places = [
             target
@@ -204,7 +283,12 @@ def _compile_plan(
         and any(target.kind == TargetKind.PLACE for target in targets)
     ):
         intent = V5Intent.PLAN_CANDIDATES
-    cities = _clean_values(draft.geo_scope.cities)
+    mentioned_cities = [
+        mention.surface
+        for mention in mentions
+        if mention.role == MentionRole.SCOPE and mention.kind == MentionKind.CITY
+    ]
+    cities = _clean_values([*draft.geo_scope.cities, *mentioned_cities])
     areas = _clean_values(draft.geo_scope.areas)
     near_entities = _clean_values(draft.geo_scope.near_entities)
     requested = _enum_values(draft.requested_fields)
@@ -221,7 +305,7 @@ def _compile_plan(
             "plan_candidates accepts place targets only, unless explicit tasks are supplied"
         )
 
-    return V5QueryPlan(
+    return V8QueryPlan(
         intent=intent,
         targets=targets,
         geo_scope=GeoScope(
@@ -233,12 +317,18 @@ def _compile_plan(
         required_concepts=required_concepts,
         preferred_concepts=preferred_concepts,
         ranking_criteria=ranking,
-        constraints=draft.constraints,
+        constraints=_compile_constraints(draft.constraints),
         tasks=tasks,
+        entity_mentions=mentions,
         duration_days=draft.duration_days,
         limit=draft.limit,
         required_tools=tools,
-        clarification_needed=draft.clarification_needed,
+        clarification_needed=(
+            False
+            if named_mentions
+            and intent in {V5Intent.LOOKUP, V5Intent.PROFILE, V5Intent.COMPARE}
+            else draft.clarification_needed
+        ),
         confidence=draft.confidence,
     )
 
@@ -256,7 +346,7 @@ def _compile_task(raw: V8TaskDraft) -> QueryTask:
         required_concepts=_clean_values(raw.required_concepts),
         preferred_concepts=_clean_values(raw.preferred_concepts),
         ranking_criteria=list(dict.fromkeys(raw.ranking_criteria)),
-        constraints=raw.constraints,
+        constraints=_compile_constraints(raw.constraints),
         limit=raw.limit,
     )
 
@@ -270,6 +360,48 @@ def _compile_target(raw: V8TargetDraft) -> QueryTarget:
         value=_clean(raw.value),
         entity_types=entity_types,
     )
+
+
+def _compile_constraints(values: list[V8ConstraintDraft]) -> list[V4Constraint]:
+    """Keep only constraints the deterministic V4 executor can enforce."""
+
+    constraints: list[V4Constraint] = []
+    for value in values:
+        if value.mode != ConstraintMode.HARD:
+            continue
+        try:
+            constraints.append(
+                V4Constraint.model_validate(value.model_dump(mode="python"))
+            )
+        except ValidationError as exc:
+            logger.info(
+                "Ignoring invalid planner constraint field={} reason={}",
+                value.field,
+                exc.__class__.__name__,
+            )
+    return constraints
+
+
+def _compile_mentions(values: list[EntityMention]) -> list[EntityMention]:
+    mentions: list[EntityMention] = []
+    seen: set[tuple[str, MentionRole, MentionKind]] = set()
+    for mention in values:
+        surface = mention.surface.strip()
+        if not surface:
+            continue
+        key = (surface.casefold(), mention.role, mention.kind)
+        if key in seen:
+            continue
+        seen.add(key)
+        mentions.append(
+            EntityMention(
+                surface=surface,
+                role=mention.role,
+                kind=mention.kind,
+                confidence=mention.confidence,
+            )
+        )
+    return mentions
 
 
 def _clean(value: str | None) -> str | None:
@@ -304,8 +436,8 @@ def _user_prompt(query: str, catalog: dict[str, list[str]]) -> str:
     )
 
 
-def _unavailable_plan() -> V5QueryPlan:
-    return V5QueryPlan(
+def _unavailable_plan() -> V8QueryPlan:
+    return V8QueryPlan(
         intent=V5Intent.UNSUPPORTED,
         clarification_needed=True,
         confidence=0.0,

@@ -10,19 +10,33 @@ from neo4j_graphrag.retrievers import HybridCypherRetriever
 from neo4j_graphrag.retrievers.hybrid import HybridSearchRanker
 from neo4j_graphrag.types import RetrieverResultItem
 
+from ...config import DEFAULT_TYPED_QUERY_TOP_K
+from ...normalizer import slugify
 from ..v2.retrieval import _entity, _fulltext_query
 from ..v2.schemas import EntityResult, FactResult
 from ..v4.policy import POLICY
 from ..v4.schemas import V4EvidenceResult
-from ..v6.context import ResolvedTurn
+from ..v6.context import (
+    ResolvedTurn,
+    duration_days_from_query,
+    is_itinerary_request,
+)
 from ..v6.retrieval import V6RetrievalService
 from ..v6.schemas import ConversationContext
 from ..v5.retrieval import _RetrievalOutcome
-from ..v5.schemas import QueryTask, V5Intent, V5QueryPlan, V5QueryResponse
+from ..v5.schemas import (
+    GeoScope,
+    QueryTarget,
+    QueryTask,
+    TargetKind,
+    V5Intent,
+    V5QueryPlan,
+    V5QueryResponse,
+)
 from ..v7.entity_linker import SemanticEntityLinker
 from ..v7.query_planner import _keep_material_clarification
 from .query_planner import plan_query
-from .schemas import V8QueryResponse
+from .schemas import V8QueryPlan, V8QueryResponse
 
 
 class V8RetrievalService(V6RetrievalService):
@@ -40,6 +54,44 @@ class V8RetrievalService(V6RetrievalService):
     place_fallback_strategy = "neo4j_graphrag_hybrid_evidence_v8"
     fulltext_index = "v8_place_fulltext"
     vector_index = "v8_place_embedding"
+
+    def query(
+        self,
+        query: str,
+        top_k: int = DEFAULT_TYPED_QUERY_TOP_K,
+        context: ConversationContext | None = None,
+    ) -> V8QueryResponse:
+        response = super().query(query, top_k=top_k, context=context)
+        recovery = next(
+            (
+                item
+                for item in reversed(response.trace)
+                if item.get("step") == "v8_scope_recovery"
+                and item.get("status") == "corrected"
+            ),
+            None,
+        )
+        if recovery is None:
+            return response
+
+        resolved_city = str(recovery["resolved_city"])
+        source_cities = [str(city) for city in recovery["source_cities"]]
+        warning = (
+            f"scope_corrected:{','.join(source_cities)}:"
+            f"{resolved_city}"
+        )
+        payload = response.model_dump(mode="python")
+        payload["query_plan"]["geo_scope"]["cities"] = [resolved_city]
+        payload["conversation_context"].update(
+            {
+                "cities": [resolved_city],
+                "city_source": "entity_grounding",
+            }
+        )
+        payload["warnings"] = list(
+            dict.fromkeys([*response.warnings, warning])
+        )
+        return self.response_model.model_validate(payload)
 
     @cached_property
     def _place_hybrid_retriever(self) -> HybridCypherRetriever:
@@ -67,7 +119,12 @@ class V8RetrievalService(V6RetrievalService):
         catalog: dict[str, list[str]],
     ) -> ResolvedTurn:
         del catalog
-        if context.turn_count == 0:
+        if not (
+            context.turn_count
+            or context.cities
+            or context.city_source
+            or context.resolved_query
+        ):
             return ResolvedTurn(query=query, updates=[])
         planner_query = json.dumps(
             {
@@ -92,8 +149,7 @@ class V8RetrievalService(V6RetrievalService):
         return resolved.query
 
     def _initial_itinerary_request(self, resolved: ResolvedTurn) -> bool:
-        del resolved
-        return False
+        return is_itinerary_request(resolved.query)
 
     def _final_itinerary_request(
         self,
@@ -101,8 +157,8 @@ class V8RetrievalService(V6RetrievalService):
         response: V5QueryResponse,
         initially_itinerary: bool,
     ) -> bool:
-        del resolved, initially_itinerary
-        return response.intent == V5Intent.PLAN_CANDIDATES
+        del resolved
+        return initially_itinerary or response.intent == V5Intent.PLAN_CANDIDATES
 
     def _ensure_ready(self) -> None:
         rows = self.store.run(
@@ -157,20 +213,50 @@ class V8RetrievalService(V6RetrievalService):
     ) -> _RetrievalOutcome:
         tasks = _effective_tasks(plan)
         if not tasks:
-            return super()._execute_plan(plan, query, top_k)
+            outcome = super()._execute_plan(plan, query, top_k)
+            retry_plan = _scope_recovery_plan(plan, outcome)
+            if retry_plan is None:
+                return outcome
+            recovered = super()._execute_plan(retry_plan, query, top_k)
+            resolved_city = _resolved_city(recovered)
+            if resolved_city is None or _has_not_found(recovered):
+                return outcome
+            recovered.trace.append(
+                {
+                    "step": "v8_scope_recovery",
+                    "status": "corrected",
+                    "source_cities": plan.geo_scope.cities,
+                    "resolved_city": resolved_city,
+                }
+            )
+            recovered.retrieval_strategy = "v8_corrective_global_entity_lookup"
+            return recovered
 
         merged = _RetrievalOutcome()
         task_trace: list[dict[str, Any]] = []
         for task in tasks:
+            task_scope = task.geo_scope
+            if not (
+                task_scope.cities
+                or task_scope.areas
+                or task_scope.near_entities
+            ):
+                task_scope = plan.geo_scope
             task_plan = plan.model_copy(
                 update={
                     "intent": task.intent,
                     "targets": task.targets,
-                    "geo_scope": task.geo_scope,
-                    "required_concepts": task.required_concepts,
-                    "preferred_concepts": task.preferred_concepts,
-                    "ranking_criteria": task.ranking_criteria,
-                    "constraints": task.constraints,
+                    "geo_scope": task_scope,
+                    "required_concepts": (
+                        task.required_concepts or plan.required_concepts
+                    ),
+                    "preferred_concepts": (
+                        task.preferred_concepts or plan.preferred_concepts
+                    ),
+                    "ranking_criteria": (
+                        task.ranking_criteria or plan.ranking_criteria
+                    ),
+                    "constraints": task.constraints or plan.constraints,
                     "limit": task.limit,
                     "tasks": [],
                 }
@@ -195,7 +281,16 @@ class V8RetrievalService(V6RetrievalService):
         query: str,
         catalog: dict[str, list[str]],
     ) -> tuple[V5QueryPlan, str, Any | None]:
-        return plan_query(query, self.gemini, catalog)
+        plan, planner, failure = plan_query(query, self.gemini, catalog)
+        if is_itinerary_request(query):
+            if failure is not None:
+                return (
+                    _recover_itinerary_plan(query, catalog),
+                    "deterministic_itinerary_recovery_v8",
+                    None,
+                )
+            plan = _itinerary_candidate_plan(plan)
+        return plan, planner, failure
 
     def _ground_plan(
         self,
@@ -203,6 +298,21 @@ class V8RetrievalService(V6RetrievalService):
         catalog: dict[str, list[str]],
         query: str,
     ) -> tuple[V5QueryPlan, list[str], bool, list[dict[str, Any]]]:
+        target_terms = {
+            slugify(target.value)
+            for target in plan.targets
+            if target.kind == TargetKind.PLACE and target.value
+        }
+        near_terms = {
+            slugify(value)
+            for value in plan.geo_scope.near_entities
+            if value
+        }
+        near_terms.update(
+            slugify(str(constraint.value))
+            for constraint in plan.constraints
+            if constraint.field == "near_subject" and constraint.value
+        )
         result = SemanticEntityLinker(
             self.store,
             self.gemini,
@@ -249,7 +359,22 @@ class V8RetrievalService(V6RetrievalService):
         ]
         if _requires_city_scope(grounded_plan):
             blocking_missing.append("unresolved:city:query_scope")
-        public_missing = _public_missing_fields(blocking_missing)
+        public_missing = _public_missing_fields(
+            blocking_missing,
+            target_terms=target_terms,
+            near_terms=near_terms,
+        )
+        if any(item.startswith("not_found:entity:") for item in public_missing):
+            plan_payload = grounded_plan.model_dump(mode="python")
+            plan_payload["targets"] = [
+                target.model_dump(mode="python")
+                for target in _restore_unresolved_named_targets(
+                    plan,
+                    grounded_plan,
+                )
+            ]
+            plan_payload["clarification_needed"] = False
+            grounded_plan = type(grounded_plan).model_validate(plan_payload)
         trace = {
             "step": "v8_semantic_grounding",
             "status": (
@@ -347,7 +472,14 @@ class V8RetrievalService(V6RetrievalService):
         return [_entity(_place_payload(item)) for item in result.items]
 
 
-def _public_missing_fields(diagnostics: list[str]) -> list[str]:
+def _public_missing_fields(
+    diagnostics: list[str],
+    *,
+    target_terms: set[str] | None = None,
+    near_terms: set[str] | None = None,
+) -> list[str]:
+    targets = target_terms or set()
+    anchors = near_terms or set()
     fields: list[str] = []
     for item in diagnostics:
         if item.startswith("unresolved:city:"):
@@ -355,13 +487,65 @@ def _public_missing_fields(diagnostics: list[str]) -> list[str]:
         elif item.startswith("unresolved:geo_area:"):
             fields.append("geo_area")
         elif item.startswith("unresolved:place:"):
-            fields.append("near_reference")
+            term = item.split(":", 2)[2]
+            normalized = slugify(term)
+            if (not targets and not anchors) or (
+                normalized in anchors and normalized not in targets
+            ):
+                fields.append("near_reference")
+            else:
+                fields.append(f"not_found:entity:{term}")
         elif item.startswith("unresolved:"):
             _, kind, _ = item.split(":", 2)
             fields.append(kind)
         else:
             fields.append(item)
     return list(dict.fromkeys(fields))
+
+
+def _scope_recovery_plan(
+    plan: V5QueryPlan,
+    outcome: _RetrievalOutcome,
+) -> V5QueryPlan | None:
+    if plan.intent not in {V5Intent.LOOKUP, V5Intent.PROFILE, V5Intent.COMPARE}:
+        return None
+    if not plan.geo_scope.cities or not _has_not_found(outcome):
+        return None
+    if not any(
+        target.kind == TargetKind.PLACE and target.value
+        for target in plan.targets
+    ):
+        return None
+    plan_payload = plan.model_dump(mode="python")
+    plan_payload["geo_scope"]["cities"] = []
+    return type(plan).model_validate(plan_payload)
+
+
+def _restore_unresolved_named_targets(
+    original: V5QueryPlan,
+    grounded: V5QueryPlan,
+) -> list[QueryTarget]:
+    return [
+        QueryTarget(
+            kind=linked.kind,
+            value=raw.value,
+            entity_types=linked.entity_types,
+        )
+        if linked.kind == TargetKind.PLACE and not linked.value and raw.value
+        else linked
+        for raw, linked in zip(original.targets, grounded.targets, strict=True)
+    ]
+
+
+def _has_not_found(outcome: _RetrievalOutcome) -> bool:
+    return any(item.startswith("not_found:") for item in outcome.missing_fields)
+
+
+def _resolved_city(outcome: _RetrievalOutcome) -> str | None:
+    for item in [*outcome.entities, *outcome.recommendations]:
+        if item.city:
+            return item.city
+    return None
 
 
 def _requires_city_scope(plan: V5QueryPlan) -> bool:
@@ -405,6 +589,13 @@ def _effective_tasks(plan: V5QueryPlan) -> list[QueryTask]:
     )
     if len(entity_types) <= 1:
         return []
+    candidate_limits = {
+        "attraction": 20,
+        "restaurant": 6,
+        "cafe": 6,
+        "hotel": 6,
+        "nightlife": 6,
+    }
     return [
         QueryTask(
             name=entity_type,
@@ -418,10 +609,71 @@ def _effective_tasks(plan: V5QueryPlan) -> list[QueryTask]:
             preferred_concepts=plan.preferred_concepts,
             ranking_criteria=plan.ranking_criteria,
             constraints=plan.constraints,
-            limit=max(3, plan.limit),
+            limit=max(candidate_limits.get(entity_type, 6), plan.limit),
         )
         for entity_type in entity_types
     ]
+
+
+def _itinerary_candidate_plan(plan: V5QueryPlan) -> V5QueryPlan:
+    """Compile itinerary retrieval into balanced, city-scoped graph tasks.
+
+    The LLM still extracts city, duration and preferences. This policy controls
+    the ontology roles required by the downstream Planning Agent and prevents a
+    natural-language phrase such as "lộ trình đi chơi" becoming an entity lookup.
+    """
+    payload = plan.model_dump(mode="python")
+    payload.update(
+        {
+            "intent": V5Intent.PLAN_CANDIDATES,
+            "targets": [
+                QueryTarget(
+                    kind=TargetKind.PLACE,
+                    entity_types=[
+                        "attraction",
+                        "restaurant",
+                        "cafe",
+                        "hotel",
+                    ],
+                ).model_dump(mode="python")
+            ],
+            "tasks": [],
+            "clarification_needed": False,
+        }
+    )
+    return type(plan).model_validate(payload)
+
+
+def _recover_itinerary_plan(
+    query: str,
+    catalog: dict[str, list[str]],
+) -> V8QueryPlan:
+    """Recover only structural fields when the semantic planner is invalid.
+
+    Cities come from the live graph catalog and venue candidates still come
+    from Neo4j. This is a reliability boundary, not an answer generator.
+    """
+
+    query_slug = f"-{slugify(query)}-"
+    matching_cities = [
+        city
+        for city in catalog.get("cities", [])
+        if f"-{slugify(city)}-" in query_slug
+    ]
+    city = max(matching_cities, key=lambda value: len(slugify(value)), default=None)
+    return V8QueryPlan(
+        intent=V5Intent.PLAN_CANDIDATES,
+        targets=[
+            QueryTarget(
+                kind=TargetKind.PLACE,
+                entity_types=["attraction", "restaurant", "cafe", "hotel"],
+            )
+        ],
+        geo_scope=GeoScope(cities=[city] if city else []),
+        duration_days=duration_days_from_query(query) or 1,
+        clarification_needed=False,
+        confidence=1,
+    )
 
 
 def _merge_outcome(destination: _RetrievalOutcome, source: _RetrievalOutcome) -> None:

@@ -32,6 +32,7 @@ class ConversationContext(BaseModel):
     previous_recommendations: list[str] = Field(default_factory=list)
     applied_updates: list[str] = Field(default_factory=list)
     resolved_query: str | None = None
+    city_source: str | None = None
 
 
 class V6QueryResponse(V5QueryResponse):

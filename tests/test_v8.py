@@ -16,12 +16,18 @@ from nextrip_graphrag.versions.v5.schemas import (
 )
 from nextrip_graphrag.versions.v8.graph_store import V8GraphStore
 from nextrip_graphrag.versions.v8.query_planner import V8PlannerDraft, plan_query
+from nextrip_graphrag.versions.v8.schemas import V8QueryPlan
 from nextrip_graphrag.versions.v8.retrieval import (
     V8RetrievalService,
     _effective_tasks,
+    _itinerary_candidate_plan,
     _public_missing_fields,
+    _recover_itinerary_plan,
     _requires_city_scope,
+    _restore_unresolved_named_targets,
+    _scope_recovery_plan,
 )
+from nextrip_graphrag.versions.v5.retrieval import _RetrievalOutcome
 from nextrip_graphrag.versions.v6.schemas import ConversationContext
 
 
@@ -79,11 +85,59 @@ def test_v8_rejects_invalid_constraints_in_the_structured_schema() -> None:
     assert failure.retryable is False
 
 
+def test_v8_drops_soft_planner_constraints_instead_of_rejecting_query() -> None:
+    planner = FakePlanner(
+        {
+            "intent": "plan_candidates",
+            "targets": [{"kind": "place", "entity_types": ["attraction"]}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "constraints": [
+                {"field": "party_size", "value": 2, "mode": "soft"},
+            ],
+            "duration_days": 2,
+            "confidence": 0.9,
+        }
+    )
+
+    plan, planner_name, failure = plan_query(
+        "Quy Nhơn 2 ngày 1 đêm",
+        planner,
+        CATALOG,
+    )
+
+    assert failure is None
+    assert planner_name == "gemini_semantic_v8"
+    assert plan.duration_days == 2
+    assert plan.constraints == []
+
+
+def test_v8_recovers_grounded_itinerary_shape_when_planner_is_invalid() -> None:
+    plan = _recover_itinerary_plan(
+        "Tôi ở Quy Nhơn 2 ngày 1 đêm, lên lộ trình giúp tôi",
+        {"cities": ["Đà Nẵng", "Quy Nhơn"]},
+    )
+
+    assert plan.intent == V5Intent.PLAN_CANDIDATES
+    assert plan.geo_scope.cities == ["Quy Nhơn"]
+    assert plan.duration_days == 2
+    assert plan.targets[0].entity_types == [
+        "attraction",
+        "restaurant",
+        "cafe",
+        "hotel",
+    ]
+
+
 def test_v8_uses_v6_stateful_executor_and_v8_response_contract() -> None:
     assert V8RetrievalService.api_kb_version == "v8"
     assert V8RetrievalService.graph_kb_version == "v8"
     assert V8GraphStore.kb_version == "v8"
     assert V8RetrievalService.response_model.model_fields["kb_version"].default == "v8"
+
+
+def test_v8_entity_mentions_do_not_leak_into_the_v5_contract() -> None:
+    assert "entity_mentions" not in V5QueryPlan.model_fields
+    assert "entity_mentions" in V8QueryPlan.model_fields
 
 
 def test_v8_projection_uses_server_side_dynamic_graph_copy() -> None:
@@ -225,6 +279,8 @@ def test_v8_expands_multi_type_itinerary_without_phrase_aliases() -> None:
         ["cafe"],
     ]
     assert all(len(task.targets) == 1 for task in tasks)
+    assert tasks[0].limit == 20
+    assert all(task.limit >= 6 for task in tasks[1:])
 
 
 def test_v8_task_expansion_does_not_duplicate_separate_targets() -> None:
@@ -324,3 +380,144 @@ def test_v8_serializes_conversation_state_without_phrase_alias_matching() -> Non
     assert planner_input["current_message"] == resolved.query
     assert planner_input["conversation_context"]["cities"] == ["Quy NhÆ¡n"]
     assert planner_input["conversation_context"]["entity_types"] == ["cafe"]
+
+
+def test_v8_named_entity_span_overrides_a_split_generic_intent() -> None:
+    planner = FakePlanner(
+        {
+            "intent": "recommend",
+            "targets": [{"kind": "place", "entity_types": ["cafe"]}],
+            "requested_fields": ["highlights"],
+            "entity_mentions": [
+                {
+                    "surface": "Highlight Coffee",
+                    "role": "target",
+                    "kind": "venue_or_brand",
+                    "confidence": 0.98,
+                }
+            ],
+            "clarification_needed": True,
+            "confidence": 0.9,
+        }
+    )
+
+    plan, _, failure = plan_query("Highlight Coffee o dau", planner, CATALOG)
+
+    assert failure is None
+    assert plan.intent == V5Intent.LOOKUP
+    assert [target.value for target in plan.targets] == ["Highlight Coffee"]
+    assert plan.entity_mentions[0].surface == "Highlight Coffee"
+    assert plan.clarification_needed is False
+
+
+def test_v8_distinguishes_named_targets_from_nearby_anchors() -> None:
+    assert _public_missing_fields(
+        [
+            "unresolved:place:Unknown Venue",
+            "unresolved:place:Nearby Anchor",
+        ],
+        target_terms={"unknown-venue"},
+        near_terms={"nearby-anchor"},
+    ) == ["not_found:entity:Unknown Venue", "near_reference"]
+
+
+def test_v8_retries_only_named_lookup_outside_stale_city_scope() -> None:
+    named = V5QueryPlan(
+        intent=V5Intent.LOOKUP,
+        targets=[QueryTarget(kind=TargetKind.PLACE, value="Eo Gio")],
+        geo_scope=GeoScope(cities=["Da Nang"]),
+        confidence=1.0,
+    )
+    missing = _RetrievalOutcome(missing_fields=["not_found:place:Eo Gio"])
+
+    retry = _scope_recovery_plan(named, missing)
+
+    assert retry is not None
+    assert retry.geo_scope.cities == []
+
+    generic = named.model_copy(
+        update={
+            "intent": V5Intent.RECOMMEND,
+            "targets": [QueryTarget(kind=TargetKind.PLACE, entity_types=["cafe"])],
+        }
+    )
+    assert _scope_recovery_plan(generic, missing) is None
+
+
+def test_v8_keeps_raw_named_target_in_a_not_found_response_plan() -> None:
+    original = V5QueryPlan(
+        intent=V5Intent.LOOKUP,
+        targets=[QueryTarget(kind=TargetKind.PLACE, value="Unknown Coffee")],
+        confidence=1.0,
+    )
+    grounded = original.model_copy(
+        update={
+            "targets": [QueryTarget(kind=TargetKind.PLACE)],
+            "clarification_needed": True,
+        }
+    )
+
+    restored = _restore_unresolved_named_targets(original, grounded)
+
+    valid_plan = grounded.model_copy(
+        update={"targets": restored, "clarification_needed": False}
+    )
+    assert valid_plan.targets[0].value == "Unknown Coffee"
+
+
+def test_v8_itinerary_policy_replaces_activity_phrase_with_balanced_place_types() -> None:
+    raw = V8QueryPlan(
+        intent=V5Intent.RECOMMEND,
+        targets=[QueryTarget(kind=TargetKind.ACTIVITY, value="lo trinh di choi")],
+        geo_scope=GeoScope(cities=["Quy Nhon"]),
+        duration_days=2,
+        confidence=0.95,
+    )
+
+    compiled = _itinerary_candidate_plan(raw)
+    tasks = _effective_tasks(compiled)
+
+    assert compiled.intent == V5Intent.PLAN_CANDIDATES
+    assert compiled.targets[0].kind == TargetKind.PLACE
+    assert set(compiled.targets[0].entity_types) == {
+        "attraction",
+        "restaurant",
+        "cafe",
+        "hotel",
+    }
+    assert {task.name for task in tasks} == {
+        "attraction",
+        "restaurant",
+        "cafe",
+        "hotel",
+    }
+    assert all(task.geo_scope.cities == ["Quy Nhon"] for task in tasks)
+
+
+def test_v8_city_entity_mention_is_promoted_to_query_scope() -> None:
+    planner = FakePlanner(
+        {
+            "intent": "plan_candidates",
+            "targets": [
+                {
+                    "kind": "place",
+                    "entity_types": ["attraction", "restaurant"],
+                }
+            ],
+            "duration_days": 2,
+            "entity_mentions": [
+                {
+                    "surface": "Quy Nhon",
+                    "role": "scope",
+                    "kind": "city",
+                    "confidence": 1.0,
+                }
+            ],
+            "confidence": 1.0,
+        }
+    )
+
+    plan, _, failure = plan_query("Lo trinh Quy Nhon 2 ngay", planner, CATALOG)
+
+    assert failure is None
+    assert plan.geo_scope.cities == ["Quy Nhon"]

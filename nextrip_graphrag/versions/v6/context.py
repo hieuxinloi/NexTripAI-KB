@@ -91,6 +91,12 @@ def is_itinerary_request(query: str) -> bool:
     return _duration_days(plain) is not None and not _has_entity_type(plain)
 
 
+def duration_days_from_query(query: str) -> int | None:
+    """Extract the trip duration using the shared conversation normalizer."""
+
+    return _duration_days(_plain(query))
+
+
 def update_context(
     previous: ConversationContext,
     resolved: ResolvedTurn,
@@ -118,6 +124,7 @@ def update_context(
         ),
         applied_updates=_unique([*previous.applied_updates, *resolved.updates]),
         resolved_query=resolved.query,
+        city_source=previous.city_source,
     )
 
 
@@ -160,7 +167,7 @@ def _has_entity_type(plain: str) -> bool:
 def _has_itinerary_signal(plain: str) -> bool:
     return any(
         signal in plain
-        for signal in ("lich trinh", "ke hoach", "sap xep", "xep lich")
+        for signal in ("lich trinh", "lo trinh", "ke hoach", "sap xep", "xep lich")
     )
 
 
