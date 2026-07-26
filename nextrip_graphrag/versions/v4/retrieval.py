@@ -327,8 +327,43 @@ class V4RetrievalService(V3RetrievalService):
             )
         budget = _constraint(constraints, "budget_max")
         if budget:
-            clauses.append("EXISTS { MATCH (place)-[:HAS_FACT]->(price:Fact) WHERE price.predicate IN ['price', 'price_min'] AND toFloat(price.value) <= $budget_max }")
+            clauses.append(
+                "EXISTS { MATCH (place)-[:HAS_FACT]->(price:Fact) "
+                "WHERE price.predicate IN ['price', 'price_min'] "
+                "AND toFloatOrNull(price.value) <= $budget_max }"
+            )
             params["budget_max"] = float(budget.value)
+        for field, predicate in (
+            ("distance_to_beach_max", "distance_to_beach"),
+            ("distance_to_center_max", "distance_to_center"),
+        ):
+            distance = _constraint(constraints, field)
+            if distance:
+                clauses.append(
+                    "EXISTS { MATCH (place)-[:HAS_FACT]->(distance:Fact) "
+                    "WHERE distance.predicate = $"
+                    + field
+                    + "_predicate AND toFloatOrNull(distance.value) <= $"
+                    + field
+                    + " }"
+                )
+                params[f"{field}_predicate"] = predicate
+                params[field] = float(distance.value)
+        party_size = _constraint(constraints, "party_size")
+        if party_size:
+            # Capacity is sparse in the verified snapshot. Prefer explicit
+            # capacity facts, then the grounded families/groups concepts.
+            clauses.append(
+                "(EXISTS { MATCH (place)-[:HAS_FACT]->(capacity:Fact) "
+                "WHERE capacity.predicate IN ['capacity', 'room_capacity', 'max_guests'] "
+                "AND toFloatOrNull(capacity.value) >= $party_size } "
+                "OR ($party_size <= 4 AND EXISTS { "
+                "MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(audience:Concept) "
+                "WHERE audience.kb_version = $kb_version "
+                "AND toLower(audience.canonical_name) IN ['families', 'groups', 'family', 'group'] "
+                "}))"
+            )
+            params["party_size"] = int(party_size.value)
         category = _constraint(constraints, "category")
         if category:
             clauses.append("toLower(place.category) = toLower($category)")
@@ -396,13 +431,17 @@ class V4RetrievalService(V3RetrievalService):
         vector_scores: dict[str, float] = {}
         if query_embedding is not None:
             rows = self.store.run(
-                """
-                CALL db.index.vector.queryNodes($index_name, $candidate_limit, $embedding)
-                YIELD node AS place, score
+                f"""
+                MATCH (place:Place)
+                SEARCH place IN (
+                  VECTOR INDEX {self.vector_index}
+                  FOR $embedding
+                  LIMIT $candidate_limit
+                )
+                SCORE AS score
                 WHERE place.kb_version = $kb_version AND place.id IN $candidate_ids
                 RETURN place.id AS place_id, score
                 """,
-                index_name=self.vector_index,
                 candidate_limit=max(
                     len(candidates) * POLICY.candidate_multiplier,
                     POLICY.minimum_vector_pool,

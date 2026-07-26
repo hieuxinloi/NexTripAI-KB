@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+from nextrip_graphrag.api import router
 from nextrip_graphrag.api.schemas import TypedQueryRequest
 from nextrip_graphrag.versions.v2.schemas import EntityResult
 from nextrip_graphrag.versions.v5.schemas import (
@@ -30,12 +33,19 @@ CATALOG = {
 class ItineraryStore:
     def run_versioned(self, query, **params):
         assert params["place_ids"] == ["attr-1", "rest-1", "cafe-1", "attr-2"]
+        nearby = {
+            "attr-1": [{"target_id": "cafe-1", "distance_km": 0.5}],
+            "cafe-1": [{"target_id": "attr-1", "distance_km": 0.5}],
+            "rest-1": [{"target_id": "attr-2", "distance_km": 0.4}],
+            "attr-2": [{"target_id": "rest-1", "distance_km": 0.4}],
+        }
         return [
             {
                 "place_id": place_id,
                 "opening_hours_open": "07:00",
                 "opening_hours_close": "22:00",
                 "duration_recommendation": "1-2 giờ",
+                "distances": nearby[place_id],
             }
             for place_id in params["place_ids"]
         ]
@@ -157,6 +167,50 @@ def test_v6_api_request_validates_conversation_context() -> None:
     )
 
 
+def test_v8_api_passes_conversation_context_to_stateful_service(monkeypatch) -> None:
+    received = {}
+
+    class StatefulService:
+        def __init__(self, store, gemini):
+            pass
+
+        def query(self, query, top_k, *, context=None):
+            received["context"] = context
+            return SimpleNamespace(
+                answer_type="recommendation",
+                entities=[],
+                recommendations=[],
+                facts=[],
+                trace=[{}],
+            )
+
+    monkeypatch.setattr(
+        router,
+        "version_retrieval_service_class",
+        lambda version: StatefulService,
+    )
+    services = SimpleNamespace(
+        settings=SimpleNamespace(configured_kb_versions=("v8",)),
+        gemini=None,
+        store_for=lambda version: object(),
+    )
+    context = ConversationContext(
+        turn_count=1,
+        cities=["Quy Nhơn"],
+    )
+
+    router.query_typed(
+        TypedQueryRequest(
+            query="Ưu tiên nơi yên tĩnh",
+            kb_version="v8",
+            conversation_context=context,
+        ),
+        services,
+    )
+
+    assert received["context"] == context
+
+
 def test_v6_itinerary_is_grounded_and_bounded_per_day() -> None:
     recommendations = [
         _place("attr-1", "attraction"),
@@ -179,3 +233,9 @@ def test_v6_itinerary_is_grounded_and_bounded_per_day() -> None:
         for slot in day.slots
     }
     assert scheduled == {item.place_id for item in recommendations}
+    assert {
+        slot.place_id for slot in itinerary[0].slots
+    } == {"attr-1", "cafe-1"}
+    assert {
+        slot.place_id for slot in itinerary[1].slots
+    } == {"rest-1", "attr-2"}

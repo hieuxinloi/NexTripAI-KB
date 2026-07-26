@@ -16,6 +16,7 @@ class HealthResponse(BaseModel):
     neo4j_v3: str | None = None
     neo4j_v4: str | None = None
     neo4j_v5: str | None = None
+    neo4j_v8: str | None = None
     embedding_model: str
     retrieval_strategies: list[str] = Field(default_factory=list)
 

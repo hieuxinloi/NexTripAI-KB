@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -363,3 +364,17 @@ def test_dynamic_observation_requires_valid_aware_time_window() -> None:
             observed_at=observed_at,
             expires_at=observed_at,
         )
+
+
+def test_numeric_fact_filters_do_not_cast_list_values() -> None:
+    source = (
+        Path(__file__).parents[1]
+        / "nextrip_graphrag"
+        / "versions"
+        / "v4"
+        / "retrieval.py"
+    ).read_text(encoding="utf-8")
+
+    assert "toFloatOrNull(price.value)" in source
+    assert "toFloatOrNull(distance.value)" in source
+    assert "toFloatOrNull(capacity.value)" in source

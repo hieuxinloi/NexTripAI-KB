@@ -34,6 +34,7 @@ from .versions.v5.retrieval import V5RetrievalService
 from .versions.v6.retrieval import V6RetrievalService
 from .versions.v7.retrieval import V7RetrievalService
 from .versions.v8.retrieval import V8RetrievalService
+from .versions.v8.graph_store import V8GraphStore
 
 
 def load_dotenv_if_available() -> None:
@@ -504,7 +505,7 @@ def cmd_v7_benchmark(args: argparse.Namespace) -> None:
 
 def cmd_v8_query(args: argparse.Namespace) -> None:
     settings = Settings.from_env()
-    store = V5GraphStore(settings.for_v5())
+    store = V8GraphStore(settings.for_v8())
     gemini = GeminiClient(settings)
     try:
         response = V8RetrievalService(store, gemini).query(args.query, args.top_k)
@@ -516,7 +517,7 @@ def cmd_v8_query(args: argparse.Namespace) -> None:
 
 def cmd_v8_benchmark(args: argparse.Namespace) -> None:
     settings = Settings.from_env()
-    store = V5GraphStore(settings.for_v5())
+    store = V8GraphStore(settings.for_v8())
     gemini = GeminiClient(settings) if args.planner_mode == "configured" else OfflinePlanner()
     service = V8RetrievalService(store, gemini)
     try:
@@ -539,6 +540,16 @@ def cmd_v8_benchmark(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def cmd_v8_project(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    store = V8GraphStore(settings.for_v8())
+    try:
+        statistics = store.project_from_v5(replace=args.replace)
+    finally:
+        store.close()
+    print(json.dumps(statistics, ensure_ascii=False, indent=2))
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
@@ -967,6 +978,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="configured",
     )
     v8_benchmark.set_defaults(func=cmd_v8_benchmark)
+
+    v8_project = subparsers.add_parser(
+        "v8-project",
+        help="Materialize the isolated V8 node/edge projection from V5.",
+    )
+    v8_project.add_argument(
+        "--replace",
+        action="store_true",
+        help="Replace only the existing kb_version=v8 projection.",
+    )
+    v8_project.set_defaults(func=cmd_v8_project)
 
     ask = subparsers.add_parser("ask", help="Ask the GraphRAG chatbot.")
     ask.add_argument("question")

@@ -59,6 +59,20 @@ class GeoScope(BaseModel):
     near_entities: list[str] = Field(default_factory=list)
 
 
+class QueryTask(BaseModel):
+    """One independently retrievable sub-goal inside a composite request."""
+
+    name: str = Field(min_length=1, max_length=80)
+    intent: V5Intent = V5Intent.PLAN_CANDIDATES
+    targets: list[QueryTarget] = Field(default_factory=list)
+    geo_scope: GeoScope = Field(default_factory=GeoScope)
+    required_concepts: list[str] = Field(default_factory=list)
+    preferred_concepts: list[str] = Field(default_factory=list)
+    ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
+    constraints: list[V4Constraint] = Field(default_factory=list)
+    limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
+
+
 class V5QueryPlan(BaseModel):
     intent: V5Intent
     targets: list[QueryTarget] = Field(default_factory=list)
@@ -68,6 +82,7 @@ class V5QueryPlan(BaseModel):
     preferred_concepts: list[str] = Field(default_factory=list)
     ranking_criteria: list[RankingCriterion] = Field(default_factory=list)
     constraints: list[V4Constraint] = Field(default_factory=list)
+    tasks: list[QueryTask] = Field(default_factory=list)
     duration_days: int | None = Field(default=None, ge=1, le=30)
     limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
     required_tools: list[str] = Field(default_factory=list)

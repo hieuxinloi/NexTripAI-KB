@@ -46,9 +46,15 @@ class V6RetrievalService(V5RetrievalService):
     ) -> V6QueryResponse:
         previous = context or ConversationContext()
         catalog = self.store.planner_catalog()
-        resolved = resolve_turn(query, previous, catalog)
-        itinerary_requested = is_itinerary_request(resolved.query)
-        response = super().query(_planner_query(resolved.query), max(top_k, 10))
+        resolved = self._resolve_turn(query, previous, catalog)
+        initially_itinerary = self._initial_itinerary_request(resolved)
+        retrieval_limit = max(top_k, 10) if initially_itinerary else top_k
+        response = super().query(self._planner_input(resolved), retrieval_limit)
+        itinerary_requested = self._final_itinerary_request(
+            resolved,
+            response,
+            initially_itinerary,
+        )
         if itinerary_requested and response.intent != V5Intent.PLAN_CANDIDATES:
             response = self._broad_itinerary_response(
                 response,
@@ -62,8 +68,13 @@ class V6RetrievalService(V5RetrievalService):
             response = _as_recommendation(response)
         response = _inherit_city_scope(response, previous)
 
+        warnings: list[str] = []
         if response.intent == V5Intent.PLAN_CANDIDATES:
-            response = self._ensure_itinerary_candidates(response, resolved, top_k)
+            response, warnings = self._ensure_itinerary_candidates(
+                response,
+                resolved,
+                top_k,
+            )
 
         itinerary = []
         if response.intent == V5Intent.PLAN_CANDIDATES:
@@ -84,6 +95,7 @@ class V6RetrievalService(V5RetrievalService):
             {
                 "kb_version": self.api_kb_version,
                 "itinerary": [day.model_dump(mode="json") for day in itinerary],
+                "warnings": warnings,
                 "conversation_context": current.model_dump(mode="json"),
                 "manifest": asdict(kb_version_manifests()[self.manifest_version]),
             }
@@ -97,6 +109,29 @@ class V6RetrievalService(V5RetrievalService):
             }
         )
         return self.response_model.model_validate(payload)
+
+    def _resolve_turn(
+        self,
+        query: str,
+        context: ConversationContext,
+        catalog: dict[str, list[str]],
+    ) -> ResolvedTurn:
+        return resolve_turn(query, context, catalog)
+
+    def _planner_input(self, resolved: ResolvedTurn) -> str:
+        return _planner_query(resolved.planner_query or resolved.query)
+
+    def _initial_itinerary_request(self, resolved: ResolvedTurn) -> bool:
+        return is_itinerary_request(resolved.query)
+
+    def _final_itinerary_request(
+        self,
+        resolved: ResolvedTurn,
+        response: V5QueryResponse,
+        initially_itinerary: bool,
+    ) -> bool:
+        del resolved, response
+        return initially_itinerary
 
     def query_conversation(
         self,
@@ -116,14 +151,14 @@ class V6RetrievalService(V5RetrievalService):
         response: V5QueryResponse,
         resolved: ResolvedTurn,
         top_k: int,
-    ) -> V5QueryResponse:
+    ) -> tuple[V5QueryResponse, list[str]]:
         duration = response.query_plan.duration_days or 1
         minimum = min(3, duration)
         if len(response.recommendations) >= minimum:
-            return response
+            return response, []
         cities = response.query_plan.geo_scope.cities
         if not cities:
-            return response
+            return response, []
 
         broad_query = f"Lịch trình {duration} ngày ở {cities[0]}"
         broad = super().query(broad_query, max(top_k, 10))
@@ -132,14 +167,10 @@ class V6RetrievalService(V5RetrievalService):
             broad.recommendations,
         )
         if len(merged) <= len(response.recommendations):
-            return response
-        return response.model_copy(
+            return response, []
+        relaxed = response.model_copy(
             update={
                 "recommendations": merged,
-                "missing_fields": [
-                    *response.missing_fields,
-                    "relaxed_itinerary_preferences",
-                ],
                 "trace": [
                     *response.trace,
                     {
@@ -151,6 +182,7 @@ class V6RetrievalService(V5RetrievalService):
                 ],
             }
         )
+        return relaxed, ["itinerary_preferences_relaxed"]
 
     def _broad_itinerary_response(
         self,

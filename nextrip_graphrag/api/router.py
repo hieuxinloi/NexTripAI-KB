@@ -168,6 +168,7 @@ def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
         neo4j_v3=statuses.get("v3"),
         neo4j_v4=statuses.get("v4"),
         neo4j_v5=statuses.get("v5"),
+        neo4j_v8=statuses.get("v8"),
         embedding_model=services.settings.embedding_model,
         retrieval_strategies=available_strategies(),
     )
@@ -271,7 +272,15 @@ def query_typed(
     try:
         service_type = version_retrieval_service_class(request.kb_version)
         store = services.store_for(request.kb_version)
-        response = service_type(store, gemini).query(request.query, request.top_k)
+        service = service_type(store, gemini)
+        if request.kb_version in {"v6", "v8"}:
+            response = service.query(
+                request.query,
+                request.top_k,
+                context=request.conversation_context,
+            )
+        else:
+            response = service.query(request.query, request.top_k)
     except Exception as exc:
         logger.exception(
             "KB typed query error version={} error_type={} elapsed_ms={}",

@@ -345,10 +345,21 @@ class V5RetrievalService(V4RetrievalService):
         rows = self.store.run_versioned(
             """
             MATCH (origin:Place {id: $origin_id, kb_version: $kb_version})
-                  -[near:NEAR]-
-                  (destination:Place {id: $destination_id, kb_version: $kb_version})
-            WHERE near.distance_km IS NOT NULL
-            RETURN near.distance_km AS distance_km
+            MATCH (destination:Place {id: $destination_id, kb_version: $kb_version})
+            OPTIONAL MATCH (origin)-[near:NEAR]-(destination)
+            WITH origin, destination, near,
+                 CASE
+                   WHEN near.distance_km IS NOT NULL THEN near.distance_km
+                   WHEN origin.location IS NOT NULL AND destination.location IS NOT NULL
+                     THEN point.distance(origin.location, destination.location) / 1000.0
+                   ELSE null
+                 END AS distance_km
+            WHERE distance_km IS NOT NULL
+            RETURN distance_km,
+                   CASE
+                     WHEN near.distance_km IS NOT NULL THEN 'NEAR'
+                     ELSE 'GEODESIC_DISTANCE'
+                   END AS relationship
             LIMIT 1
             """,
             origin_id=origin.target_id,
@@ -357,11 +368,12 @@ class V5RetrievalService(V4RetrievalService):
         if not rows:
             return None, None
         distance_km = float(rows[0]["distance_km"])
+        relationship = str(rows[0]["relationship"])
         return (
             MatchedPath(
                 place_id=origin.target_id,
                 nodes=[origin.target_id, destination.target_id],
-                relationships=["NEAR"],
+                relationships=[relationship],
                 score=round(1 / (1 + distance_km), 6),
             ),
             FactResult(
@@ -530,8 +542,13 @@ class V5RetrievalService(V4RetrievalService):
     ) -> list[EntityResult]:
         rows = self.store.run_versioned(
             """
-            CALL db.index.vector.queryNodes('v5_place_embedding', $candidate_limit, $embedding)
-            YIELD node AS place, score AS vector_score
+            MATCH (place:Place)
+            SEARCH place IN (
+              VECTOR INDEX v5_place_embedding
+              FOR $embedding
+              LIMIT $candidate_limit
+            )
+            SCORE AS vector_score
             WHERE place.kb_version = $kb_version
               AND ($city IS NULL OR place.city = $city)
               AND ($entity_types = [] OR place.entity_type IN $entity_types)

@@ -22,6 +22,7 @@ ENTITY_LABELS = {
 class ResolvedTurn:
     query: str
     updates: list[str]
+    planner_query: str | None = None
 
 
 def resolve_turn(

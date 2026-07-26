@@ -92,9 +92,12 @@ class V4Constraint(BaseModel):
     field: Literal[
         "budget_max",
         "category",
+        "distance_to_beach_max",
+        "distance_to_center_max",
         "indoor",
         "near_subject",
         "open_24h",
+        "party_size",
         "star_rating",
         "weather",
     ]
@@ -115,6 +118,20 @@ class V4Constraint(BaseModel):
         if self.field == "budget_max":
             if isinstance(self.value, bool) or not isinstance(self.value, (int, float)) or self.value < 0:
                 raise ValueError("budget_max requires a non-negative number")
+        if self.field in {"distance_to_beach_max", "distance_to_center_max"}:
+            if (
+                isinstance(self.value, bool)
+                or not isinstance(self.value, (int, float))
+                or self.value < 0
+            ):
+                raise ValueError(f"{self.field} requires a non-negative number")
+        if self.field == "party_size":
+            if (
+                isinstance(self.value, bool)
+                or not isinstance(self.value, int)
+                or not 1 <= self.value <= 50
+            ):
+                raise ValueError("party_size requires an integer from 1 to 50")
         if self.field == "category" and not str(self.value).strip():
             raise ValueError("category requires a non-empty value")
         if self.field == "near_subject" and not str(self.value).strip():

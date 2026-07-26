@@ -16,6 +16,7 @@ from ..v4.schemas import RankingCriterion, V4Constraint
 from ..v5.schemas import (
     GeoScope,
     QueryTarget,
+    QueryTask,
     TargetKind,
     V5Intent,
     V5QueryPlan,
@@ -25,6 +26,9 @@ from ..v5.schemas import (
 SYSTEM_INSTRUCTION = """You are the semantic query planner for NexTripAI GraphRAG V8.
 Return only JSON matching the schema. Never emit Cypher or prose.
 Choose one canonical intent and preserve raw user meaning for grounding.
+The user_query may contain a JSON object with current_message and
+conversation_context. Treat current_message as the new request and use the
+explicit context fields only to resolve omitted city, duration, or entity type.
 Use only canonical values listed in graph_contract; do not invent IDs.
 Use aggregate for counts, plan_candidates for itinerary candidates, and
 tool_required for live weather, price, traffic, booking, or availability.
@@ -32,12 +36,22 @@ For recommendations and lists, use a place target and provide canonical
 entity_types when the user specifies a venue type. Put cities and areas in
 geo_scope, never as a place name. Keep uncertain semantic phrases as concepts;
 the application resolves them against graph concepts and evidence chunks.
+For plan_candidates, create one place target per venue type (attraction,
+restaurant, cafe, hotel, or nightlife). Do not encode a venue type as an
+activity/dish/concept target; those kinds are reserved for concept discovery.
+Use constraints for numeric requirements: distance_to_beach_max and
+distance_to_center_max are kilometres, party_size is the number of travellers.
 If the request cannot be grounded safely, set clarification_needed.
 """
 
 
 class V8TargetDraft(BaseModel):
-    kind: str
+    kind: str = Field(
+        description=(
+            "place for venue recommendations; city or geo_area for scope; "
+            "activity/dish/concept only for concept discovery"
+        )
+    )
     value: str | None = None
     entity_types: list[str] = Field(default_factory=list)
 
@@ -49,9 +63,26 @@ class V8GeoScopeDraft(BaseModel):
 
 
 class V8ConstraintDraft(BaseModel):
-    field: str
+    field: str = Field(
+        description=(
+            "Canonical constraint field. Use distance_to_beach_max, "
+            "distance_to_center_max, or party_size for numeric travel requirements."
+        )
+    )
     value: str | int | float | bool | None = None
     mode: str = "hard"
+
+
+class V8TaskDraft(BaseModel):
+    name: str = "task"
+    intent: str = "plan_candidates"
+    targets: list[V8TargetDraft] = Field(default_factory=list)
+    geo_scope: V8GeoScopeDraft = Field(default_factory=V8GeoScopeDraft)
+    required_concepts: list[str] = Field(default_factory=list)
+    preferred_concepts: list[str] = Field(default_factory=list)
+    ranking_criteria: list[str] = Field(default_factory=list)
+    constraints: list[V8ConstraintDraft] = Field(default_factory=list)
+    limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
 
 
 class V8PlannerDraft(BaseModel):
@@ -70,6 +101,7 @@ class V8PlannerDraft(BaseModel):
     preferred_concepts: list[str] = Field(default_factory=list)
     ranking_criteria: list[str] = Field(default_factory=list)
     constraints: list[V8ConstraintDraft] = Field(default_factory=list)
+    tasks: list[V8TaskDraft] = Field(default_factory=list)
     duration_days: int | None = Field(default=None, ge=1, le=30)
     limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
     required_tools: list[str] = Field(default_factory=list)
@@ -162,6 +194,56 @@ def _compile_plan(
 ) -> V5QueryPlan:
     intent = _enum_value(draft.intent, V5Intent)
     targets = [_compile_target(raw) for raw in draft.targets]
+    if intent == V5Intent.LOOKUP:
+        named_places = [
+            target
+            for target in targets
+            if target.kind == TargetKind.PLACE and target.value
+        ]
+        if len(named_places) >= 2:
+            intent = V5Intent.COMPARE
+
+    required_concepts = _clean_values(draft.required_concepts)
+    preferred_concepts = _clean_values(draft.preferred_concepts)
+    if intent in {
+        V5Intent.LIST,
+        V5Intent.RECOMMEND,
+        V5Intent.PLAN_CANDIDATES,
+    }:
+        place_targets = [
+            target
+            for target in targets
+            if target.kind == TargetKind.PLACE
+        ]
+        if place_targets:
+            supplemental_concepts = [
+                target.value
+                for target in targets
+                if target.kind in {
+                    TargetKind.ACTIVITY,
+                    TargetKind.DISH,
+                    TargetKind.CONCEPT,
+                }
+                and target.value
+            ]
+            targets = place_targets
+            preferred_concepts = _clean_values(
+                [
+                    *preferred_concepts,
+                    *(
+                        value
+                        for value in supplemental_concepts
+                        if value not in required_concepts
+                    ),
+                ]
+            )
+
+    if (
+        draft.duration_days
+        and intent in {V5Intent.LIST, V5Intent.RECOMMEND}
+        and any(target.kind == TargetKind.PLACE for target in targets)
+    ):
+        intent = V5Intent.PLAN_CANDIDATES
     cities = _clean_values(draft.geo_scope.cities)
     areas = _clean_values(draft.geo_scope.areas)
     near_entities = _clean_values(draft.geo_scope.near_entities)
@@ -173,6 +255,16 @@ def _compile_plan(
     ]
     tools = _clean_values(draft.required_tools)
     constraints = _compile_constraints(draft.constraints)
+    tasks = [_compile_task(raw) for raw in draft.tasks]
+    if (
+        intent == V5Intent.PLAN_CANDIDATES
+        and targets
+        and any(target.kind != TargetKind.PLACE for target in targets)
+        and not tasks
+    ):
+        raise ValueError(
+            "plan_candidates accepts place targets only, unless explicit tasks are supplied"
+        )
 
     return V5QueryPlan(
         intent=intent,
@@ -183,15 +275,40 @@ def _compile_plan(
             near_entities=near_entities,
         ),
         requested_fields=requested,
-        required_concepts=_clean_values(draft.required_concepts),
-        preferred_concepts=_clean_values(draft.preferred_concepts),
+        required_concepts=required_concepts,
+        preferred_concepts=preferred_concepts,
         ranking_criteria=list(dict.fromkeys(ranking)),
         constraints=constraints,
+        tasks=tasks,
         duration_days=draft.duration_days,
         limit=draft.limit,
         required_tools=tools,
         clarification_needed=draft.clarification_needed,
         confidence=draft.confidence,
+    )
+
+
+def _compile_task(raw: V8TaskDraft) -> QueryTask:
+    intent = _enum_value(raw.intent, V5Intent)
+    ranking = [
+        _enum_value(value, RankingCriterion)
+        for value in raw.ranking_criteria
+        if _is_enum_value(value, RankingCriterion)
+    ]
+    return QueryTask(
+        name=str(raw.name or "task").strip()[:80] or "task",
+        intent=intent,
+        targets=[_compile_target(target) for target in raw.targets],
+        geo_scope=GeoScope(
+            cities=_clean_values(raw.geo_scope.cities),
+            areas=_clean_values(raw.geo_scope.areas),
+            near_entities=_clean_values(raw.geo_scope.near_entities),
+        ),
+        required_concepts=_clean_values(raw.required_concepts),
+        preferred_concepts=_clean_values(raw.preferred_concepts),
+        ranking_criteria=list(dict.fromkeys(ranking)),
+        constraints=_compile_constraints(raw.constraints),
+        limit=raw.limit,
     )
 
 
@@ -268,6 +385,18 @@ def _user_prompt(query: str, catalog: dict[str, list[str]]) -> str:
                 "ranking_criteria": [item.value for item in RankingCriterion],
                 "intents": [item.value for item in V5Intent],
                 "target_kinds": [item.value for item in TargetKind],
+                "constraint_fields": [
+                    "budget_max",
+                    "category",
+                    "distance_to_beach_max",
+                    "distance_to_center_max",
+                    "indoor",
+                    "near_subject",
+                    "open_24h",
+                    "party_size",
+                    "star_rating",
+                    "weather",
+                ],
             },
         },
         ensure_ascii=False,

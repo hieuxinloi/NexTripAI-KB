@@ -89,10 +89,19 @@ class EntityAIClient(Protocol):
 class GraphCandidateProvider:
     """Retrieve a closed candidate set from graph indexes and catalog values."""
 
-    def __init__(self, store: EntityStore, ai_client: EntityAIClient | None):
+    def __init__(
+        self,
+        store: EntityStore,
+        ai_client: EntityAIClient | None,
+        *,
+        place_fulltext_index: str = "v5_place_fulltext",
+        place_vector_index: str = "v5_place_embedding",
+    ):
         self.store = store
         self.ai_client = ai_client
         self.limit = store.settings.v5_concept_link_top_k
+        self.place_fulltext_index = place_fulltext_index
+        self.place_vector_index = place_vector_index
 
     def candidates(
         self,
@@ -116,9 +125,9 @@ class GraphCandidateProvider:
         query_text = _fulltext_query(term)
         if query_text:
             sources["fulltext"] = self._query_places(
-                """
+                f"""
                 CALL db.index.fulltext.queryNodes(
-                  'v5_place_fulltext', $query_text, {limit: $limit}
+                  '{self.place_fulltext_index}', $query_text, {{limit: $limit}}
                 )
                 YIELD node, score
                 WHERE node.kb_version = $kb_version
@@ -134,10 +143,10 @@ class GraphCandidateProvider:
 
         if self.ai_client is not None:
             sources["vector"] = self._query_places(
-                """
+                f"""
                 MATCH (node:Place)
                 SEARCH node IN (
-                  VECTOR INDEX v5_place_embedding
+                  VECTOR INDEX {self.place_vector_index}
                   FOR $embedding
                   LIMIT $limit
                 )
@@ -164,11 +173,23 @@ class GraphCandidateProvider:
 
 
 class SemanticEntityLinker:
-    def __init__(self, store: EntityStore, ai_client: EntityAIClient | None):
+    def __init__(
+        self,
+        store: EntityStore,
+        ai_client: EntityAIClient | None,
+        *,
+        place_fulltext_index: str = "v5_place_fulltext",
+        place_vector_index: str = "v5_place_embedding",
+    ):
         self.store = store
         self.ai_client = ai_client
         self.settings = store.settings
-        self.candidate_provider = GraphCandidateProvider(store, ai_client)
+        self.candidate_provider = GraphCandidateProvider(
+            store,
+            ai_client,
+            place_fulltext_index=place_fulltext_index,
+            place_vector_index=place_vector_index,
+        )
 
     def ground_plan(
         self,

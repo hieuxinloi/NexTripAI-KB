@@ -17,6 +17,7 @@ __pycache__/
 **/*service-account*.json
 *.log
 .pytest*/
+.test-temp/
 tmp/
 tmp_pdf_extract.txt
 travel_data/

@@ -37,6 +37,7 @@ class ConversationContext(BaseModel):
 class V6QueryResponse(V5QueryResponse):
     kb_version: Literal["v6"] = "v6"
     itinerary: list[ItineraryDay] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     conversation_context: ConversationContext = Field(
         default_factory=ConversationContext
     )
