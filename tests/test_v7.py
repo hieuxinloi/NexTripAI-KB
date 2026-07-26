@@ -76,7 +76,7 @@ class CandidateStore:
                     "score": 0.81,
                 }
             ]
-        if "vector.queryNodes" in query:
+        if "vector.queryNodes" in query or "VECTOR INDEX v5_place_embedding" in query:
             return [
                 {
                     "candidate_id": "place:dragon-bridge",
@@ -113,7 +113,7 @@ class PerturbedScoreStore(CandidateStore):
                     "score": 0.1,
                 }
             ]
-        if "vector.queryNodes" in query:
+        if "vector.queryNodes" in query or "VECTOR INDEX v5_place_embedding" in query:
             return [
                 {
                     "candidate_id": "place:thi-nai-bridge",
@@ -144,7 +144,7 @@ class HybridPlaceStore:
     settings = Settings()
 
     def run_versioned(self, query: str, **_params: Any) -> list[dict[str, Any]]:
-        if "vector.queryNodes" in query:
+        if "vector.queryNodes" in query or "VECTOR INDEX v5_place_embedding" in query:
             return [
                 {
                     "place": {
