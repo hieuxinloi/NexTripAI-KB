@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from ...config import DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
+from ...normalizer import slugify
 from ..v4.query_planner import StructuredPlanner
 from ..v4.schemas import ConstraintMode, RankingCriterion, V4Constraint
 from ..v5.schemas import (
@@ -162,6 +163,7 @@ def plan_query(
             V8PlannerDraft,
         )
         plan = _compile_plan(draft)
+        plan = _restore_exact_catalog_place(plan, query, catalog)
     except (ValidationError, ValueError, TypeError) as exc:
         logger.warning(
             "V8 planner violated structured graph contract "
@@ -331,6 +333,107 @@ def _compile_plan(
         ),
         confidence=draft.confidence,
     )
+
+
+def _restore_exact_catalog_place(
+    plan: V8QueryPlan,
+    planner_input: str,
+    catalog: dict[str, list[str]],
+) -> V8QueryPlan:
+    """Recover a venue that the semantic planner mistook for generic scope.
+
+    The graph catalog remains the authority. This only repairs plans with no
+    place target and requires the complete canonical venue name to occur in
+    the current user turn.
+    """
+    if plan.intent not in {
+        V5Intent.LOOKUP,
+        V5Intent.PROFILE,
+        V5Intent.LIST,
+        V5Intent.RECOMMEND,
+        V5Intent.SUMMARIZE,
+    }:
+        return plan
+    if (
+        any(target.kind == TargetKind.PLACE for target in plan.targets)
+        or plan.geo_scope.near_entities
+        or any(
+            constraint.field == "near_subject"
+            for constraint in plan.constraints
+        )
+    ):
+        return plan
+
+    message = _current_message(planner_input)
+    normalized_message = slugify(message)
+    if not normalized_message:
+        return plan
+
+    padded_message = f"-{normalized_message}-"
+    matches = []
+    for place in catalog.get("places", []):
+        normalized_place = slugify(place)
+        if len(normalized_place) < 4:
+            continue
+        if (
+            normalized_message == normalized_place
+            or f"-{normalized_place}-" in padded_message
+        ):
+            matches.append((len(normalized_place), place))
+    if not matches:
+        return plan
+
+    _, canonical_place = max(matches)
+    explicit_city = any(
+        f"-{slugify(city)}-" in padded_message
+        for city in catalog.get("cities", [])
+        if slugify(city)
+    )
+    scope = plan.geo_scope
+    if not explicit_city:
+        scope = scope.model_copy(update={"cities": []})
+
+    intent = plan.intent
+    if intent in {
+        V5Intent.LIST,
+        V5Intent.PROFILE,
+        V5Intent.RECOMMEND,
+        V5Intent.SUMMARIZE,
+    }:
+        intent = V5Intent.LOOKUP
+    return plan.model_copy(
+        update={
+            "intent": intent,
+            "targets": [
+                QueryTarget(
+                    kind=TargetKind.PLACE,
+                    value=canonical_place,
+                )
+            ],
+            "geo_scope": scope,
+            "entity_mentions": [
+                *plan.entity_mentions,
+                EntityMention(
+                    surface=canonical_place,
+                    role=MentionRole.TARGET,
+                    kind=MentionKind.VENUE_OR_BRAND,
+                    confidence=1.0,
+                ),
+            ],
+            "clarification_needed": False,
+        }
+    )
+
+
+def _current_message(planner_input: str) -> str:
+    try:
+        payload = json.loads(planner_input)
+    except json.JSONDecodeError:
+        return planner_input
+    if not isinstance(payload, dict):
+        return planner_input
+    current = payload.get("current_message")
+    return current if isinstance(current, str) else planner_input
 
 
 def _compile_task(raw: V8TaskDraft) -> QueryTask:

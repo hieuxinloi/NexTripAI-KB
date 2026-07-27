@@ -9,7 +9,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      GEMINI_PLANNER_MODEL: gemini-flash-latest
+      GEMINI_PLANNER_MODEL: gemini-3.5-flash-lite
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

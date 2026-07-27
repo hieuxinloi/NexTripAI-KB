@@ -410,6 +410,75 @@ def test_v8_named_entity_span_overrides_a_split_generic_intent() -> None:
     assert plan.clarification_needed is False
 
 
+def test_v8_restores_exact_catalog_place_when_planner_treats_it_as_scope() -> None:
+    place = "Chợ đêm Sơn Trà"
+    planner = FakePlanner(
+        {
+            "intent": "recommend",
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "entity_mentions": [
+                {
+                    "surface": "Sơn Trà",
+                    "role": "scope",
+                    "kind": "geo_area",
+                    "confidence": 0.95,
+                }
+            ],
+            "confidence": 0.9,
+        }
+    )
+    planner_input = json.dumps(
+        {
+            "current_message": f"{place} ở đâu?",
+            "conversation_context": {"cities": ["Quy Nhơn"]},
+        },
+        ensure_ascii=False,
+    )
+
+    plan, _, failure = plan_query(
+        planner_input,
+        planner,
+        {
+            "cities": ["Đà Nẵng", "Quy Nhơn"],
+            "areas": ["Sơn Trà"],
+            "concepts": [],
+            "places": [place],
+        },
+    )
+
+    assert failure is None
+    assert plan.intent == V5Intent.LOOKUP
+    assert [target.value for target in plan.targets] == [place]
+    assert plan.geo_scope.cities == []
+    assert plan.clarification_needed is False
+
+
+def test_v8_keeps_exact_catalog_place_as_nearby_anchor() -> None:
+    place = "Chợ đêm Sơn Trà"
+    planner = FakePlanner(
+        {
+            "intent": "recommend",
+            "geo_scope": {"near_entities": [place]},
+            "confidence": 0.9,
+        }
+    )
+
+    plan, _, failure = plan_query(
+        f"Gợi ý quán cà phê gần {place}",
+        planner,
+        {
+            "cities": ["Đà Nẵng"],
+            "areas": [],
+            "concepts": [],
+            "places": [place],
+        },
+    )
+
+    assert failure is None
+    assert plan.targets == []
+    assert plan.geo_scope.near_entities == [place]
+
+
 def test_v8_distinguishes_named_targets_from_nearby_anchors() -> None:
     assert _public_missing_fields(
         [
