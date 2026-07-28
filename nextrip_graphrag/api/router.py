@@ -106,7 +106,9 @@ def _to_search_result(row: dict[str, Any]) -> KbSearchResult:
 
 def _all_retrieval_sources_failed(trace: list[dict[str, Any]]) -> bool:
     attempted = [event for event in trace if event.get("step") in SEARCH_STEPS]
-    return bool(attempted) and not any(event.get("status") == "ok" for event in attempted)
+    return bool(attempted) and not any(
+        event.get("status") == "ok" for event in attempted
+    )
 
 
 def _store_health(store: Any) -> str:
@@ -130,7 +132,9 @@ def _version_health(services: KbServices) -> dict[str, str]:
     }
     if not stores:
         return {}
-    with ThreadPoolExecutor(max_workers=len(stores), thread_name_prefix="kb-health") as pool:
+    with ThreadPoolExecutor(
+        max_workers=len(stores), thread_name_prefix="kb-health"
+    ) as pool:
         statuses = pool.map(_store_health, stores.values())
     return dict(zip(stores, statuses, strict=True))
 
@@ -155,6 +159,8 @@ def ready(
         status="ready" if is_ready else "not_ready",
         ready_versions=ready_versions,
         versions=statuses,
+        active_version=services.active_version,
+        previous_version=services.previous_version,
     )
 
 
@@ -162,7 +168,9 @@ def ready(
 def health(services: KbServices = Depends(get_kb_services)) -> HealthResponse:
     statuses = _version_health(services)
     return HealthResponse(
-        status="ok" if any(value == "ready" for value in statuses.values()) else "degraded",
+        status="ok"
+        if any(value == "ready" for value in statuses.values())
+        else "degraded",
         neo4j=statuses.get("v1", "not_configured"),
         neo4j_v2=statuses.get("v2"),
         neo4j_v3=statuses.get("v3"),
@@ -183,6 +191,134 @@ def versions(
         version: asdict(manifest)
         for version, manifest in kb_version_manifests().items()
         if version in configured
+    }
+
+
+@router.get("/api/kb/admin/deployments")
+def admin_deployments(
+    _: None = Depends(require_admin_api_key),
+    services: KbServices = Depends(get_kb_services),
+) -> dict[str, Any]:
+    statuses = _version_health(services)
+    deployments = [
+        _deployment_summary(services, version, statuses.get(version, "not_ready"))
+        for version in services.settings.configured_kb_versions
+    ]
+    return {
+        "active_version": services.active_version,
+        "previous_version": services.previous_version,
+        "deployments": deployments,
+    }
+
+
+@router.post("/api/kb/admin/deployments/{version}/validate")
+def validate_deployment(
+    version: str,
+    _: None = Depends(require_admin_api_key),
+    services: KbServices = Depends(get_kb_services),
+) -> dict[str, Any]:
+    try:
+        return _validate_deployment(services, version)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/kb/admin/deployments/{version}/activate")
+def activate_deployment(
+    version: str,
+    _: None = Depends(require_admin_api_key),
+    services: KbServices = Depends(get_kb_services),
+) -> dict[str, Any]:
+    try:
+        validation = _validate_deployment(services, version)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if validation["status"] != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail="GraphRAG deployment validation failed.",
+        )
+    previous, active = services.activate_version(version)
+    return {
+        "status": "activated",
+        "active_version": active,
+        "previous_version": previous,
+        "validation": validation,
+    }
+
+
+@router.post("/api/kb/admin/deployments/rollback")
+def rollback_deployment(
+    _: None = Depends(require_admin_api_key),
+    services: KbServices = Depends(get_kb_services),
+) -> dict[str, Any]:
+    try:
+        previous, active = services.rollback_version()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "rolled_back",
+        "active_version": active,
+        "previous_version": previous,
+    }
+
+
+def _deployment_summary(
+    services: KbServices,
+    version: str,
+    health: str,
+) -> dict[str, Any]:
+    store = services.store_for(version)
+    target = urlparse(store.settings.neo4j_uri)
+    manifest = kb_version_manifests()[version]
+    return {
+        "kb_version": version,
+        "active": version == services.active_version,
+        "health": health,
+        "aura_host": target.hostname,
+        "database": store.settings.neo4j_database,
+        "schema_version": int(version.removeprefix("v")),
+        "manifest": asdict(manifest),
+    }
+
+
+def _validate_deployment(
+    services: KbServices,
+    version: str,
+) -> dict[str, Any]:
+    normalized = version.strip().lower()
+    store = services.store_for(normalized)
+    manifest = kb_version_manifests().get(normalized)
+    if manifest is None:
+        raise ValueError(f"Unsupported Knowledge Base version: {normalized}")
+    store.run("RETURN 1 AS ok")
+    rows = store.run(
+        """
+        MATCH (catalog:TravelCatalog {kb_version: $kb_version})
+        CALL () {
+          MATCH (node {kb_version: $kb_version})
+          RETURN count(node) AS node_count
+        }
+        CALL () {
+          MATCH (source {kb_version: $kb_version})-[relationship]->
+                (target {kb_version: $kb_version})
+          RETURN count(relationship) AS relationship_count
+        }
+        RETURN catalog.status AS catalog_status,
+               node_count,
+               relationship_count
+        LIMIT 1
+        """,
+        kb_version=normalized,
+    )
+    row = rows[0] if rows else {}
+    catalog_status = row.get("catalog_status")
+    return {
+        **_deployment_summary(services, normalized, "ready"),
+        "status": "ready" if catalog_status == "ready" else "invalid",
+        "catalog_status": catalog_status,
+        "node_count": int(row.get("node_count") or 0),
+        "relationship_count": int(row.get("relationship_count") or 0),
     }
 
 

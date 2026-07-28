@@ -15,6 +15,7 @@ from .geo import extract_geo_area_candidates, verified_address_area_vocabulary
 
 class V5GraphStore(V4GraphStore):
     kb_version = "v5"
+    concept_vector_index = "v5_concept_embedding"
 
     def ensure_v5_schema(self, embedding_dim: int) -> None:
         self.ensure_typed_schema(embedding_dim, index_prefix="v5")
@@ -197,10 +198,10 @@ class V5GraphStore(V4GraphStore):
         limit: int,
     ) -> list[dict[str, Any]]:
         return self.run_versioned(
-            """
+            f"""
             MATCH (node:Concept)
             SEARCH node IN (
-              VECTOR INDEX v5_concept_embedding
+              VECTOR INDEX {self.concept_vector_index}
               FOR $embedding
               LIMIT $limit
             )

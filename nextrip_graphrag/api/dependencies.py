@@ -29,6 +29,15 @@ class KbServices:
         }
         self._gemini: GeminiClient | None = None
         self._gemini_lock = Lock()
+        configured = settings.configured_kb_versions
+        preferred = settings.active_kb_version
+        self._active_version = (
+            preferred
+            if preferred in configured
+            else (configured[-1] if configured else None)
+        )
+        self._previous_version: str | None = None
+        self._deployment_lock = Lock()
 
     def store_for(self, version: str):
         normalized = version.strip().lower()
@@ -48,6 +57,36 @@ class KbServices:
                 if self._gemini is None:
                     self._gemini = GeminiClient(self.settings)
         return self._gemini
+
+    @property
+    def active_version(self) -> str | None:
+        with self._deployment_lock:
+            return self._active_version
+
+    @property
+    def previous_version(self) -> str | None:
+        with self._deployment_lock:
+            return self._previous_version
+
+    def activate_version(self, version: str) -> tuple[str | None, str]:
+        normalized = version.strip().lower()
+        self.store_for(normalized)
+        with self._deployment_lock:
+            old = self._active_version
+            if old != normalized:
+                self._previous_version = old
+                self._active_version = normalized
+            return old, normalized
+
+    def rollback_version(self) -> tuple[str | None, str]:
+        with self._deployment_lock:
+            target = self._previous_version
+            if target is None:
+                raise ValueError("No previous GraphRAG deployment is available.")
+            current = self._active_version
+            self._active_version = target
+            self._previous_version = current
+            return current, target
 
     def close(self) -> None:
         self.store.close()

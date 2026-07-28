@@ -38,6 +38,10 @@ venue or brand lookup to include a city; the graph grounding stage resolves it.
 The user_query may contain a JSON object with current_message and
 conversation_context. Treat current_message as the new request and use the
 explicit context fields only to resolve omitted city, duration, or entity type.
+When conversation_context.personalization exists, treat its preferred_concepts,
+budget_level, party_type, and travel_pace only as ranking preferences. Explicit
+requirements in current_message always win. excluded_concepts may be ignored
+only when current_message explicitly requests the same concept.
 When conversation_context.resolved_query is present, use it only to resolve an
 omitted reference in current_message. Never let inherited context split or
 replace a complete named venue/brand span in current_message. city_source tells
@@ -50,6 +54,10 @@ For recommendations and lists, use a place target and provide canonical
 entity_types when the user specifies a venue type. Put cities and areas in
 geo_scope, never as a place name. Keep uncertain semantic phrases as concepts;
 the application resolves them against graph concepts and evidence chunks.
+A generic venue type followed by qualities or preferences is not a venue or
+brand name. For example, "a highly rated quiet cafe" is a recommendation with
+a cafe target whose value is null, not a named-place lookup. Reserve
+venue_name, brand_name, and venue_or_brand mentions for proper names.
 For plan_candidates, create one place target per venue type (attraction,
 restaurant, cafe, hotel, or nightlife). Do not encode a venue type as an
 activity/dish/concept target; those kinds are reserved for concept discovery.

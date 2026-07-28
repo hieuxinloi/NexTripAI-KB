@@ -19,6 +19,7 @@ class V8GraphStore(V5GraphStore):
     entity_label = "V8Entity"
     place_fulltext_index = "v8_place_fulltext"
     place_vector_index = "v8_place_embedding"
+    concept_vector_index = "v8_concept_embedding"
 
     def project_from_v5(self, *, replace: bool = False) -> dict[str, int]:
         if not replace and self._projection_ready():
@@ -165,6 +166,13 @@ class V8GraphStore(V5GraphStore):
             """,
             kb_version=self.kb_version,
         )
+        self.run(
+            """
+            MATCH (concept:Concept {kb_version: $kb_version})
+            SET concept:V8Concept
+            """,
+            kb_version=self.kb_version,
+        )
         dimensions = self.run(
             """
             MATCH (place:V8Place {kb_version: $kb_version})
@@ -193,6 +201,25 @@ class V8GraphStore(V5GraphStore):
             similarity_fn="cosine",
             neo4j_database=self.settings.neo4j_database,
         )
+        concept_dimensions = self.run(
+            """
+            MATCH (concept:V8Concept {kb_version: $kb_version})
+            WHERE concept.embedding IS NOT NULL
+            RETURN size(concept.embedding) AS dimensions
+            LIMIT 1
+            """,
+            kb_version=self.kb_version,
+        )
+        if concept_dimensions:
+            create_vector_index(
+                self.driver,
+                self.concept_vector_index,
+                label="V8Concept",
+                embedding_property="embedding",
+                dimensions=int(concept_dimensions[0]["dimensions"]),
+                similarity_fn="cosine",
+                neo4j_database=self.settings.neo4j_database,
+            )
         self.run(
             """
             CALL db.awaitIndexes(60)

@@ -39,6 +39,13 @@ class StructuredResult(BaseModel):
     value: str
 
 
+EMPTY_USAGE = SimpleNamespace(
+    prompt_token_count=0,
+    candidates_token_count=0,
+    thoughts_token_count=0,
+)
+
+
 def test_gemini_client_configures_sdk_timeout_and_retry_policy() -> None:
     client = GeminiClient.__new__(GeminiClient)
     client.settings = Settings(
@@ -72,9 +79,12 @@ def test_gemini_query_embedding_reuses_persistent_cache(tmp_path) -> None:
     client = GeminiClient.__new__(GeminiClient)
     client._query_embedding_lock = Lock()
     client._query_embedding_cache = tmp_path
+    expected_client = SimpleNamespace()
+    client.structured_client = expected_client
     calls = []
 
-    def fake_embed(contents, task_type):
+    def fake_embed(contents, task_type, *, client):
+        assert client is expected_client
         calls.append((contents, task_type))
         return [[0.1, 0.2]]
 
@@ -103,10 +113,12 @@ def test_gemini_structured_generation_uses_sdk_parsed_model() -> None:
                 or SimpleNamespace(
                     parsed=expected,
                     text='{"value":"text"}',
+                    usage_metadata=EMPTY_USAGE,
                 )
             )
         )
     )
+    client.structured_client = client.client
 
     result = client.generate_structured("system", "prompt", StructuredResult)
 
@@ -124,9 +136,11 @@ def test_gemini_structured_generation_parses_text_when_sdk_cannot_parse() -> Non
             generate_content=lambda **kwargs: SimpleNamespace(
                 parsed=None,
                 text='{"value":"fallback"}',
+                usage_metadata=EMPTY_USAGE,
             )
         )
     )
+    client.structured_client = client.client
 
     result = client.generate_structured("system", "prompt", StructuredResult)
 
@@ -142,7 +156,11 @@ def test_gemini_uses_fail_fast_client_only_for_structured_generation() -> None:
         models=SimpleNamespace(
             generate_content=lambda **kwargs: (
                 calls.append("general")
-                or SimpleNamespace(text="OK", parsed=None)
+                or SimpleNamespace(
+                    text="OK",
+                    parsed=None,
+                    usage_metadata=EMPTY_USAGE,
+                )
             )
         )
     )
@@ -153,6 +171,7 @@ def test_gemini_uses_fail_fast_client_only_for_structured_generation() -> None:
                 or SimpleNamespace(
                     text='{"value":"structured"}',
                     parsed=StructuredResult(value="structured"),
+                    usage_metadata=EMPTY_USAGE,
                 )
             )
         )

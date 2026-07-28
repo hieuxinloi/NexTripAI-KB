@@ -125,6 +125,7 @@ def update_context(
         applied_updates=_unique([*previous.applied_updates, *resolved.updates]),
         resolved_query=resolved.query,
         city_source=previous.city_source,
+        personalization=previous.personalization,
     )
 
 

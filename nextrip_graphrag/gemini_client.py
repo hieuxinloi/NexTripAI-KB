@@ -80,11 +80,10 @@ class GeminiClient:
         with self._query_embedding_lock:
             if path.exists():
                 return list(read_json(path)["embedding"])
-            interactive_client = getattr(self, "structured_client", None)
             embedding = self._embed(
                 [query],
                 task_type="RETRIEVAL_QUERY",
-                **({"client": interactive_client} if interactive_client else {}),
+                client=self.structured_client,
             )[0]
             write_json(path, {"embedding": embedding})
             return embedding
@@ -100,7 +99,8 @@ class GeminiClient:
             task_type=task_type,
             output_dimensionality=self.settings.embedding_dim,
         )
-        response = (client or self.client).models.embed_content(
+        active_client = self.client if client is None else client
+        response = active_client.models.embed_content(
             model=self.settings.embedding_model,
             contents=contents,
             config=config,
@@ -138,8 +138,7 @@ class GeminiClient:
                 thinking_level=self.settings.gemini_thinking_level,
             ),
         )
-        structured_client = getattr(self, "structured_client", self.client)
-        response = structured_client.models.generate_content(
+        response = self.structured_client.models.generate_content(
             model=self.settings.gemini_planner_model,
             contents=prompt,
             config=config,
@@ -150,10 +149,10 @@ class GeminiClient:
         return response_schema.model_validate(response.parsed)
 
     def _log_generation_usage(self, response, operation: str) -> None:
-        usage = getattr(response, "usage_metadata", None)
-        input_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
-        output_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
-        thinking_tokens = int(getattr(usage, "thoughts_token_count", 0) or 0)
+        usage = response.usage_metadata
+        input_tokens = int(usage.prompt_token_count or 0) if usage else 0
+        output_tokens = int(usage.candidates_token_count or 0) if usage else 0
+        thinking_tokens = int(usage.thoughts_token_count or 0) if usage else 0
         logger.info(
             "Gemini usage operation={} model={} input_tokens={} output_tokens={} "
             "thinking_tokens={}",

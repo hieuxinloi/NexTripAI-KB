@@ -64,6 +64,11 @@ Copy-Item .env.example .env
 
 Update `.env` with Neo4j and a Gemini Developer API key from Google AI Studio.
 
+Each configured typed version requires its own complete `NEO4J_V{N}_*` block.
+V8 does not inherit or reuse V5. Set `ACTIVE_KB_VERSION` to the deployment that
+should serve new requests. The private deployment administration endpoints
+require `KB_ADMIN_API_KEY`.
+
 Run Neo4j locally:
 
 ```powershell

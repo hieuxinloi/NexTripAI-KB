@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
+from threading import Barrier
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,6 +16,8 @@ from nextrip_graphrag.versions.v5.schemas import (
     V5Intent,
     V5QueryPlan,
 )
+from nextrip_graphrag.versions.v4.schemas import RankingCriterion
+from nextrip_graphrag.versions.v2.schemas import EntityResult
 from nextrip_graphrag.versions.v8.graph_store import V8GraphStore
 from nextrip_graphrag.versions.v8.query_planner import V8PlannerDraft, plan_query
 from nextrip_graphrag.versions.v8.schemas import V8QueryPlan
@@ -22,13 +26,19 @@ from nextrip_graphrag.versions.v8.retrieval import (
     _effective_tasks,
     _itinerary_candidate_plan,
     _public_missing_fields,
+    _recover_descriptive_venue_query,
     _recover_itinerary_plan,
     _requires_city_scope,
     _restore_unresolved_named_targets,
     _scope_recovery_plan,
 )
 from nextrip_graphrag.versions.v5.retrieval import _RetrievalOutcome
+from nextrip_graphrag.versions.v6.retrieval import V6RetrievalService
 from nextrip_graphrag.versions.v6.schemas import ConversationContext
+from nextrip_graphrag.versions.v8.retrieval import (
+    _EXPLICIT_CONCEPTS,
+    _PERSONALIZATION,
+)
 
 
 CATALOG = {
@@ -47,13 +57,133 @@ class FakePlanner:
         return response_schema.model_validate(self.payload)
 
 
+def test_v8_keeps_personalization_isolated_between_concurrent_queries(
+    monkeypatch,
+) -> None:
+    barrier = Barrier(2)
+
+    def observe_context(_service, query, *, top_k, context):
+        del top_k, context
+        barrier.wait()
+        return SimpleNamespace(
+            trace=[],
+            observed=(query, _PERSONALIZATION.get()),
+        )
+
+    monkeypatch.setattr(V6RetrievalService, "query", observe_context)
+    service = V8RetrievalService(SimpleNamespace())
+    contexts = [
+        ConversationContext(personalization={"profile_revision": revision})
+        for revision in (1, 2)
+    ]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(service.query, f"query-{revision}", context=context)
+            for revision, context in enumerate(contexts, start=1)
+        ]
+
+    observed = [future.result().observed for future in futures]
+    assert observed == [
+        ("query-1", {"profile_revision": 1}),
+        ("query-2", {"profile_revision": 2}),
+    ]
+    assert _PERSONALIZATION.get() is None
+
+
+def test_v8_personalization_enriches_soft_preferences_and_budget_ranking() -> None:
+    service = V8RetrievalService(SimpleNamespace())
+    plan = V5QueryPlan(
+        intent=V5Intent.RECOMMEND,
+        targets=[QueryTarget(kind=TargetKind.PLACE, entity_types=["attraction"])],
+        geo_scope=GeoScope(cities=["Đà Nẵng"]),
+        preferred_concepts=["culture"],
+        confidence=1,
+    )
+    token = _PERSONALIZATION.set(
+        {
+            "profile_revision": 4,
+            "budget_level": "budget",
+            "preferred_concepts": ["beach", "culture"],
+        }
+    )
+    try:
+        personalized = service._personalize_plan(plan)
+    finally:
+        _PERSONALIZATION.reset(token)
+        _EXPLICIT_CONCEPTS.set(frozenset())
+
+    assert personalized.preferred_concepts == ["culture", "beach"]
+    assert personalized.ranking_criteria == [RankingCriterion.PRICE_LOW]
+
+
+def test_v8_unresolved_profile_preferences_enrich_semantic_ranking_query() -> None:
+    service = V8RetrievalService(SimpleNamespace())
+    personalization_token = _PERSONALIZATION.set(
+        {"preferred_concepts": ["beach", "culture", "beach"]}
+    )
+    concepts_token = _EXPLICIT_CONCEPTS.set(frozenset({"culture"}))
+    try:
+        query = service._personalized_retrieval_query(
+            "Gợi ý địa điểm tham quan ở Đà Nẵng"
+        )
+    finally:
+        _PERSONALIZATION.reset(personalization_token)
+        _EXPLICIT_CONCEPTS.reset(concepts_token)
+
+    assert query.endswith("User preference signals: beach")
+
+
+def test_v8_personalization_filters_excluded_concepts_without_overriding_query(
+    monkeypatch,
+) -> None:
+    service = V8RetrievalService(SimpleNamespace())
+    outcome = _RetrievalOutcome(
+        recommendations=[
+            EntityResult(
+                place_id="quiet-cafe",
+                name="Quiet Cafe",
+                city="Quy Nhơn",
+                entity_type="cafe",
+            ),
+            EntityResult(
+                place_id="night-club",
+                name="Night Club",
+                city="Quy Nhơn",
+                entity_type="nightlife",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        service,
+        "_places_without_concepts",
+        lambda place_ids, excluded_concepts: {"quiet-cafe"},
+    )
+    personalization_token = _PERSONALIZATION.set(
+        {"profile_revision": 5, "excluded_concepts": ["nightclub"]}
+    )
+    concepts_token = _EXPLICIT_CONCEPTS.set(frozenset())
+    try:
+        personalized = service._personalize_outcome(outcome)
+    finally:
+        _PERSONALIZATION.reset(personalization_token)
+        _EXPLICIT_CONCEPTS.reset(concepts_token)
+
+    assert [item.place_id for item in personalized.recommendations] == ["quiet-cafe"]
+    assert personalized.trace[-1]["profile_revision"] == 5
+    assert personalized.trace[-1]["remaining_count"] == 1
+
+
 def test_v8_structured_schema_is_compatible_with_gemini_developer_api() -> None:
     schema = V8PlannerDraft.model_json_schema()
 
     def assert_no_open_objects(node: Any) -> None:
         if isinstance(node, dict):
             if node.get("type") == "object":
-                assert "additionalProperties" not in node or node["additionalProperties"] is False
+                assert (
+                    "additionalProperties" not in node
+                    or node["additionalProperties"] is False
+                )
             for value in node.values():
                 assert_no_open_objects(value)
         elif isinstance(node, list):
@@ -159,9 +289,24 @@ def test_v8_projection_uses_server_side_dynamic_graph_copy() -> None:
     assert "_primary_label" not in source
 
 
+def test_v8_concept_search_uses_its_own_vector_index() -> None:
+    calls: list[str] = []
+    store = V8GraphStore.__new__(V8GraphStore)
+    store.run_versioned = lambda query, **_: calls.append(query) or []
+
+    store.semantic_concept_candidates([0.0], 5)
+
+    assert "VECTOR INDEX v8_concept_embedding" in calls[0]
+    assert "VECTOR INDEX v5_concept_embedding" not in calls[0]
+
+
 def test_v8_fallback_uses_official_hybrid_retriever_and_keeps_filters_safe() -> None:
     source = (
-        Path(__file__).parents[1] / "nextrip_graphrag" / "versions" / "v8" / "retrieval.py"
+        Path(__file__).parents[1]
+        / "nextrip_graphrag"
+        / "versions"
+        / "v8"
+        / "retrieval.py"
     ).read_text(encoding="utf-8")
 
     assert "HybridCypherRetriever" in source
@@ -490,6 +635,59 @@ def test_v8_distinguishes_named_targets_from_nearby_anchors() -> None:
     ) == ["not_found:entity:Unknown Venue", "near_reference"]
 
 
+def test_v8_recovers_descriptive_venue_phrase_as_recommendation() -> None:
+    original = V5QueryPlan(
+        intent=V5Intent.LOOKUP,
+        targets=[
+            QueryTarget(
+                kind=TargetKind.PLACE,
+                value="quán cà phê ngon",
+                entity_types=["cafe"],
+            )
+        ],
+        preferred_concepts=["ngon"],
+        confidence=0.95,
+    )
+    grounded = original.model_copy(
+        update={"targets": [QueryTarget(kind=TargetKind.PLACE, entity_types=["cafe"])]}
+    )
+
+    recovered, missing, changed = _recover_descriptive_venue_query(
+        original,
+        grounded,
+        ["unresolved:place:quán cà phê ngon"],
+    )
+
+    assert changed is True
+    assert missing == []
+    assert recovered.intent == V5Intent.RECOMMEND
+    assert recovered.targets[0].value is None
+
+
+def test_v8_keeps_unknown_proper_name_as_not_found() -> None:
+    original = V5QueryPlan(
+        intent=V5Intent.LOOKUP,
+        targets=[
+            QueryTarget(
+                kind=TargetKind.PLACE,
+                value="Unknown Coffee",
+                entity_types=["cafe"],
+            )
+        ],
+        confidence=0.95,
+    )
+
+    recovered, missing, changed = _recover_descriptive_venue_query(
+        original,
+        original,
+        ["unresolved:place:Unknown Coffee"],
+    )
+
+    assert changed is False
+    assert missing == ["unresolved:place:Unknown Coffee"]
+    assert recovered.intent == V5Intent.LOOKUP
+
+
 def test_v8_retries_only_named_lookup_outside_stale_city_scope() -> None:
     named = V5QueryPlan(
         intent=V5Intent.LOOKUP,
@@ -534,7 +732,9 @@ def test_v8_keeps_raw_named_target_in_a_not_found_response_plan() -> None:
     assert valid_plan.targets[0].value == "Unknown Coffee"
 
 
-def test_v8_itinerary_policy_replaces_activity_phrase_with_balanced_place_types() -> None:
+def test_v8_itinerary_policy_replaces_activity_phrase_with_balanced_place_types() -> (
+    None
+):
     raw = V8QueryPlan(
         intent=V5Intent.RECOMMEND,
         targets=[QueryTarget(kind=TargetKind.ACTIVITY, value="lo trinh di choi")],

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,7 @@ class ConversationContext(BaseModel):
     applied_updates: list[str] = Field(default_factory=list)
     resolved_query: str | None = None
     city_source: str | None = None
+    personalization: dict[str, Any] = Field(default_factory=dict)
 
 
 class V6QueryResponse(V5QueryResponse):

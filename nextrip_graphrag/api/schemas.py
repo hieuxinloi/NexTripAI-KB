@@ -26,6 +26,8 @@ class ReadinessResponse(BaseModel):
     service: str = "nextrip-kb"
     ready_versions: list[str] = Field(default_factory=list)
     versions: dict[str, str] = Field(default_factory=dict)
+    active_version: str | None = None
+    previous_version: str | None = None
 
 
 class KbSearchRequest(BaseModel):

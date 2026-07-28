@@ -8,7 +8,7 @@ from nextrip_graphrag.versions.v3.ontology import claims_open_24h, extract_facts
 from nextrip_graphrag.versions.v3.query_planner import deterministic_plan
 from nextrip_graphrag.versions.v3.retrieval import V3RetrievalService
 from nextrip_graphrag.versions.v3.schemas import V3Filters
-from nextrip_graphrag.versions.v2.retrieval import _fulltext_query
+from nextrip_graphrag.versions.v2.retrieval import _fact, _fulltext_query
 
 
 @pytest.mark.parametrize(
@@ -38,6 +38,24 @@ def test_v3_near_filter_plan() -> None:
     assert plan.intent == "entity_list"
     assert plan.tasks[0].entity_types == ["hotel"]
     assert plan.tasks[0].filters.near_subject == "bãi biển mỹ khê"
+
+
+def test_fact_subject_uses_graph_anchor_for_versioned_fact_ids() -> None:
+    fact = _fact(
+        {
+            "subject_id": "v8:attr_qn_001",
+            "fact": {
+                "id": "v8:fact:attr_qn_001:location",
+                "predicate": "location",
+                "value": '{"lat":13.88,"lng":109.29}',
+                "value_type": "string",
+                "confidence": 0.95,
+            },
+            "evidence_ids": ["v8:text-unit:verified:attr_qn_001"],
+        }
+    )
+
+    assert fact.subject_id == "v8:attr_qn_001"
 
 
 def test_v3_faceted_list_plans() -> None:

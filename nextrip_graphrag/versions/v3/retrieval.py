@@ -113,7 +113,9 @@ class V3RetrievalService(V2RetrievalService):
             MATCH (place:Place {id: $place_id, kb_version: $kb_version})-[:HAS_FACT]->(fact:Fact)
             WHERE fact.predicate IN $predicates
             OPTIONAL MATCH (fact)-[:SUPPORTED_BY]->(unit:TextUnit)
-            RETURN fact, collect(DISTINCT unit.id) AS evidence_ids
+            RETURN place.id AS subject_id,
+                   fact,
+                   collect(DISTINCT unit.id) AS evidence_ids
             ORDER BY fact.predicate
             """,
             place_id=anchor["id"],

@@ -1,3 +1,5 @@
+import pytest
+
 from nextrip_graphrag.config import Settings
 
 
@@ -71,9 +73,10 @@ def test_configured_versions_require_complete_supported_env_block(monkeypatch) -
 
     settings = Settings.from_env()
 
-    assert settings.configured_kb_versions == ("v5", "v8")
+    assert settings.configured_kb_versions == ("v5",)
     assert settings.for_version("v5").neo4j_uri == "bolt://graph-v5:7687"
-    assert settings.for_version("v8").neo4j_uri == "bolt://graph-v5:7687"
+    with pytest.raises(ValueError, match="Unsupported Knowledge Base version: v8"):
+        settings.for_version("v8")
 
 
 def test_supported_v6_version_is_advertised_when_configured(monkeypatch) -> None:
