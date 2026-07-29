@@ -124,14 +124,22 @@ class FakeConceptStore:
 
 
 class FakeConceptClient:
-    def __init__(self, selected_id: str | None = None, confidence: float = 0.0):
+    def __init__(
+        self,
+        selected_id: str | None = None,
+        confidence: float = 0.0,
+        related_ids: list[str] | None = None,
+    ):
         self.selected_id = selected_id
         self.confidence = confidence
+        self.related_ids = related_ids or []
 
     def embed_query(self, term):
         return [0.1, 0.2]
 
     def generate_structured(self, system_instruction, prompt, response_schema):
+        if "selected_concept_ids" in response_schema.model_fields:
+            return response_schema(selected_concept_ids=self.related_ids)
         return response_schema(
             selected_concept_id=self.selected_id,
             confidence=self.confidence,
@@ -702,6 +710,31 @@ def test_v5_concept_linker_lets_llm_choose_only_from_semantic_candidates() -> No
     assert result.resolved == ["yên tĩnh"]
     assert result.links[0].method == "llm_candidate_selection"
     assert result.links[0].selector_confidence == 0.9
+
+
+def test_v5_related_concept_linker_expands_an_ambiguous_preference() -> None:
+    candidates = [
+        concept_candidate("concept:amenity:beach-access", "beach access", 0.82),
+        concept_candidate("concept:scenery:bien", "bien", 0.81, "Scenery"),
+        concept_candidate("concept:quality:tuoi", "tuoi", 0.80, "QualityCriterion"),
+    ]
+    client = FakeConceptClient(
+        related_ids=[
+            "concept:amenity:beach-access",
+            "concept:scenery:bien",
+            "concept:not-in-candidates",
+        ]
+    )
+
+    result = ConceptLinker(FakeConceptStore(candidates), client).link_related(
+        ["beach"],
+        ["beach access", "bien", "tuoi"],
+        user_query="beach",
+    )
+
+    assert result.resolved == ["beach access", "bien"]
+    assert result.unresolved == []
+    assert all(link.method == "llm_candidate_selection" for link in result.links)
 
 
 def test_v5_concept_embedding_text_includes_grounded_evidence_samples() -> None:

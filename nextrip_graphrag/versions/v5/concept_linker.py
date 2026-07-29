@@ -15,6 +15,11 @@ CONCEPT_SELECTOR_INSTRUCTION = """You link a user meaning to an existing knowled
 Select exactly one candidate only when it preserves the meaning in the full user
 query. Otherwise select null. Never create or alter a concept ID."""
 
+RELATED_CONCEPT_SELECTOR_INSTRUCTION = """You expand a user preference into existing
+knowledge-graph concepts. Select every candidate that directly preserves a useful
+aspect of the preference in the full user query. Reject merely correlated concepts.
+Return only candidate IDs and never create or alter an ID."""
+
 ConceptLinkMethod = Literal[
     "exact",
     "semantic_embedding",
@@ -30,6 +35,7 @@ class ConceptCandidate(BaseModel):
     concept_type: str
     domain: str
     score: float
+    semantic_text: str = ""
 
 
 class ConceptLink(BaseModel):
@@ -51,6 +57,10 @@ class ConceptLinkBatch(BaseModel):
 class ConceptSelection(BaseModel):
     selected_concept_id: str | None = None
     confidence: float = Field(ge=0, le=1)
+
+
+class RelatedConceptSelection(BaseModel):
+    selected_concept_ids: list[str] = Field(default_factory=list)
 
 
 class ConceptStore(Protocol):
@@ -99,11 +109,70 @@ class ConceptLinker:
         unresolved = [link.input_term for link in links if link.resolved_concept is None]
         return ConceptLinkBatch(resolved=resolved, unresolved=unresolved, links=links)
 
+    def link_related(
+        self,
+        terms: list[str],
+        vocabulary: list[str],
+        *,
+        user_query: str = "",
+    ) -> ConceptLinkBatch:
+        """Link preference terms, allowing one preference to span related concepts."""
+        by_slug = {slugify(value): value for value in vocabulary}
+        batch = ConceptLinkBatch(
+            links=[
+                self._link_term(
+                    term,
+                    by_slug,
+                    user_query,
+                    select_ambiguous=False,
+                )
+                for term in terms
+            ]
+        )
+        links: list[ConceptLink] = []
+        for link in batch.links:
+            if link.resolved_concept is not None or not link.candidates:
+                links.append(link)
+                continue
+            selected = self._select_related_candidates(
+                link.input_term,
+                user_query,
+                link.candidates,
+            )
+            if not selected:
+                links.append(link)
+                continue
+            links.extend(
+                ConceptLink(
+                    input_term=link.input_term,
+                    resolved_concept=candidate.canonical_name,
+                    method="llm_candidate_selection",
+                    score=candidate.score,
+                    candidates=link.candidates,
+                )
+                for candidate in selected
+            )
+        resolved = list(
+            dict.fromkeys(
+                link.resolved_concept
+                for link in links
+                if link.resolved_concept is not None
+            )
+        )
+        unresolved = list(
+            dict.fromkeys(
+                link.input_term for link in links if link.resolved_concept is None
+            )
+        )
+        return ConceptLinkBatch(resolved=resolved, unresolved=unresolved, links=links)
+
     def _link_term(
         self,
         term: str,
         by_slug: dict[str, str],
         user_query: str,
+        *,
+        select_ambiguous: bool = True,
     ) -> ConceptLink:
         exact = by_slug.get(slugify(term))
         if exact is not None:
@@ -149,6 +218,12 @@ class ConceptLinker:
                 resolved_concept=best.canonical_name,
                 method="semantic_embedding",
                 score=best.score,
+                candidates=candidates,
+            )
+        if not select_ambiguous:
+            return ConceptLink(
+                input_term=term,
+                method="unresolved",
                 candidates=candidates,
             )
         selected = self._select_candidate(term, user_query, candidates)
@@ -206,6 +281,42 @@ class ConceptLinker:
             logger.warning("V5 concept selector returned an ID outside the candidate whitelist")
             return None
         return candidate, selection.confidence
+
+    def _select_related_candidates(
+        self,
+        term: str,
+        user_query: str,
+        candidates: list[ConceptCandidate],
+    ) -> list[ConceptCandidate]:
+        if self.ai_client is None:
+            return []
+        try:
+            selection = self.ai_client.generate_structured(
+                RELATED_CONCEPT_SELECTOR_INSTRUCTION,
+                json.dumps(
+                    {
+                        "user_query": user_query,
+                        "preference": term,
+                        "candidates": [candidate.model_dump() for candidate in candidates],
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                RelatedConceptSelection,
+            )
+        except Exception as exc:
+            logger.warning(
+                "V5 related concept selector unavailable term_length={} error_type={}",
+                len(term),
+                exc.__class__.__name__,
+            )
+            return []
+        by_id = {candidate.concept_id: candidate for candidate in candidates}
+        return [
+            by_id[concept_id]
+            for concept_id in dict.fromkeys(selection.selected_concept_ids)
+            if concept_id in by_id
+        ]
 
 
 def _clear_vector_match(

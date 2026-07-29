@@ -8,7 +8,15 @@ from types import SimpleNamespace
 from typing import Any
 
 from neo4j_graphrag.types import RetrieverResultItem
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
 
+from nextrip_graphrag.api.router import (
+    _canonical_recommendation_cities,
+    _resolve_recommendation_filters,
+)
+from nextrip_graphrag.api.schemas import PersonalizedRecommendationRequest
 from nextrip_graphrag.versions.v5.schemas import (
     GeoScope,
     QueryTarget,
@@ -18,7 +26,10 @@ from nextrip_graphrag.versions.v5.schemas import (
 )
 from nextrip_graphrag.versions.v4.schemas import RankingCriterion
 from nextrip_graphrag.versions.v2.schemas import EntityResult
-from nextrip_graphrag.versions.v8.graph_store import V8GraphStore
+from nextrip_graphrag.versions.v8.graph_store import (
+    V8GraphStore,
+    _diversify_by_entity_type,
+)
 from nextrip_graphrag.versions.v8.query_planner import V8PlannerDraft, plan_query
 from nextrip_graphrag.versions.v8.schemas import V8QueryPlan
 from nextrip_graphrag.versions.v8.retrieval import (
@@ -790,3 +801,82 @@ def test_v8_city_entity_mention_is_promoted_to_query_scope() -> None:
 
     assert failure is None
     assert plan.geo_scope.cities == ["Quy Nhon"]
+def test_v8_personalized_candidates_use_parameterized_graph_context() -> None:
+    store = V8GraphStore.__new__(V8GraphStore)
+    captured: dict[str, Any] = {}
+
+    def fake_run(query: str, **params: Any) -> list[dict[str, Any]]:
+        captured["query"] = query
+        captured["params"] = params
+        return [
+            {
+                "place_id": "v8:attr-2",
+                "name": "Candidate",
+                "city": "Quy Nhơn",
+                "entity_type": "attraction",
+                "score": 0.75,
+                "reason_code": "similar_to_recent_place",
+                "reason": "Vì bạn từng quan tâm Seed",
+                "attributes": {},
+            }
+        ]
+
+    store.run = fake_run  # type: ignore[method-assign]
+    result = store.personalized_candidates(
+        seed_place_ids=["v8:attr-1"],
+        preferred_concepts=["beach"],
+        excluded_concepts=["crowded"],
+        excluded_place_ids=["v8:attr-1"],
+        preferred_cities=["Quy Nhơn"],
+        limit=6,
+        preferred_categories=["cafe"],
+    )
+
+    assert result[0]["place_id"] == "v8:attr-2"
+    assert captured["params"]["seed_place_ids"] == ["v8:attr-1"]
+    assert captured["params"]["preferred_concepts"] == ["beach"]
+    assert captured["params"]["preferred_categories"] == ["cafe"]
+    assert "$seed_place_ids" in captured["query"]
+    assert "v8:attr-1" not in captured["query"]
+
+
+def test_v8_diversity_never_places_zero_score_before_positive_matches() -> None:
+    rows = [
+        {"place_id": "cafe-1", "entity_type": "cafe", "score": 0.9},
+        {"place_id": "hotel-1", "entity_type": "hotel", "score": 0.0},
+        {"place_id": "cafe-2", "entity_type": "cafe", "score": 0.8},
+        {"place_id": "attraction-1", "entity_type": "attraction", "score": 0.0},
+    ]
+
+    result = _diversify_by_entity_type(rows, limit=4)
+
+    assert [row["place_id"] for row in result[:2]] == ["cafe-1", "cafe-2"]
+
+
+def test_recommendation_request_rejects_oversized_terms() -> None:
+    with pytest.raises(ValidationError):
+        PersonalizedRecommendationRequest(preferred_concepts=["x" * 81])
+
+
+def test_recommendations_do_not_broaden_an_unsupported_city() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        _canonical_recommendation_cities(["Huế"])
+
+    assert exc_info.value.status_code == 422
+
+
+def test_recommendation_preferences_use_exact_graph_taxonomy_without_llm() -> None:
+    filters = _resolve_recommendation_filters(
+        store=object(),
+        gemini=None,
+        values=["cafe", "culture", "nightlife"],
+        catalog={
+            "concepts": [],
+            "entity_types": ["cafe", "nightlife"],
+            "categories": ["cafe", "culture"],
+        },
+    )
+
+    assert filters.concepts == []
+    assert filters.entity_types == ["cafe", "nightlife"]
+    assert filters.categories == ["cafe", "culture"]

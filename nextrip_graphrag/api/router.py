@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import socket
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
@@ -12,7 +12,7 @@ from loguru import logger
 
 from ..config import HEALTH_CHECK_TIMEOUT_SECONDS
 from ..logging import safe_text
-from ..normalizer import CITY_DEFINITIONS, canonical_city
+from ..normalizer import CITY_DEFINITIONS, canonical_city, slugify
 from ..rag import TravelGraphRAG
 from ..retrieval import SearchRequest, available_strategies, get_strategy
 from ..versions.registry import (
@@ -20,6 +20,7 @@ from ..versions.registry import (
     version_retrieval_service_class,
 )
 from ..versions.v4.schemas import DynamicObservationInput, V4QueryResponse
+from ..versions.v5.concept_linker import ConceptLinker
 from .schemas import (
     GraphContext,
     HealthResponse,
@@ -31,6 +32,9 @@ from .schemas import (
     ReadinessResponse,
     SourceInfo,
     TypedQueryRequest,
+    PersonalizedRecommendationRequest,
+    PersonalizedRecommendationResponse,
+    PlaceBatchRequest,
 )
 from .dependencies import KbServices, get_kb_services, require_admin_api_key
 
@@ -42,6 +46,13 @@ SEARCH_STEPS = {
     "text_unit_keyword_search",
     "graph_filter_search",
 }
+
+
+@dataclass(frozen=True)
+class _RecommendationFilters:
+    concepts: list[str]
+    entity_types: list[str]
+    categories: list[str]
 
 
 def _resolve_city_id(city: str | None) -> str | None:
@@ -436,6 +447,128 @@ def query_typed(
         int((perf_counter() - started_at) * 1000),
     )
     return response
+
+
+@router.post(
+    "/api/kb/recommendations",
+    response_model=PersonalizedRecommendationResponse,
+)
+def personalized_recommendations(
+    request: PersonalizedRecommendationRequest,
+    services: KbServices = Depends(get_kb_services),
+) -> PersonalizedRecommendationResponse:
+    try:
+        store = services.store_for(request.kb_version)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        gemini = services.gemini
+    except RuntimeError:
+        gemini = None
+    catalog = store.planner_catalog()
+    preferred = _resolve_recommendation_filters(
+        store,
+        gemini,
+        request.preferred_concepts,
+        catalog,
+    )
+    excluded = _resolve_recommendation_filters(
+        store,
+        gemini,
+        request.excluded_concepts,
+        catalog,
+    )
+    items = store.personalized_candidates(
+        seed_place_ids=request.seed_place_ids,
+        preferred_concepts=preferred.concepts,
+        excluded_concepts=excluded.concepts,
+        preferred_entity_types=preferred.entity_types,
+        excluded_entity_types=excluded.entity_types,
+        preferred_categories=preferred.categories,
+        excluded_categories=excluded.categories,
+        excluded_place_ids=request.excluded_place_ids,
+        preferred_cities=_canonical_recommendation_cities(request.preferred_cities),
+        limit=request.limit,
+    )
+    return PersonalizedRecommendationResponse(items=items)
+
+
+@router.post(
+    "/api/kb/places/batch",
+    response_model=PersonalizedRecommendationResponse,
+)
+def places_by_ids(
+    request: PlaceBatchRequest,
+    services: KbServices = Depends(get_kb_services),
+) -> PersonalizedRecommendationResponse:
+    try:
+        store = services.store_for(request.kb_version)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return PersonalizedRecommendationResponse(
+        items=store.places_by_ids(request.place_ids)
+    )
+
+
+def _resolve_recommendation_filters(
+    store: Any,
+    gemini: Any,
+    values: list[str],
+    catalog: dict[str, list[str]],
+) -> _RecommendationFilters:
+    if not values:
+        return _RecommendationFilters([], [], [])
+    concepts_by_slug = {slugify(value): value for value in catalog["concepts"]}
+    types_by_slug = {slugify(value): value for value in catalog["entity_types"]}
+    categories_by_slug = {
+        slugify(value): value for value in catalog["categories"]
+    }
+    concepts: list[str] = []
+    entity_types: list[str] = []
+    categories: list[str] = []
+    unresolved: list[str] = []
+    for value in values:
+        key = slugify(value)
+        matched = False
+        for vocabulary, target in (
+            (concepts_by_slug, concepts),
+            (types_by_slug, entity_types),
+            (categories_by_slug, categories),
+        ):
+            if key in vocabulary:
+                target.append(vocabulary[key])
+                matched = True
+        if not matched:
+            unresolved.append(value)
+    if not unresolved:
+        return _RecommendationFilters(
+            list(dict.fromkeys(concepts)),
+            list(dict.fromkeys(entity_types)),
+            list(dict.fromkeys(categories)),
+        )
+    linked = ConceptLinker(store, gemini).link_related(
+        unresolved,
+        catalog["concepts"],
+        user_query="; ".join(unresolved),
+    )
+    return _RecommendationFilters(
+        list(dict.fromkeys([*concepts, *linked.resolved])),
+        list(dict.fromkeys(entity_types)),
+        list(dict.fromkeys(categories)),
+    )
+
+
+def _canonical_recommendation_cities(values: list[str]) -> list[str]:
+    canonical: list[str] = []
+    for value in values:
+        try:
+            canonical.append(canonical_city(value))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported recommendation city: {value}",
+            ) from exc
+    return list(dict.fromkeys(canonical))
 
 
 @router.post("/api/kb/search", response_model=KbSearchResponse)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from itertools import chain, zip_longest
+from typing import Any
+
 from neo4j_graphrag.indexes import create_fulltext_index, create_vector_index
 
 from ..v5.graph_store import V5GraphStore
@@ -20,6 +23,177 @@ class V8GraphStore(V5GraphStore):
     place_fulltext_index = "v8_place_fulltext"
     place_vector_index = "v8_place_embedding"
     concept_vector_index = "v8_concept_embedding"
+
+    def personalized_candidates(
+        self,
+        *,
+        seed_place_ids: list[str],
+        preferred_concepts: list[str],
+        excluded_concepts: list[str],
+        excluded_place_ids: list[str],
+        preferred_cities: list[str],
+        limit: int,
+        preferred_entity_types: list[str] | None = None,
+        excluded_entity_types: list[str] | None = None,
+        preferred_categories: list[str] | None = None,
+        excluded_categories: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        rows = self.run(
+            """
+            OPTIONAL MATCH (seed:V8Place {kb_version: $kb_version})
+            WHERE seed.id IN $seed_place_ids
+            OPTIONAL MATCH (seed)-[:HAS_OFFERING*0..1]->(seedSubject)-[]->
+                           (seedConcept:V8Concept {kb_version: $kb_version})
+            WITH collect(DISTINCT toLower(coalesce(
+                   seedConcept.canonical_name, seedConcept.name
+                 ))) AS seedConcepts
+            MATCH (candidate:V8Place {kb_version: $kb_version})
+            WHERE NOT candidate.id IN $excluded_place_ids
+              AND (
+                size($preferred_cities) = 0
+                OR candidate.city IN $preferred_cities
+              )
+            OPTIONAL MATCH (candidate)-[:HAS_OFFERING*0..1]->(subject)-[]->
+                           (concept:V8Concept {kb_version: $kb_version})
+            WITH candidate, seedConcepts,
+                 collect(DISTINCT toLower(coalesce(
+                   concept.canonical_name, concept.name
+                 ))) AS candidateConcepts
+            WITH candidate, seedConcepts,
+                 reduce(
+                   uniqueFeatures = [],
+                   value IN candidateConcepts + [
+                     toLower(coalesce(candidate.entity_type, '')),
+                     toLower(coalesce(candidate.category, ''))
+                   ] |
+                   CASE
+                     WHEN value = '' OR value IN uniqueFeatures THEN uniqueFeatures
+                     ELSE uniqueFeatures + value
+                   END
+                 ) AS candidateFeatures,
+                 [value IN $preferred_concepts
+                    + $preferred_entity_types
+                    + $preferred_categories | toLower(value)] AS preferredFeatures,
+                 [value IN $excluded_concepts
+                    + $excluded_entity_types
+                    + $excluded_categories | toLower(value)] AS excludedFeatures
+            WITH candidate, seedConcepts, candidateFeatures, preferredFeatures,
+                 size([value IN candidateFeatures WHERE value IN seedConcepts]) AS sharedCount,
+                 size([value IN candidateFeatures WHERE value IN preferredFeatures]) AS preferredCount,
+                 excludedFeatures,
+                 reduce(
+                   uniqueFeatures = [],
+                   value IN seedConcepts + preferredFeatures |
+                   CASE
+                     WHEN value IN uniqueFeatures THEN uniqueFeatures
+                     ELSE uniqueFeatures + value
+                   END
+                 ) AS profileFeatures
+            WHERE none(value IN candidateFeatures WHERE value IN excludedFeatures)
+            WITH candidate, candidateFeatures, sharedCount, preferredCount,
+                 CASE
+                   WHEN sharedCount > 0 THEN 'similar_to_recent_place'
+                   WHEN preferredCount > 0 THEN 'matches_preference'
+                   WHEN size($preferred_cities) > 0 THEN 'preferred_city'
+                   ELSE 'popular'
+                 END AS reasonCode,
+                 CASE
+                   WHEN size(profileFeatures) > 0
+                     THEN toFloat(size([
+                       value IN candidateFeatures WHERE value IN profileFeatures
+                     ])) / size(profileFeatures)
+                   ELSE CASE
+                     WHEN coalesce(toFloat(candidate.rating), 0.0) > 5.0
+                       THEN coalesce(toFloat(candidate.rating), 0.0) / 10.0
+                     ELSE coalesce(toFloat(candidate.rating), 0.0) / 5.0
+                   END
+                 END AS recommendationScore
+            ORDER BY recommendationScore DESC,
+                     coalesce(candidate.rating, 0) DESC,
+                     coalesce(candidate.review_count, 0) DESC,
+                     candidate.name ASC
+            WITH candidate.entity_type AS entityGroup,
+                 collect({
+                   candidate: candidate,
+                   score: recommendationScore,
+                   reasonCode: reasonCode
+                 })[0..$per_type_limit] AS rankedGroup
+            UNWIND rankedGroup AS ranked
+            WITH ranked, ranked.candidate AS rankedCandidate
+            RETURN rankedCandidate.id AS place_id,
+                   rankedCandidate.name AS name,
+                   rankedCandidate.city AS city,
+                   rankedCandidate.entity_type AS entity_type,
+                   rankedCandidate.category AS category,
+                   ranked.score AS score,
+                   ranked.reasonCode AS reason_code,
+                   CASE ranked.reasonCode
+                     WHEN 'similar_to_recent_place'
+                       THEN 'Tương tự những địa điểm bạn từng quan tâm'
+                     WHEN 'matches_preference'
+                       THEN 'Phù hợp với sở thích bạn đã chọn'
+                     WHEN 'preferred_city'
+                       THEN 'Phù hợp với thành phố bạn quan tâm'
+                     ELSE 'Được đánh giá tốt trong dữ liệu NexTripAI'
+                   END AS reason,
+                   rankedCandidate {
+                     .rating, .review_count, .address, .description,
+                     .opening_hours_open, .opening_hours_close,
+                     .opening_hours_note, .price_per_night_min,
+                     .price_per_night_max, .price_per_person_min,
+                     .price_per_person_max, .drink_price_min,
+                     .drink_price_max, .entry_fee_min, .entry_fee_max,
+                     .source_url
+                   } AS attributes
+            """,
+            kb_version=self.kb_version,
+            seed_place_ids=seed_place_ids,
+            preferred_concepts=preferred_concepts,
+            excluded_concepts=excluded_concepts,
+            preferred_entity_types=preferred_entity_types or [],
+            excluded_entity_types=excluded_entity_types or [],
+            preferred_categories=preferred_categories or [],
+            excluded_categories=excluded_categories or [],
+            excluded_place_ids=excluded_place_ids,
+            preferred_cities=preferred_cities,
+            per_type_limit=max(limit, 3),
+        )
+        return _diversify_by_entity_type(rows, limit)
+
+    def places_by_ids(self, place_ids: list[str]) -> list[dict[str, Any]]:
+        return self.run(
+            """
+            UNWIND range(0, size($place_ids) - 1) AS position
+            MATCH (place:V8Place {
+              id: $place_ids[position],
+              kb_version: $kb_version
+            })
+            RETURN place.id AS place_id,
+                   place.name AS name,
+                   place.city AS city,
+                   place.entity_type AS entity_type,
+                   place.category AS category,
+                   CASE
+                     WHEN coalesce(toFloat(place.rating), 0.0) > 5.0
+                       THEN coalesce(toFloat(place.rating), 0.0) / 10.0
+                     ELSE coalesce(toFloat(place.rating), 0.0) / 5.0
+                   END AS score,
+                   'popular' AS reason_code,
+                   'Địa điểm bạn đã lưu' AS reason,
+                   place {
+                     .rating, .review_count, .address, .description,
+                     .opening_hours_open, .opening_hours_close,
+                     .opening_hours_note, .price_per_night_min,
+                     .price_per_night_max, .price_per_person_min,
+                     .price_per_person_max, .drink_price_min,
+                     .drink_price_max, .entry_fee_min, .entry_fee_max,
+                     .source_url
+                   } AS attributes
+            ORDER BY position
+            """,
+            kb_version=self.kb_version,
+            place_ids=place_ids,
+        )
 
     def project_from_v5(self, *, replace: bool = False) -> dict[str, int]:
         if not replace and self._projection_ready():
@@ -173,6 +347,12 @@ class V8GraphStore(V5GraphStore):
             """,
             kb_version=self.kb_version,
         )
+        self.run(
+            """
+            CREATE RANGE INDEX v8_place_city IF NOT EXISTS
+            FOR (place:V8Place) ON (place.city)
+            """
+        )
         dimensions = self.run(
             """
             MATCH (place:V8Place {kb_version: $kb_version})
@@ -253,5 +433,31 @@ class V8GraphStore(V5GraphStore):
             kb_version=self.kb_version,
         )
         return bool(rows and rows[0]["status"] == "ready")
+
+
+def _diversify_by_entity_type(
+    rows: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    positive = [row for row in rows if float(row["score"]) > 0]
+    fallback = [row for row in rows if float(row["score"]) <= 0]
+    return [*_interleave_entity_types(positive), *_interleave_entity_types(fallback)][
+        :limit
+    ]
+
+
+def _interleave_entity_types(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        groups.setdefault(str(row["entity_type"]), []).append(row)
+    ranked_groups = sorted(
+        groups.values(),
+        key=lambda group: float(group[0]["score"]),
+        reverse=True,
+    )
+    interleaved = chain.from_iterable(zip_longest(*ranked_groups))
+    return [row for row in interleaved if row is not None]
 
 __all__ = ["V8GraphStore"]
