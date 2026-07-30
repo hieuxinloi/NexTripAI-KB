@@ -15,7 +15,7 @@ Chi doi retrieval algorithm thi chi la retrieval experiment, khong duoc goi la m
 
 ## 1. Scope
 
-- Source of truth: `travel_data_verified/`, 519 places.
+- Source of truth: `travel_data_verified/`, 692 places.
 - Cities: Da Nang va Quy Nhon.
 - Graph DB: Neo4j local.
 - Embedding/generation: Gemini Developer API, co cache va resume o target V2.
@@ -42,7 +42,7 @@ flowchart LR
 
 Thu tu dung voi structured travel data:
 
-1. Validate 519 verified records.
+1. Validate 692 verified records.
 2. Chot ontology cua version.
 3. Tao nodes va edges theo ontology.
 4. Tao text dai dien cho node/chunk can retrieve.

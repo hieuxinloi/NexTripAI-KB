@@ -244,11 +244,12 @@ def normalize_place(raw: dict[str, Any], source_file: str) -> dict[str, Any]:
             "city_id": city["id"],
             "category": category,
             "category_name": category_name,
-            "lat": float(coords["lat"]),
-            "lng": float(coords["lng"]),
             "source_file": source_file,
         }
     )
+    if coords.get("lat") is not None and coords.get("lng") is not None:
+        props["lat"] = float(coords["lat"])
+        props["lng"] = float(coords["lng"])
 
     source = raw.get("source") or {}
     props["source_name"] = source.get("source_name")

@@ -1,15 +1,15 @@
 {
-  "total_places": 519,
+  "total_places": 692,
   "city_counts": {
-    "city_quy_nhon": 205,
-    "city_da_nang": 314
+    "city_quy_nhon": 306,
+    "city_da_nang": 386
   },
   "entity_type_counts": {
     "attraction": 118,
     "cafe": 106,
     "hotel": 73,
-    "nightlife": 39,
-    "restaurant": 183
+    "nightlife": 195,
+    "restaurant": 200
   },
   "raw_files": [
     "attraction_final.json",

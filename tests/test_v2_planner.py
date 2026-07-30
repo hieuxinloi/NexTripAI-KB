@@ -139,6 +139,22 @@ def test_benchmark_entity_ids_exist_and_ba_na_has_altitude_fact() -> None:
     assert facts["altitude"]["unit"] == "m"
 
 
+def test_benchmark_aggregate_counts_match_processed_dataset() -> None:
+    benchmark = json.loads(DATASET.read_text(encoding="utf-8"))
+    places = read_processed("processed_verified")["places"]
+
+    for case in benchmark["cases"]:
+        expected = case["expected"]
+        if "count" not in expected:
+            continue
+        actual = sum(
+            place["props"]["city"] == expected["city"]
+            and place["entity_type"] in expected["entity_types"]
+            for place in places
+        )
+        assert actual == expected["count"], case["id"]
+
+
 def test_level_1_markdown_contains_100_parseable_cases() -> None:
     cases = read_l1_cases(Path("docs/test_cases_benchmark.md"))
 

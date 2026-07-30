@@ -745,7 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
         "v2-validate",
         help="Validate V2 graph counts, hierarchy and provenance invariants.",
     )
-    v2_validate.add_argument("--expected-places", type=int, default=519)
+    v2_validate.add_argument("--expected-places", type=int, default=692)
     v2_validate.set_defaults(func=cmd_v2_validate)
 
     v2_benchmark = subparsers.add_parser(
@@ -792,7 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
     v3_query.set_defaults(func=cmd_v3_query)
 
     v3_validate = subparsers.add_parser("v3-validate", help="Validate V3 graph invariants.")
-    v3_validate.add_argument("--expected-places", type=int, default=519)
+    v3_validate.add_argument("--expected-places", type=int, default=692)
     v3_validate.set_defaults(func=cmd_v3_validate)
 
     v3_l1_audit = subparsers.add_parser("v3-l1-audit", help="Audit all 100 L1 cases against V3.")

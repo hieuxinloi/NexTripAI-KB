@@ -220,7 +220,7 @@ class V2GraphStore(Neo4jGraphStore):
         )[0]
         return {key: int(value) for key, value in row.items()}
 
-    def validate_invariants(self, expected_places: int = 519) -> dict[str, Any]:
+    def validate_invariants(self, expected_places: int = 692) -> dict[str, Any]:
         counts = self.run_versioned(
             """
             MATCH (city:City {kb_version: $kb_version})

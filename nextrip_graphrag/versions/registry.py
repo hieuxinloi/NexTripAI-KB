@@ -11,7 +11,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v1": KBVersionManifest(
             kb_version="v1",
             status="baseline",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="place-term-v1",
             embedding_version="place-search-text-v1",
             retrieval_version="vector-first-keyword-fallback-v1",
@@ -20,7 +20,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v2": KBVersionManifest(
             kb_version="v2",
             status="experimental",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="typed-travel-provenance-v2",
             embedding_version="place-profile-evidence-chunk-v2",
             retrieval_version="hybrid-anchor-graph-traversal-v2",
@@ -29,7 +29,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v3": KBVersionManifest(
             kb_version="v3",
             status="experimental",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="resolved-claims-v3",
             embedding_version="multi-vector-profile-v3",
             retrieval_version="query-adaptive-graph-first-v3",
@@ -38,7 +38,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v4": KBVersionManifest(
             kb_version="v4",
             status="experimental",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="domain-subgraphs-evidence-claims-v4",
             embedding_version="place-profile-v4",
             retrieval_version="ontology-guided-query-adaptive-v4",
@@ -47,7 +47,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v5": KBVersionManifest(
             kb_version="v5",
             status="experimental",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="typed-target-geo-provenance-v5",
             embedding_version="place-concept-evidence-v5",
             retrieval_version="deterministic-resilient-typed-router-v5.1",
@@ -56,7 +56,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v6": KBVersionManifest(
             kb_version="v6",
             status="experimental",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="typed-target-geo-provenance-v5",
             embedding_version="place-concept-evidence-v5",
             retrieval_version="stateful-grounded-itinerary-router-v6",
@@ -65,7 +65,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v7": KBVersionManifest(
             kb_version="v7",
             status="experimental",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="typed-target-geo-provenance-v5",
             embedding_version="place-concept-evidence-v5",
             retrieval_version="llm-semantic-grounded-hybrid-rrf-v7.1",
@@ -74,7 +74,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v8": KBVersionManifest(
             kb_version="v8",
             status="experimental",
-            dataset="travel_data_verified:519",
+            dataset="travel_data_verified:692",
             ontology_version="typed-target-geo-provenance-v5-with-evidence-chunks",
             embedding_version="place-concept-evidence-v5",
             retrieval_version="semantic-tolerant-stateful-hybrid-evidence-v8",

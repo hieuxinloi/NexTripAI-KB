@@ -13,7 +13,7 @@
     "country": "Việt Nam",
     "region": "Bình Định",
     "is_main_node": true,
-    "place_count": 205
+    "place_count": 306
   },
   {
     "id": "city_da_nang",
@@ -26,6 +26,6 @@
     "country": "Việt Nam",
     "region": "Đà Nẵng",
     "is_main_node": true,
-    "place_count": 314
+    "place_count": 386
   }
 ]

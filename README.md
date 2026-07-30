@@ -20,12 +20,12 @@ Use only `travel_data_verified/` as the source of truth. Legacy raw dataset fold
 
 Current verified dataset:
 
-- total: 519 places
+- total: 692 places
 - attraction: 118
 - cafe: 106
 - hotel: 73
-- nightlife: 39
-- restaurant: 183
+- nightlife: 195
+- restaurant: 200
 
 Processed verified output lives in `processed_verified/`.
 
