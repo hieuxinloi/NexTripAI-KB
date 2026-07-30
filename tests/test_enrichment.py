@@ -62,7 +62,7 @@ def test_verified_dataset_normalizes_to_expected_manifest() -> None:
         place_id
         for place_id, place in places.items()
         if "lat" not in place["props"] or "lng" not in place["props"]
-    } == {"attr_qn_050", "attr_dn_028", "attr_dn_063"}
+    } == set()
 
 
 def test_verified_file_metadata_matches_records() -> None:
