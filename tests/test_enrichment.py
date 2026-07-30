@@ -24,21 +24,21 @@ def test_verified_source_catalog_has_expected_coverage() -> None:
     catalog = build_source_catalog(places)
     text_units = build_text_units(places)
 
-    assert len(places) == 519
+    assert len(places) == 692
     assert len(catalog) == 54
-    assert sum(item["place_count"] for item in catalog) == 519
-    assert len(text_units) == 519
+    assert sum(item["place_count"] for item in catalog) == 692
+    assert len(text_units) == 692
 
 
 def test_source_artifacts_are_staged_outside_verified_data(tmp_path: Path) -> None:
     report = build_source_artifacts(DATA_DIR, tmp_path)
 
-    assert report["place_count"] == 519
+    assert report["place_count"] == 692 
     assert report["source_document_count"] == 54
-    assert report["text_unit_count"] == 519
+    assert report["text_unit_count"] == 692
     assert (tmp_path / "output" / "source_catalog.json").exists()
     lines = (tmp_path / "output" / "text_units.jsonl").read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 519
+    assert len(lines) == 692
     assert json.loads(lines[0])["evidence_origin"] == "verified_record"
 
 
