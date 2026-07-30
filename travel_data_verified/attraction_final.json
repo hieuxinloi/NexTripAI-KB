@@ -5531,9 +5531,10 @@
       "name": "Đảo Yến Quy nhơn",
       "city": "Quy Nhơn",
       "district": null,
-      "address": "Không xác định được một địa điểm du lịch độc lập tương ứng với tên và mô tả trong dữ liệu gốc.",
+      "address": "Đảo Yến Quy Nhơn là một phần của bán đảo Phương Mai, thuộc phường Quy Nhơn Đông, tỉnh Gia Lai (trước đây thuộc 2 thôn Xương Lý và Hương Mai, xã Nhơn Lý, tỉnh Bình Định)",
       "coordinates": {
-        "status": "rejected_not_replaced"
+        "lat": 13.883482352596461,  
+        "lng": 109.26664898267546
       },
       "category": "invalid_record",
       "sub_category": [
@@ -8489,8 +8490,8 @@
       "district": null,
       "address": "Khu bảo tồn thiên nhiên Bà Nà – Núi Chúa, Đà Nẵng, Việt Nam",
       "coordinates": {
-        "lat": null,
-        "lng": null
+        "lat": 16.03486299884266,
+        "lng": 107.99087268016332
       },
       "category": "nature",
       "sub_category": [
@@ -11966,8 +11967,8 @@
       "district": null,
       "address": "Bán đảo Sơn Trà, phường Sơn Trà, Đà Nẵng, Việt Nam",
       "coordinates": {
-        "lat": null,
-        "lng": null
+        "lat": 16.14584914301897,
+        "lng": 108.3206352714113
       },
       "category": "nature",
       "sub_category": [
