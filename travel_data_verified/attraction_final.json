@@ -79,7 +79,7 @@
         "bus_routes": [],
         "parking": {
           "available": true,
-          "fee": null,
+          "fee": "free",
           "note": "Có khu vực giữ xe gần lối vào; chưa tìm thấy biểu phí chính thức ổn định."
         },
         "distance_from_center": "Khoảng 20 km",
@@ -110,9 +110,9 @@
       "last_updated": "2026-05-27T10:12:01.002629",
       "ticket_price": {
         "adult": 25000,
-        "child": 0,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Trẻ em dưới 0,9 m được miễn phí theo thông tin công bố của cổng du lịch địa phương. Chưa có chính sách riêng được xác minh cho học sinh, sinh viên hoặc người cao tuổi."
       },
@@ -260,7 +260,7 @@
         "parking": {
           "available": null,
           "location": "Khu vực Nhơn Hải",
-          "fee": null,
+          "fee": "free",
           "note": "Cần xác minh tại bến hoặc đơn vị cung cấp tàu canô."
         },
         "distance_from_center": "Khoảng 16–18 km đến khu vực Nhơn Hải/Hòn Khô",
@@ -292,10 +292,10 @@
       "embedding_text": "Hòn Khô | Quy Nhơn | beach | Du khách thích thú check in tại Hòn Khô – Một trong những địa điểm du lịch Quy Nhơn tuyệt đẹp (Ảnh: Sưu tầm) Hòn Khô Quy Nhơn là điểm đến lý tưởng cho những ai yêu thích trải nghiệm lặn ngắm san hô và tắm biển. Tại đây bạn có thể dễ dàng ngắm nhìn những rạn san hô chỉ cách mặt nước khoảng 1 – 2m. Đặc biệt, tại đây còn có con đường dọc theo lưng núi cực đẹp, giúp bạn thoải mái “sống ảo” trong chuyến du lịch của mình. | instagrammable",
       "last_updated": "2026-05-27T10:12:01.002629",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Chưa xác minh được vé vào đảo chính thức. Chi phí tàu, canô, lặn san hô và tour phải lưu riêng trong service_prices."
       },
@@ -309,8 +309,8 @@
           "note": "Không phải mức giá quản lý nhà nước hoặc bảng giá chung cho mọi nhà cung cấp."
         },
         "snorkeling": {
-          "min": null,
-          "max": null,
+          "min": "free",
+          "max": "free",
           "currency": "VND",
           "note": "Có thể được bao gồm trong tour hoặc tính riêng tùy đơn vị."
         },
@@ -443,10 +443,10 @@
       "embedding_text": "Đồi cát Phương Mai | Quy Nhơn | beach | Đồi cát Phương Mai là địa điểm ở Quy Nhơn phù hợp với những người thích xê dịch (Ảnh: Sưu tầm) Nếu như Bình Thuận nổi tiếng với Bàu Trắng thì Quy Nhơn được biết đến với đồi cát Phương Mai. Đặt chân trên nền cát mềm mịn, phía xa xa là trời xanh và biển cả, bạn sẽ cảm nhận rõ được sự yên bình và hoang dã mà thiên nhiên nơi đây mang lại. Ngoài ra, tại đồi cát Phương Mai cũng có rất nhiều hoạt động vui chơi để du khách thoải mái trải nghiệm.",
       "last_updated": "2026-05-27T10:12:01.003629",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -567,10 +567,10 @@
       "embedding_text": "Núi Vũng Chua | Quy Nhơn | nature | Ngắm nhìn toàn cảnh Quy Nhơn từ núi Vũng Chua (Ảnh: Sưu tầm) Giới thiệu địa điểm du lịch Quy Nhơn, nhiều người thường nhắc đến núi Vũng Chua. Đây là một trong ba ngọn núi nổi tiếng của địa phương, phù hợp cho những ai thích trải nghiệm leo núi, không quá nguy hiểm nhưng cũng không kém phần hoang dã. Từ trên núi, bạn có thể phóng tầm mắt ngắm nhìn toàn cảnh Quy Nhơn tuyệt đẹp, tận hưởng bầu không khí trong lành, cực kỳ thư giãn.",
       "last_updated": "2026-05-27T10:12:01.003629",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -691,10 +691,10 @@
       "embedding_text": "Hòn Sẹo | Quy Nhơn | beach | Hòn Sẹo – điểm du lịch mới trên bản đồ địa điểm du lịch Quy Nhơn (Ảnh: Sưu tầm) Hòn Sẹo nằm cách đất liền khoảng 5km, đây là một trong những điểm du lịch mới nổi của Quy Nhơn. Khi đến với hòn Sẹo, bạn có thể bắt gặp những hình ảnh bãi đá cuội tròn được hình thành trong quá trình tác động của nước biển. Một vài hoạt động mà du khách có thể trải nghiệm tại đây đó là: tắm biển, lặn biển ngắm san hô, chụp ảnh…",
       "last_updated": "2026-05-27T10:12:01.003629",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -813,10 +813,10 @@
       "embedding_text": "Cù Lao Xanh | Quy Nhơn | beach | “Sống ảo” thả ga khi đến với Cù Lao Xanh (Ảnh: Sưu tầm) Nếu bạn đang tìm kiếm một địa điểm du lịch Quy Nhơn 2026 hút khách nhất thì Cù Lao Xanh sẽ là điểm đến đáng lựa chọn. Nơi đây được thiên nhiên ban tặng cảnh đẹp hùng vĩ, trong lành. Cù Lao Xanh tọa lạc giữa vùng biển mênh mông, bao phủ là những tán cây xanh và bãi cát trắng mịn. Một vẻ đẹp bình dị nhưng vô cùng quyến rũ sẽ khiến bạn thích thú khi đặt chân tới đây. | instagrammable",
       "last_updated": "2026-05-27T10:12:01.003629",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -904,10 +904,10 @@
       "embedding_text": "Tịnh xá Ngọc Hòa | Quy Nhơn | beach | Tịnh xá Ngọc Hòa – Địa điểm du lịch Quy Nhơn dành cho những du khách yêu thích văn hóa (Ảnh: Sưu tầm) Bên cạnh các địa điểm du lịch biển thì bạn cũng có thể chọn ghé thăm các điểm du lịch văn hóa tâm linh tại Quy Nhơn. Tịnh xã Ngọc Hòa là nơi có tượng Phật đôi Quan Thế Âm cao 30m đồ sộ. Đây cũng là điểm chiêm bái, cầu nguyện linh thiêng của người dân địa phương. | romantic",
       "last_updated": "2026-05-27T10:12:01.003629",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không thu vé theo nguồn tham khảo công khai; công đức tự nguyện."
       },
@@ -1023,10 +1023,10 @@
       "embedding_text": "Làng chài Nhơn Lý | Quy Nhơn | beach | Cuộc sống rất “đời” tại làng chài Nhơn Lý (Ảnh: Sưu tầm) Làng chài Nhơn Lý là một trong những ngôi làng điển hình cho cuộc sống bình yên của người dân miền biển. Đến đây, du khách có thể tìm hiểu về đời sống sinh hoạt hằng ngày của bà con ngư dân, cùng họ đánh bắt hải sản hoặc “sống ảo” ở nhiều góc chụp mộc mạc, đơn sơ. Đến với làng chài Nhơn Lý, bạn nhất định phải thưởng thức nhiều món ngon làm từ nguồn hải sản Quy Nhơn tươi sống. | instagrammable | must_try",
       "last_updated": "2026-05-27T10:12:01.004628",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -1101,7 +1101,7 @@
         "Nhà hàng và bãi tắm"
       ],
       "price_range": {
-        "min": 0,
+        "min": "free",
         "max": 40000,
         "currency": "VND"
       },
@@ -1151,9 +1151,9 @@
       "last_updated": "2026-05-27T10:12:01.004628",
       "ticket_price": {
         "adult": 40000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Trẻ dưới 1 m miễn phí; giá nguồn công khai, cần kiểm tra lại."
       },
@@ -1259,10 +1259,10 @@
       "embedding_text": "Chùa Thiên Hưng | Quy Nhơn | historical | Chùa Thiên Hưng – “Phượng hoàng cổ trấn” của Bình Định (Ảnh: Sưu tầm) Thiên Hưng là ngôi chùa có lịch sử lâu đời được xây dựng với lối kiến trúc độc đáo. Từng khu vực của chùa được bố trí một cách hài hòa tạo nên sự yên bình, thư thái cho du khách khi ghé thăm. Hiện nay, đây là ngôi chùa lưu giữ Ngọc Xá Lợi của Đức Phật Thích Ca và biểu tượng tháp chuông độc đáo.",
       "last_updated": "2026-05-27T10:12:01.004628",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -1351,10 +1351,10 @@
       "embedding_text": "CHÙA ÔNG NÚI | Quy Nhơn | beach | Chùa Ông Núi (hay còn gọi là chùa Linh Phong) là một địa điểm nổi tiếng với bức tược Phật ngồi trên đỉnh núi. Vì độ to lớn của bức tượng mà đi từ xa du khách đã có thể nhìn thấy nó, thoạt nhìn như một vị Phật ngồi giữa mây trời. Đến gần du khách sẽ được chiêm ngưỡng kĩ hơn sự kì công của bức tượng Phật trên đài sen này. Để lên được nơi tọa lạc của tượng Phật, du khách phải leo lên nhiều bậc thang nối từ chân núi đến đỉnh núi. Tổng thể kiến trúc là tông màu trắng tinh khiết từ thân tượng đến đài sen, kể cả kiến trúc bên trong hay tường đá bên ngoài. Màu trắng này tạo nên cảm giác an yên và sạch sẽ cho những người ghé thăm. Đứng tại đây, phóng tầm mắt xuống dưới là khung cảnh đồng lúa thu nhỏ và xa xa là biển. Xem chương trình tour Chùa Ông Núi tại: Tour du lịch Chùa Ông Núi",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -1467,9 +1467,9 @@
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
         "adult": 15000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -1558,10 +1558,10 @@
       "embedding_text": "LÀNG PHONG QUY HÒA | Quy Nhơn | culture | Nếu như muốn tìm một nơi yên nình, thanh lặng để khép lại chuyến du lịch Quy Nhơn của mình thì Làng Phong Quy Hòa là lựa chọn tốt nhất. Chỉ cách trung tâm thành phố khoảng 7km, bạn sẽ không mất quá nhiều thời gian để di chuyển đến đây. Làng phong Quy Hòa là nơi thi sĩ nổi tiếng Hàn Mạc Từ đã ở và trị bệnh trong những năm cuối đời. Chính vì vậy, nới đây vẫn còn lưu giữ một số bút tích và hiện vật của ông. Xuyên suốt làng là một không khí trong trẻo và an yên của cảnh sắc và người dân, của những con đường xưa cũ, những giàn hoa giấy hồng rực, những ngôi nhà phủ màu thời gian. Tất cả sẽ khiến chuyến đi của du khách thêm phần lắng đọng. Xem Chương trình tour tại: City Tour Quy Nhơn",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -1674,10 +1674,10 @@
       "embedding_text": "THÁP ĐÔI | Quy Nhơn | historical | Nằm ngay trong thành phố Quy Nhơn, du khách có thể dễ dàng di chuyển đến Tháp Đôi để chiêm ngưỡng kiến trúc còn sót lại của văn hóa Chăm Pa. Tháp đôi bao gồm hai toà tháp nằm kề nhau gọi là Tháp Nam và Tháp Bắc. Dù trải qua thời gian dài nhưng công trình này vẫn còn nang hơi thở cổ xưa và độc đáo từ kiến trúc tổng thể đến từng đường nét, hoa văn, màu gạch của người Chăm. Dù là nằm trong lòng thành phố như Tháp Đôi vẫn còn đó không khí xưa cũ huyền diệu giữa không gian hiện đại. Xem Chương trình tour tại: City Tour Quy Nhơn nửa ngày | Tháp Đôi | romantic",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -1796,10 +1796,10 @@
       "embedding_text": "THÁP DƯƠNG LONG | Quy Nhơn | historical | Bên cạnh Tháp Bánh Ít hay Tháp Đôi thì Tháp Dương Long cũng là một quần thể tháp Chăm tại Bình Định còn được lưu giữ cho đến ngày nay. Đây là quần thể gồm 3 tháp nằm liền kề nhau là Tháp Bắc, Tháp Giữa và Tháp Nam, mang đậm đặc trưng của tháp Chăm Pa và bị ảnh hưởng rõ nét bởi nghệ thuật Khmer. Giống như hầu hết các thiết kế Tháp Chăm khác, Tháp Dương Long cũng quay mặt về hướng Đông, cửa tháp được tạo thành hình mũi lao với nhiều lớp chồng khít lên nhau, hoa văn chạm khắc chủ yếu là hình hoa và rắn. Nhìn vào Tháp, du khách sẽ có cảm giác vừa chân thực vừa huyền bí. Xem chi tiết tại: Hệ thống tháp Chăm Bình Định | Tháp Đôi | romantic",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -1885,10 +1885,10 @@
       "embedding_text": "HỒ SINH THÁI QUY NHƠN | Quy Nhơn | entertainment | Hồ sinh thái Quy Nhơn là một hồ nước nhân tạo quen thuộc với người dân thành phố. Đây là địa điểm thích hợp để du khách dạo mát vào sáng sớm hay những buổi chiều mát mẻ. Mặt hồ tựa như một tấm gương phản chiếu mây trời. Bao quanh hồ là đường dùng để đi bộ được lát gạch và trang trí bởi những giàn hoa giấy, hàng cây xanh nghiêng bóng mặt hồ, tiểu cảnh… Ngoài ra còn có các đình gỗ nhô ra mặt nước để nghỉ mát hay chụp ảnh. Vào buổi tối, khi thành phố lên đèn, Hồ Sinh Thái càng lung linh đầy màu sắc.",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2012,8 +2012,8 @@
       "ticket_price": {
         "adult": 100000,
         "child": 80000,
-        "student": null,
-        "elderly": null,
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2255,10 +2255,10 @@
       "embedding_text": "LÀNG BÍ ĐAO KHỔNG LỒ | Quy Nhơn | beach | Tham quan làng bí đao khổng lồ là một trong những hoạt động thú vị được không ít du khách lựa chọn. Những trái bí đao với kích thước to khoảng 30 – 70kg/1 trái sẽ khiến bạn phải trầm trồ ngạc nhiên. Mỗi vườn bí đao sẽ có khoảng 300m2 giàn bí với gần 100 gốc. Kích thước loại nông sản đặc biệt này có được nhờ vùng đất có thổ nhưỡng kỳ lạ. Tại đây, ba bề là núi bao bọc, hướng mặt ra biển, bên dưới mặt đất sở hữu mạch nước ngầm tốt. Trong quá trình tham quan du khách sẽ được giới thiệu về làng, cách chăm sóc, chụp hình lưu niệm hay mua về. Làng nằm tại xã Mỹ Thọ, huyện Phù Mỹ, Bình Định. Xem chương trình tour tại: Tour Làng Bí Đao khổng lồ",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2359,10 +2359,10 @@
       "embedding_text": "MŨI VI RỒNG | Quy Nhơn | beach | Mũi Vĩ Rồng hay còn gọi là Mũi Rồng nằm khá xa trung tâm thành phố (hơn 70km), tuy nhiên, bạn sẽ không hối hận khi quyết định khám phá long mạch chốn nhân gian này. Nhìn từ xa, Mũi Vĩ Rồng có hình dáng của một con rồng được thiên nhiên chạm trổ và điêu khắc thành, đây chính là một tuyệt tác của tự nhiên. Địa danh này là một ghềnh đá nhô ra biểm tầm 20m, xung quanh ghềnh là những tảng đá to dựng san sát nhau với nhiều hình dáng. Trong lòng sự hùng vĩ đó là một hang đá đâm xuyên ra mặt biển trong vắt. Tất cả tạo nên một mỹ cảnh huyền ảo giữa thiên nhiên. Đứng trên ghềnh du khách sẽ cảm nhận được gió biển mát rượi, tiếng song vỗ rì rào chân thật hơn bao giờ hết. Xem chương trình tour tại: Tour Mũi Vi Rồng – Phù Mỹ – Bình Định",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2463,10 +2463,10 @@
       "embedding_text": "ĐẦM TRÀ Ổ | Quy Nhơn | beach | Với diện tích khoảng 20km, nằm giữa những cánh đồng lớn, núi non nhấp nhô trùng điệp, Đầm Trà Ổ khép mình e thẹn, không ngọt như sông nhưng cũng không mặn như biển. Bên bờ phía đông đầm là những trảng cát trắng bằng phẳng mịn màng, nằm trải dài trên diềm xanh biếc của vùng nước. Tại đây còn có những loài thủy sản đặc sắc mang hương vị riêng không lẫn ở đâu. Sẽ thật đáng tiếc nếu như không thể ghé thăm Đầm Trà Ổ khi đến Bình Định, để được đi xuồng trên mặt đầm óng ánh, như đứng giữa non nước nên thơ cổ tích. Xem chương trình tour tại: Tour du lịch Đầm Trà Ổ",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2561,10 +2561,10 @@
       "embedding_text": "LÀNG CHÀI HẢI MINH | Quy Nhơn | beach | Hải Minh là một trong những làng chài cá nằm yên bình ở một góc Quy Nhơn. Để đến đây, du khách chỉ cần di chuyển đến cảng cá Quy Nhơn và đi ca nô hoặc thuyền ra làng chài, rất nhanh chóng và dễ dàng. Đi sâu vào bên trong làng sẽ có con đường dẫn lên tượng Trần Hưng Đạo – được xem là “vị thần giữ biển” của Quy Nhơn. Ngoài ra, du khách còn có thể tham quan ngọn hải đăng, tắm biển và dạo bước trên những bãi biển rất ít người nhưng không kém phần xinh đẹp, và cũng có thể tìm hiểu về cuộc sống, nghề chài cá của những người dân vùng biển. Xem chi tiết tại: Khám phá Làng Chài Hải Minh",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2683,10 +2683,10 @@
       "embedding_text": "NHÀ THỜ LÀNG SÔNG | Quy Nhơn | culture | Nhà thờ Làng Sông là một nhà thờ cổ mang hơi thở mộc mạc, trầm mặc của năm tháng. Đi từ thành phố Quy Nhơn khoảng 20m, băng qua những đoạn đường quê thơm ngát hương lúa, nhà thờ hiện lên giữa những tán cây cao hàng trăm tuổi. Kiến trúc nhà thờ là sự duyên dáng của phong cách Gothic, sự cổ kính của từng đường nét, sự thoáng đãng của khuôn viên, sự uy nghiêm của những dãy hành lang với nét chạm khắc trên tường, trên cửa và sự tĩnh lặng của những dãy nhà phủ đầy rêu phong. Không chỉ thu hút nhiều du khách, nhà thờ Làng Sông còn là cảm hứng của không ít các nhiếp ảnh gia khi đến mảnh đất miền trung này. Xem chi tiết tại: Khám phá Nhà Thờ Làng Sông",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2799,10 +2799,10 @@
       "embedding_text": "HỒ NÚI MỘT | Quy Nhơn | nature | Nếu có dịp Du lịch Quy Nhơn – Bình Định, bạn nên ghé Hồ Núi Một để trải nghiệm cái cảm giác nhỏ bé giữa thiên nhiên rộng lớn. Hồ ôm trọn một dòng nước ngọt, được bao bọc và che chở bởi đại ngàn hùng vĩ của dãy núi Trường An. Xung quanh hồ là suối thác trắng xóa, rừng nguyên sinh, hang động kết hợp với mặt nước phẳng lặng cực kỳ hoang sơ hấp dẫn. Sẽ không ngoa khi nói đây là một bức tranh thủy mặc hữu tình được vẽ đẹp đến từng chi tiết. Rất nhiều du khách thích thú khi được đi xuồng trên hồ, đắm mình trong thế giới thơ mộng, gạt đi những bộn bề để thấy lòng mình bình lặng hệt như cảnh sắc nơi đây. Xem chi tiết tại: Hồ Núi Một – Bức tranh sơn thủy tuyệt đẹp | hidden_gem",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2891,10 +2891,10 @@
       "embedding_text": "VŨNG BỒI | Quy Nhơn | beach | Được mệnh danh là “Thiên đường ẩn mình” của Bình Định, Vũng Bồi – Đề Gi là một vịnh biển kín với những rừng dương liễu, đê chắn sóng đẹp ngất ngây, bãi cát dài và làn nước xanh mát. Vì là vịnh khép kín nơi nằm cách xa khu dân cư, còn có những mỏm đá nhấp nhô đón sóng vỗ trắng xóa nên vùng này còn hoang sơ và thuần khiết. Tất cả hòa quyện tạo nên khung canh vừa xanh vừa trắng, thanh bình và yên ả, chắc chắn sẽ hút hồn những người tới đây. Xem chi tiết tại: Tour du lịch Đề Gi – Vũng Bồi | hidden_gem",
       "last_updated": "2026-05-27T10:12:01.006744",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": null
       },
@@ -2988,10 +2988,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé chung để vào làng chài hoặc bãi biển; homestay, ăn uống, thuyền thúng và dịch vụ biển tính riêng."
       },
@@ -3213,10 +3213,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không tìm thấy vé vào bãi biển; chi phí thuyền, gửi xe hoặc dịch vụ địa phương tính riêng."
       },
@@ -3329,10 +3329,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Các nguồn du lịch công khai ghi nhận tham quan miễn phí; tiền công đức nếu có là tự nguyện."
       },
@@ -3414,10 +3414,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn; các dịch vụ phát sinh tính riêng nếu có."
       },
@@ -3530,10 +3530,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Tham quan miễn phí theo nguồn công khai; tiền công đức tự nguyện."
       },
@@ -3613,10 +3613,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không thu vé; tiền công đức là tự nguyện."
       },
@@ -3842,10 +3842,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không tìm thấy vé chung cho bãi biển; khu lưu trú hoặc nhà hàng ven bãi có thể thu phí dịch vụ riêng."
       },
@@ -3942,10 +3942,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không tìm thấy vé tham quan tiêu chuẩn trên cổng du lịch; gửi xe hoặc dịch vụ tại chỗ có thể tính riêng."
       },
@@ -4060,10 +4060,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không thu vé khi lưu thông qua cầu hoặc ngắm cảnh công cộng."
       },
@@ -4300,10 +4300,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Bãi biển công cộng không có vé vào cổng; ghế, tắm nước ngọt, gửi xe và hoạt động biển tính riêng nếu sử dụng."
       },
@@ -4418,10 +4418,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào làng; tàu/canô ra Hòn Khô và dịch vụ ăn uống tính riêng."
       },
@@ -4529,10 +4529,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn; các dịch vụ phát sinh tính riêng nếu có."
       },
@@ -4723,10 +4723,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không tìm thấy vé riêng cho Bãi Trứng; chi phí nếu có thuộc khu dịch vụ chung."
       },
@@ -4837,10 +4837,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không tìm thấy vé vào bãi biển; khu lưu trú hoặc nhà hàng lân cận có thể thu phí dịch vụ."
       },
@@ -4950,10 +4950,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không tìm thấy vé vào bãi biển; dịch vụ tại cơ sở kinh doanh ven bãi tính riêng."
       },
@@ -5123,10 +5123,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé chung cho toàn khu vực Hải Giang; khu nghỉ dưỡng, bãi riêng hoặc dịch vụ có thể áp dụng phí riêng."
       },
@@ -5237,10 +5237,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không thu vé; tiền công đức tự nguyện."
       },
@@ -5355,10 +5355,10 @@
       "ticket_price": {
         "status": "no_standard_admission_fee",
         "general": 0,
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không thu vé vào quảng trường; sự kiện chuyên biệt có thể có quy định riêng."
       },
@@ -5856,9 +5856,9 @@
       "last_updated": "2026-05-27T10:12:01.061426",
       "ticket_price": {
         "adult": 60000,
-        "child": 0,
+        "child": "free",
         "student": 20000,
-        "elderly": 0,
+        "elderly": "free",
         "currency": "VND",
         "note": "Mức 20.000 VND áp dụng cho sinh viên/học viên và công dân thường trú Đà Nẵng; các nhóm miễn/giảm cần xuất trình giấy tờ theo quy định."
       },
@@ -5962,9 +5962,9 @@
       "last_updated": "2026-05-27T10:12:01.061426",
       "ticket_price": {
         "adult": 80000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Vé tham khảo năm 2026; dịch vụ ăn uống/lưu trú và trò chơi tính riêng."
       },
@@ -6056,9 +6056,9 @@
       "last_updated": "2026-05-27T10:12:01.061426",
       "ticket_price": {
         "adult": 90000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Gồm vé tham quan 70.000 VND và phí vệ sinh trên đảo 20.000 VND; chưa gồm canô/tàu."
       },
@@ -6131,10 +6131,10 @@
       "embedding_text": "Đỉnh Bàn Cờ | Đà Nẵng | nature | Đỉnh Bàn Cờ Đà Nẵng nằm trên đỉnh núi của bán đảo Sơn Trà, thuộc địa phận phường Thọ Quang, quận Sơn Trà, cách trung tâm thành phố khoảng 9km về phía Tây. Nhờ vị trí đặc biệt này, nơi đây trở thành điểm đến lý tưởng cho những ai yêu thích thiên nhiên và muốn chiêm ngưỡng toàn cảnh thành phố từ trên cao. Không chỉ đẹp bởi cảnh sắc nên thơ, đỉnh Bàn Cờ còn gắn liền với một truyền thuyết dân gian đặc sắc. Câu chuyện kể rằng xưa kia có một vị tiên ông xuống trần, vì say mê cảnh sắc Sơn Trà nên đã dựng một bàn cờ đá giữa núi rừng để thi triển tài nghệ. Để tưởng nhớ câu chuyện này, người dân nơi đây đã dựng tượng Đế Thích cùng bàn cờ đá, từ đó hình thành cái tên “đỉnh Bàn Cờ”, một biểu tượng đầy màu sắc huyền thoại trên bán đảo Sơn Trà. | Bán đảo Sơn Trà",
       "last_updated": "2026-05-27T10:12:01.062425",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -6237,10 +6237,10 @@
       "embedding_text": "Đèo Hải Vân | Đà Nẵng | entertainment | Đèo Hải Vân là một trong những cung đường hiểm trở nhất tại Việt Nam hiện nay với vòng cua hẹp, độ dốc lớn. Thế nhưng đó cũng là lý do nơi đây thu hút đông đảo tín đồ du lịch đến khám phá. Cảnh đẹp nhìn từ Đèo Hải Vân chính là phần thưởng sáng giá dành cho các phượt thủ ưa mạo hiểm.",
       "last_updated": "2026-05-27T10:12:01.062425",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -6323,10 +6323,10 @@
       "embedding_text": "Cầu Rồng | Đà Nẵng | entertainment | Cầu Rồng nằm trong trung tâm thành phố là công trình kiến trúc bắc qua sông Hàn ấn tượng bậc nhất nơi đây. Cùng những cây cầu đẹp nhất Đà Nẵng như Cầu Quay, Cầu Tình Yêu... tất cả tạo nên thành phố du lịch về đêm lung linh, rực rỡ ánh đèn.",
       "last_updated": "2026-05-27T10:12:01.062425",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -6428,10 +6428,10 @@
       "embedding_text": "Chợ đêm Sơn Trà | Đà Nẵng | entertainment | Đã dừng chân tại Bán đảo Sơn Trà, sao có thể bỏ qua cơ hội vi vu khám phá Chợ đêm bạn nhỉ? Từ những món ăn đặc sản thơm ngon, khó cưỡng đến vô số các mặt hàng quần áo, đồ lưu niệm giá rẻ, đây hứa hẹn sẽ là địa điểm du lịch Đà Nẵng cực kì thú vị. | Bán đảo Sơn Trà",
       "last_updated": "2026-05-27T10:12:01.062425",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -6532,10 +6532,10 @@
       "embedding_text": "Da Nang Downtown | Đà Nẵng | historical | Da Nang Downtown là một tổ hợp mua sắm, vui chơi giải trí thu hút hàng đầu tại trung tâm thành phố bên sông Hàn. Công viên vốn đã nổi tiếng nhờ mang đến một loạt các trò chơi độc đáo lần đầu tiên xuất hiện tại Việt Nam và tái hiện lại hoàn hảo vương quốc phương Đông qua các địa danh văn hóa, kiến trúc và lịch sử, những màn biểu diễn nghệ thuật và ẩm thực đặc trưng đến từ 10 nước khắp châu Á, từ Nhật Bản, Hàn Quốc, Ấn Độ, Trung Quốc cho đến Việt Nam.",
       "last_updated": "2026-05-27T10:12:01.062425",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Tạm dừng hoạt động từ tháng 9/2025; chưa có bảng giá đang áp dụng."
       },
@@ -6638,7 +6638,7 @@
       "ticket_price": {
         "adult": 350000,
         "child": 200000,
-        "student": null,
+        "student": "free",
         "elderly": 200000,
         "currency": "VND",
         "note": "Giá ngày thường; cuối tuần/ngày lễ: người lớn 400.000 VND, trẻ em/người cao tuổi 225.000 VND."
@@ -6730,10 +6730,10 @@
       "embedding_text": "Sơn Trà Tịnh Viên | Đà Nẵng | entertainment | Địa chỉ: Tiểu khu 64, phường Thọ Quang, quận Sơn Trà, thành phố Đà Nẵng. Sơn Trà Tịnh Viên là một khu vườn tre, trúc độc đáo trên bán đảo Sơn Trà (còn được gọi là Khu bảo tồn tre Đà Nẵng). Đây là nơi trồng nhiều loại tre, trúc quý hiếm tạo nên một không gian xanh mướt, trong lành quanh năm. Đằng sau Sơn Trà Tịnh Viên là công sức và tâm huyết của sư thầy Đại đức Thích Thế Tường. Sư thầy đã bỏ ra một số tiền lớn để xây dựng và chăm sóc khu bảo tồn tre để phục vụ cho mọi người đến tham quan và tìm kiếm sự an lạc. Sơn Trà Tịnh Viên không thu phí vé vào cửa và mở cửa hàng tuần cho bạn có thể đến thăm bất cứ lúc nào trong chuyến du lịch Đà Nẵng. | Bán đảo Sơn Trà",
       "last_updated": "2026-05-27T10:12:01.063425",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -6837,9 +6837,9 @@
       "last_updated": "2026-05-27T10:12:01.063425",
       "ticket_price": {
         "adult": 35000,
-        "child": 0,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Khách Việt Nam 35.000 VND; khách quốc tế 50.000 VND; trẻ dưới 12 tuổi miễn phí."
       },
@@ -6941,9 +6941,9 @@
       "last_updated": "2026-05-27T10:12:01.063425",
       "ticket_price": {
         "adult": 40000,
-        "child": 0,
+        "child": "free",
         "student": 10000,
-        "elderly": null,
+        "elderly": "free",
         "currency": "VND",
         "note": "Động Huyền Không nằm trên tuyến tham quan Thủy Sơn; vé Thủy Sơn 40.000 VND người lớn, 10.000 VND học sinh/sinh viên, trẻ dưới 6 tuổi miễn phí. Thang máy tính riêng."
       },
@@ -7043,10 +7043,10 @@
       "embedding_text": "Chợ Cồn | Đà Nẵng | entertainment | Chợ Cồn Đà Nẵng là một trong những khu chợ có tuổi đời lâu nhất tại Đà Nẵng. Chợ có diện tích khá rộng, là nơi tập trung của hơn 2000 hộ kinh doanh với đa dạng các sản phẩm như quần áo, giày dép, đồ gia dụng, thủy hải sản… nhưng đặc biệt nổi tiếng, được nhiều người biết đến là các món đồ ăn vặt. Thêm một điểm cộng to đùng dành cho chợ Cồn tuy các mặt hàng khá phong phú, giá cả phải chăng",
       "last_updated": "2026-05-27T10:12:01.063425",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -7146,10 +7146,10 @@
       "embedding_text": "Chợ Hàn | Đà Nẵng | entertainment | Người ta thường bảo nhau rằng muốn ăn uống thì đến chợ Cồn, còn muốn mua sắm thì tấp ngay sang chợ Hàn. Quả thật không sai tí nào luôn đó nha. Bởi vì là khu chợ đầu mối lớn nhất thành phố Đà Nẵng với diện tích ấn tượng lên đến hơn 28.000 mét vuông, chợ Hàn Đà Nẵng được chia thành nhiều gian khác nhau. Dường như cả thế giới đồ gia dụng, đặc sản Đà Nẵng, quà lưu niệm, quần áo và ti tỉ thứ hay ho khác đều tề tựu nơi chợ Hàn với khung cảnh tấp nập người buôn kẻ bán. Chợ Hàn được chia thành nhiều khu khác nhau với hàng trăm gian hàng diện tích lớn nhỏ đa dạng, được sắp xếp gọn gàng và khoa học nên cực kỳ dễ đi.",
       "last_updated": "2026-05-27T10:12:01.063425",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -7253,8 +7253,8 @@
       "ticket_price": {
         "adult": 100000,
         "child": 30000,
-        "student": null,
-        "elderly": null,
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Khách Việt Nam 100.000 VND; khách quốc tế 150.000 VND; trẻ 5–15 tuổi 30.000 VND. Vé gồm xe điện và chương trình biểu diễn theo chính sách công bố."
       },
@@ -7323,10 +7323,10 @@
       "embedding_text": "Bãi biển Mỹ Khê | Đà Nẵng | beach | Nhắc tới địa điểm du lịch Đà Nẵng \"làm mưa làm gió\", không ai là không nghĩ ngay đến Bãi biển Mỹ Khê. Đây là một trong những bãi tắm được tờ tạp chí của Mỹ đánh giá là đẹp nhất hành tinh bởi làn nước trong xanh, bờ cát trắng trải dài. Cảnh đẹp nơi đây chắc chắn sẽ khiến bạn mê mẩn ngay từ lần đầu du lịch.",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -7430,10 +7430,10 @@
       "embedding_text": "Bãi biển Non Nước | Đà Nẵng | beach | Bãi biển Non Nước nằm ở phía Nam thành phố Đà Nẵng, gần Ngũ Hành Sơn với chiều dài khoảng 5km. Non Nước được khách du lịch yêu thích bởi cát trắng mịn, nước biển trong xanh và làn sóng êm đềm. Bãi biển Non Nước có cảnh quan hữu tình, bao quanh bởi núi non và rừng dừa xanh mát. Đây là nơi lý tưởng để thư giãn và tận hưởng không khí trong lành. | Ngũ Hành Sơn",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -7540,10 +7540,10 @@
       "embedding_text": "Bãi biển Bắc Mỹ An | Đà Nẵng | beach | Bãi biển Bắc Mỹ An nằm cách trung tâm Đà Nẵng khoảng 7km về phía Đông Nam, kéo dài khoảng 4km. Bắc Mỹ An có cảnh quan đẹp với bờ cát trắng dài, nước biển trong xanh và không gian thoáng đãng. Bãi biển này là nơi rất lý tưởng để bạn tắm nắng và thư giãn. Biển đẹp nhất vào thời điểm bình minh và hoàng hôn, không gian cực kỳ lung linh và lãng mạn. | hoàng hôn | romantic | sunset_spot",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -7647,10 +7647,10 @@
       "embedding_text": "Bãi biển Nam Ô | Đà Nẵng | beach | Bãi biển Nam Ô nằm cách trung tâm thành phố Đà Nẵng khoảng 17km về phía Tây Bắc. Đây là bãi biển hoang sơ với lượng khách du lịch khá ít. Vì vậy nên thích hợp với những bạn muốn tận hưởng sự vắng vẻ, riêng tư. Đặc biệt, tại đây có các rạn san hô Nam Ô tuyệt đẹp nên bạn đừng bỏ qua cơ hội lặn biển ngắm nhìn nhé. | hidden_gem",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -7755,10 +7755,10 @@
       "embedding_text": "Bãi biển Tiên Sa | Đà Nẵng | beach | Bãi biển Tiên Sa nằm ở phía Bắc bán đảo Sơn Trà, cách trung tâm thành phố Đà Nẵng khoảng 10km. Đây là bãi biển yên tĩnh, ít đông đúc hơn các bãi biển khác mà MIA.vn giới thiệu ở trên. | Bán đảo Sơn Trà",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Bãi biển thuộc khu vực có cơ sở du lịch khai thác; chưa tìm thấy bảng giá 2026 thống nhất cho khách lẻ. Không đồng nhất vé dịch vụ resort với vé vào bãi biển."
       },
@@ -7855,10 +7855,10 @@
       "embedding_text": "Bãi biển Làng Vân | Đà Nẵng | beach | Biển Đà Nẵng Làng Vân nằm ở chân đèo Hải Vân, xứng đáng được xếp vào nhóm các bãi biển nguyên sơ đẹp nhất Việt Nam. Khung cảnh nơi đây được ví von như một ngôi làng cổ tích, mộc mạc và yên bình. Vì nơi đây chưa được khai thác nhiều để phục vụ du lịch nên đường đi đến bãi biển Làng Vân cũng là một thử thách. Bạn chỉ có hai loại phương tiện là đi bằng thuyền hoặc phải đi bộ.",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -7955,10 +7955,10 @@
       "embedding_text": "Bãi Biển Xuân Thiều | Đà Nẵng | beach | Khi mặt trời mọc hoặc lặn, ánh sáng mặt trời nhuộm đỏ cả bãi biển Xuân Thiều, tạo nên một khung cảnh tuyệt đẹp. Bãi biển này nổi bật với dải cát trắng mịn và nước biển trong xanh, nằm hướng ra vịnh Đà Nẵng. Từ đây, bạn có thể chiêm ngưỡng vẻ đẹp của bán đảo Sơn Trà và ngọn núi Hải Vân hùng vĩ. | Bán đảo Sơn Trà",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8047,10 +8047,10 @@
       "embedding_text": "Bãi biển Thanh Bình | Đà Nẵng | beach | Biển Thanh Bình nằm ngay trong lòng thành phố, có bờ biển dài khoảng 1km với mặt biển yên ả, ít sóng. Đúng như tên gọi, biển Thanh Bình mang đến vẻ đẹp thơ mộng và không gian yên tĩnh, là điểm đến lý tưởng cho du khách trong và ngoài nước. Dịch vụ du lịch tại đây khá phát triển và đa dạng, đáp ứng đầy đủ nhu cầu của bạn.",
       "last_updated": "2026-05-27T10:12:01.064424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8151,10 +8151,10 @@
       "embedding_text": "Bãi biển An Bàng | Đà Nẵng | beach | Nếu du lịch Đà Nẵng - Hội An, bạn đừng quên ghé thăm bãi biển An Bàng, được xem như là linh hồn của phố cổ Hội An. An Bàng nổi bật với cát trắng ngà mịn màng và những con sóng thơ mộng, tạo nên một không gian yên bình. Được CNN bình chọn là một trong 100 bãi biển đẹp nhất hành tinh, An Bàng xứng đáng là viên ngọc quý của Quảng Nam.",
       "last_updated": "2026-05-27T10:12:01.065424",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8248,9 +8248,9 @@
       "last_updated": "2026-05-27T10:12:01.065424",
       "ticket_price": {
         "adult": 10000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Mức 10.000 VND là giá tham khảo từ nguồn gốc của dữ liệu; chưa tìm thấy bảng giá chính thức 2026. Gửi xe tham khảo 5.000 VND/xe."
       },
@@ -8354,10 +8354,10 @@
       "embedding_text": "Hồ Xanh | Đà Nẵng | entertainment | Hồ Xanh Đà Nẵng với phong cảnh hữu tình là chốn dừng chân nghỉ ngơi, thư giãn cực kì lý tưởng. Các bạn gần xa khi đến đây bên cạnh đi cắm trại, picnic còn có thể check in \"sống ảo\" cùng thiên nhiên tươi đẹp, mang về cho mình album ảnh mang đậm chất riêng. | instagrammable",
       "last_updated": "2026-05-27T10:12:01.065930",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8459,10 +8459,10 @@
       "embedding_text": "Hồ Hòa Trung | Đà Nẵng | entertainment | Nếu đang tìm kiếm một địa điểm du lịch Đà Nẵng có phong cảnh sơn thủy hữu tình, Hồ Hòa Trung sẽ là chân ái dành cho bạn. Không chỉ có công dụng dẫn nước vào đồng ruộng của người dân địa phương, đây còn lại nơi cực kì trong lành, mát mẻ để tổ chức các hoạt động cắm trại, tiệc BBQ... đầy thú vị.",
       "last_updated": "2026-05-27T10:12:01.065930",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8536,10 +8536,10 @@
       "embedding_text": "Giếng trời | Đà Nẵng | nature | Giếng trời là điểm check in thuộc Khu bảo tồn thiên nhiên Bà Nà Núi Chúa thu hút hàng triệu tín đồ du lịch ghé tham quan hàng năm. Tuy đường đến đây khá chông gai nhưng bù lại khung cảnh thiên nhiên hoang sơ đẹp mê hồn người mà Giếng trời mang lại chắc chắn sẽ chinh phục trái tim người lữ hành. | hidden_gem",
       "last_updated": "2026-05-27T10:12:01.065930",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8612,10 +8612,10 @@
       "embedding_text": "Làng đá mỹ nghệ Non Nước | Đà Nẵng | nature | Địa chỉ: Chân núi Ngũ Hành Sơn, phường Hòa Hải, quận Ngũ Hành Sơn, TP. Đà Nẵng Làng đá mỹ nghệ Non Nước là một trong những biểu tượng văn hóa của Đà Nẵng. Trải qua hơn 400 năm, tiếng đục chạm đá vẫn vang lên đều đặn trong từng ngôi nhà nhỏ. Từ ly, chén, ấm trà đến tượng Phật, sư tử hay thần Vệ Nữ, mỗi tác phẩm đều mang dấu ấn tỉ mỉ và tinh tế. Ngày nay, sản phẩm của làng không chỉ được yêu thích trong nước mà còn xuất khẩu đi khắp nơi trên thế giới, khẳng định danh tiếng của nghệ thuật thủ công Việt Nam. | Ngũ Hành Sơn",
       "last_updated": "2026-05-27T10:12:01.065930",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8715,10 +8715,10 @@
       "embedding_text": "Làng nghề bánh tráng Túy Loan | Đà Nẵng | culture | Địa chỉ: Xã Hòa Phong, huyện Hòa Vang, TP. Đà Nẵng Cách trung tâm thành phố khoảng 15km về phía Tây, làng nghề bánh tráng Túy Loan nổi tiếng với những chiếc bánh tráng giòn thơm được làm hoàn toàn thủ công. Từ khâu chọn gạo, ngâm, xay, tráng cho đến nướng trên than hồng, người dân đều làm bằng sự tỉ mỉ và tình yêu nghề. Bánh tráng Túy Loan có vị đặc trưng nhờ mè trắng và hương gạo dẻo. Vào những dịp lễ Tết, người dân nơi đây luôn đặt xấp bánh tráng do chính tay mình làm lên bàn thờ, như lời tri ân với tổ tiên và nghề truyền thống của quê hương.",
       "last_updated": "2026-05-27T10:12:01.065930",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8795,10 +8795,10 @@
       "embedding_text": "Làng nghề dệt chiếu Cẩm Nê | Đà Nẵng | culture | Địa chỉ: Xã Hòa Tiến, huyện Hòa Vang, TP. Đà Nẵng Làng chiếu Cẩm Nê đã gắn bó với nghề dệt hàng trăm năm qua. Mỗi tấm chiếu là kết quả của sự tỉ mỉ, bền bỉ và tinh tế. Với loại chiếu hoa, từng sợi lác được nhuộm và phơi kỹ lưỡng nhiều lần trước khi dệt, tạo nên màu sắc tự nhiên và bền đẹp. Chiếu Cẩm Nê nổi tiếng có viền dày, nằm êm và bền hơn so với nhiều nơi khác. Người dân nơi đây vẫn giữ nghề như một niềm tự hào, xem đó là cách lưu giữ hồn quê giữa cuộc sống hiện đại.",
       "last_updated": "2026-05-27T10:12:01.065930",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8874,10 +8874,10 @@
       "embedding_text": "Làng nghề nước mắm Nam Ô | Đà Nẵng | beach | Địa chỉ: Phường Hòa Hiệp, quận Liên Chiểu, TP. Đà Nẵng Nam Ô là cái nôi của nghề làm nước mắm truyền thống miền Trung. Từ những mẻ cá cơm tươi ngon đánh bắt ở vùng biển Nam Ô, người dân ủ mắm trong suốt một năm để cho ra thứ nước mắm sóng sánh, vàng óng và thơm nồng. Nước mắm Nam Ô có vị mặn đầu lưỡi, hậu ngọt thanh, mang đậm hương vị biển cả. Không chỉ là món ăn, nước mắm Nam Ô còn là niềm tự hào của người dân Đà Nẵng, gắn liền với bao thế hệ và tình yêu quê hương.",
       "last_updated": "2026-05-27T10:12:01.066948",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -8978,9 +8978,9 @@
       "last_updated": "2026-05-27T10:12:01.067933",
       "ticket_price": {
         "adult": 100000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Vé công viên 100.000 VND. Vé show Ký Ức Hội An dành cho du khách: ECO 600.000 VND, HIGH 750.000 VND, VIP 1.200.000 VND."
       },
@@ -9081,9 +9081,9 @@
       "last_updated": "2026-05-27T10:12:01.067933",
       "ticket_price": {
         "adult": 40000,
-        "child": 0,
+        "child": "free",
         "student": 10000,
-        "elderly": null,
+        "elderly": "free",
         "currency": "VND",
         "note": "Vé Thủy Sơn: người lớn 40.000 VND; học sinh/sinh viên 10.000 VND; trẻ dưới 6 tuổi miễn phí. Động Âm Phủ và thang máy bán vé riêng."
       },
@@ -9188,10 +9188,10 @@
       "embedding_text": "Cầu Tình Yêu & Cá chép hóa rồng | Đà Nẵng | entertainment | Cầu Tình Yêu mang đến không gian lãng mạn bên bờ sông Hàn với hàng trăm ổ khóa tình yêu treo dọc lối đi. Ngay cạnh là tượng Cá chép hóa rồng – biểu tượng mới của thành phố. Vào buổi tối, ánh sáng lung linh cùng làn gió mát từ sông tạo nên khung cảnh đẹp mắt. Đây là điểm check-in được nhiều du khách và các cặp đôi yêu thích. | instagrammable | romantic",
       "last_updated": "2026-05-27T10:12:01.067933",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -9294,9 +9294,9 @@
       "last_updated": "2026-05-27T10:12:01.068994",
       "ticket_price": {
         "adult": 50000,
-        "child": 0,
+        "child": "free",
         "student": 20000,
-        "elderly": 0,
+        "elderly": "free",
         "currency": "VND",
         "note": "Giá thường 50.000 VND; công dân thường trú Đà Nẵng, sinh viên/học viên 20.000 VND; nhóm miễn giảm theo quy định cần giấy tờ."
       },
@@ -9402,9 +9402,9 @@
       "last_updated": "2026-05-27T10:12:01.068994",
       "ticket_price": {
         "adult": 60000,
-        "child": 0,
+        "child": "free",
         "student": 20000,
-        "elderly": 0,
+        "elderly": "free",
         "currency": "VND",
         "note": "Mức 20.000 VND áp dụng cho sinh viên/học viên và công dân thường trú Đà Nẵng; các nhóm miễn/giảm cần xuất trình giấy tờ theo quy định."
       },
@@ -9508,9 +9508,9 @@
       "last_updated": "2026-05-27T10:12:01.068994",
       "ticket_price": {
         "adult": 30000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Vé tham quan khu rừng dừa 30.000 VND; thuyền thúng và dịch vụ biểu diễn/ăn uống tính riêng."
       },
@@ -9600,7 +9600,7 @@
       "ticket_price": {
         "adult": 1000000,
         "child": 800000,
-        "student": null,
+        "student": "free",
         "elderly": 800000,
         "currency": "VND",
         "note": "Giá khách ngoại tỉnh: người lớn 1.000.000 VND, trẻ 1–1,4 m và người từ 70 tuổi 800.000 VND. Giá người địa phương thấp hơn khi đủ điều kiện. Cầu Vàng không bán vé tách riêng khỏi Ba Na Hills."
@@ -9693,10 +9693,10 @@
       "embedding_text": "Asia Park | Đà Nẵng | entertainment | Được mệnh danh là kỳ quan nhân tạo của Đà Nẵng, Asia Park sở hữu hệ thống các trò chơi và giải trí cực kỳ hấp dẫn. Bạn có thể đi monorail ngắm cảnh công viên, hoặc lên ngay cabin Sunwheel để ngắm Đà Nẵng cả đêm lẫn ngày. Cùng với đó là các trò chơi từ giải trí nhẹ nhàng đến mạo hiểm, rùng rợn dành cho mọi đối tượng.",
       "last_updated": "2026-05-27T10:12:01.068994",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Tạm dừng hoạt động từ tháng 9/2025; chưa có bảng giá đang áp dụng."
       },
@@ -9798,10 +9798,10 @@
       "embedding_text": "Bảo tàng 3D TrickEye | Đà Nẵng | historical | Không chỉ được chiêm ngưỡng các tác phẩm 3D, hoạt động thú vị và chủ yếu ở Art in Paradise chính là tạo dáng và chụp ảnh. Bạn có thể hóa thân thành những nhân vật cổ tích trong thế giới thần tiên, đặt chân vào khu rừng bí ẩn giữa những lăng mộ Ai Cập cổ đại hay hóa thân thành những chú chim đại bàng tung cánh…",
       "last_updated": "2026-05-27T10:12:01.068994",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Website chính thức vẫn hoạt động nhưng trang giá không hiển thị mức vé hiện hành; các nền tảng bán vé có thể bán theo khuyến mại, không dùng làm giá niêm yết."
       },
@@ -9904,8 +9904,8 @@
       "ticket_price": {
         "adult": 490000,
         "child": 245000,
-        "student": null,
-        "elderly": null,
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Vé phổ thông 2026: người lớn 490.000 VND; trẻ 1–1,4 m 245.000 VND. Dịch vụ tắm bùn, spa và combo có thể tính thêm."
       },
@@ -9998,8 +9998,8 @@
       "ticket_price": {
         "adult": 150000,
         "child": 80000,
-        "student": null,
-        "elderly": null,
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Vé vào cổng: người lớn 150.000 VND, trẻ em 80.000 VND. Gói có trượt thác/rafting có giá cao hơn, thường từ 450.000 VND."
       },
@@ -10090,7 +10090,7 @@
       "ticket_price": {
         "adult": 650000,
         "child": 450000,
-        "student": null,
+        "student": "free",
         "elderly": 450000,
         "currency": "VND",
         "note": "Người lớn 650.000 VND; trẻ 1–1,39 m và khách từ 60 tuổi 450.000 VND."
@@ -10170,10 +10170,10 @@
       "embedding_text": "Bán đảo Sơn Trà và Chùa Linh Ứng bãi Bụt | Đà Nẵng | historical | Vừa là một địa danh mang tính lịch sử, vừa là một khu thiên nhiên xinh đẹp, bán đảo Sơn Trà luôn là lựa chọn ghé thăm của nhiều người. Địa điểm du lịch Đà Nẵng này không chỉ có cảnh quan mà bầu không khí cùng các món ăn cũng vô cùng đáng thử. Nếu đi cùng gia đình, bạn có thể lựa chọn thuê xe du lịch từ Đà Nẵng đi Sơn Trà – Ngũ Hành Sơn – Hội An để vừa đi được nhiều nơi vừa thoải mái hơn. Nổi bật với bức tượng Quan Âm trắng muốt cao đến 67m, đài sen rộng 35m – một trong những pho tượng Phật to nhất Việt Nam hiện nay. Ngoài ra, đây cũng là một điểm đến cho những ai muốn thư giãn giữa không gian thiên nhiên và thanh tĩnh. | Bán đảo Sơn Trà | Ngũ Hành Sơn | family_friendly",
       "last_updated": "2026-05-27T10:12:01.070046",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -10275,9 +10275,9 @@
       "last_updated": "2026-05-27T10:12:01.070046",
       "ticket_price": {
         "adult": 80000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Vé 80.000 VND gồm cảnh quan và số điểm di tích theo gói; gói 120.000 VND có phạm vi tham quan rộng hơn. Không phải mọi khu vực đi bộ trong phố cổ đều kiểm soát vé như nhau."
       },
@@ -10367,10 +10367,10 @@
       "embedding_text": "Ngôi nhà úp ngược (Upside down house) | Đà Nẵng | entertainment | Ngôi nhà úp ngược Đà Nẵng có 10 chủ đề khác nhau, từ phòng khách, phòng ngủ, phòng học, nhà bếp đến toilet, phòng giặt là và mini-mart,… Tất cả đều được “lật ngược” lại, mang đến cho bạn một thế giới hoàn toàn mới lạ.",
       "last_updated": "2026-05-27T10:12:01.071061",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Nền tảng đặt vé 2026 đang hiển thị tình trạng hết vé/sold out và không cung cấp giá niêm yết ổn định."
       },
@@ -10470,10 +10470,10 @@
       "embedding_text": "Làng bích họa Tam Thanh | Đà Nẵng | culture | Tam Thanh là ngôi làng bích họa đầu tiên tại Việt Nam. Được lấy hình mẫu từ ngôi làng bích họa ở Hàn Quốc và cuộc sống thường nhật của những người dân ở ngay trong chính làng chài này. Những bức tường ở Tam Thanh được khoác lên mình những lớp sơn, hình vẽ sáng tạo để trở thành những bức tranh tươi sáng.",
       "last_updated": "2026-05-27T10:12:01.071061",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -10544,10 +10544,10 @@
       "embedding_text": "À Ố Show Hội An | Đà Nẵng | culture | À Ố Show là sự kết hợp độc đáo giữa các loại hình nghệ thuật từ kịch xiếc đến những câu hò, điệu lý dân gian,… Gắn kết người xem với những câu chuyện tương phản mà hài hòa của làng quê bình yên và phố thị nhộn nhịp.",
       "last_updated": "2026-05-27T10:12:01.071061",
       "ticket_price": {
-        "adult": null,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không tìm thấy lịch và bảng giá 2026 riêng cho À Ố Show tại Hội An. Trung tâm Lune Hội An hiện công bố lịch các chương trình theo ngày; không gán giá Teh Dar cho À Ố Show."
       },
@@ -10652,9 +10652,9 @@
       "last_updated": "2026-05-27T10:12:01.071061",
       "ticket_price": {
         "adult": 700000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Giá hạng A từ 700.000 VND; hạng O 1.150.000 VND; hạng W 1.600.000 VND."
       },
@@ -10754,9 +10754,9 @@
       "last_updated": "2026-05-27T10:12:01.071061",
       "ticket_price": {
         "adult": 10000,
-        "child": null,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Mức 10.000 VND là giá tham khảo từ nguồn gốc của dữ liệu; chưa tìm thấy bảng giá chính thức 2026. Gửi xe tham khảo 5.000 VND/xe."
       },
@@ -10858,10 +10858,10 @@
       "embedding_text": "Bãi tắm Phạm Văn Đồng | Đà Nẵng | beach | Bãi biển Phạm Văn Đồng Đà Nẵng nằm cuối đường Phạm Văn Đồng, ngay bên công viên Biển Đông (trên cung đường Hoàng Sa – Trường Sa). Từ cầu sông Hàn, bạn chỉ mất chưa đến 3 phút đi thẳng xuống đường Phạm Văn Đồng là đến ngay bãi tắm.",
       "last_updated": "2026-05-27T10:12:01.071932",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -10968,9 +10968,9 @@
       "last_updated": "2026-05-27T10:12:01.071932",
       "ticket_price": {
         "adult": 35000,
-        "child": 0,
-        "student": null,
-        "elderly": null,
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Khách Việt Nam 35.000 VND; khách quốc tế 50.000 VND; trẻ dưới 12 tuổi miễn phí."
       },
@@ -11071,10 +11071,10 @@
       "embedding_text": "Hải đăng Tiên Sa | Đà Nẵng | entertainment | Hải đăng Tiên Sa là một trong những ngọn hải đăng cổ đẹp nhất Việt Nam với độ cao trên 200m. Đây cũng là một trong những địa điểm du lịch Đà Nẵng để ngắm cảnh tuyệt vời nhất.",
       "last_updated": "2026-05-27T10:12:01.071932",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11174,10 +11174,10 @@
       "embedding_text": "Bãi cỏ cháy | Đà Nẵng | entertainment | Nép mình bên Ngũ Hành Sơn, bãi cỏ cháy vừa có chút gì đó trầm buồn vừa có một vẻ lãng mạn, thích hợp để chụp những bộ ảnh nghệ thuật. | Ngũ Hành Sơn | romantic",
       "last_updated": "2026-05-27T10:12:01.071932",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11277,10 +11277,10 @@
       "embedding_text": "Hải đăng Thuận Phước | Đà Nẵng | entertainment | Hải đăng Thuận Phước tuy không có quy mô lớn nhưng lại là một điểm ngắm cảnh và chụp hình cực đẹp. Từ đây, bạn có thể thỏa mắt ngắm hoàng hôn, hóng gió, hay ngắm những cây cầu huyền thoại của Đà Nẵng. | hoàng hôn | sunset_spot",
       "last_updated": "2026-05-27T10:12:01.071932",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11382,10 +11382,10 @@
       "embedding_text": "Sông Hàn | Đà Nẵng | entertainment | Du ngoạn sông Hàn về đêm là 1 trong những điểm nhấn nổi bật đối với du lịch Đà Nẵng. Bạn có thể chọn một chiếc thuyền, hoặc tàu để ăn tối, ngắm cảnh. Từ sông Hàn bạn có thể nhìn thấy những cây cầu đẹp nhất Đà Nẵng và cảnh thành phố hai bên sông.",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11489,10 +11489,10 @@
       "embedding_text": "Cầu Thuận Phước | Đà Nẵng | entertainment | Cầu Thuận Phước có kiến trúc hiện đại và công nghệ đèn led mới mẻ. Đây cũng là một trong 4 cây cầu nổi tiếng nhất Đà Nẵng mà bạn không thể bỏ qua/. | must_try",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11593,10 +11593,10 @@
       "embedding_text": "Cầu Quay sông Hàn | Đà Nẵng | entertainment | Là cây cầu quay duy nhất hiện đang còn hoạt động. Khoảng 23:00 – 24:00 mỗi cuối tuần và khoảng 01:00 đến 02:00 sáng các ngày bình thường, bạn sẽ được chứng kiến hoạt động của cây cầu quay độc nhất Việt Nam.",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11697,10 +11697,10 @@
       "embedding_text": "Cầu Trần Thị Lý | Đà Nẵng | entertainment | Giữa lòng Đà Nẵng sôi động, cầu Trần Thị Lý với hệ thống dây văng như một dải lụa bắt qua 2 bờ, một nét chấm phá độc đáo cho bức tranh Đà Nẵng xinh đẹp.",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11801,10 +11801,10 @@
       "embedding_text": "Cầu Nguyễn Văn Trỗi | Đà Nẵng | entertainment | Các kiến trúc sư đã thiết kế cây cầu “già cỗi” nhất trên sông Hàn thành một không gian độc đáo, thoáng đãng để ngắm cảnh, dạo bộ và chụp ảnh.",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -11906,10 +11906,10 @@
       "embedding_text": "Cung văn hóa thiếu nhi Đà Nẵng | Đà Nẵng | culture | Là một trong những góc sống ảo dành cho các bạn trẻ từ khắp nơi đến Đà Nẵng. Với những góc tường và trang trí độc đáo, chắc chắn bộ ảnh của bạn sẽ không thể hoàn chỉnh nếu thiếu mất những shot ảnh tại đây. | instagrammable",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -12011,10 +12011,10 @@
       "embedding_text": "Cây đa nghìn năm | Đà Nẵng | entertainment | Cũng nằm trong khu vực Sơn Trà, cây đa cổ thụ với 1000 năm tuổi có những tán lá xum xuê, chằng chịt và chiều cao hơn 20m.",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -12086,10 +12086,10 @@
       "embedding_text": "Rừng thông Bồ Bồ | Đà Nẵng | nature | Tĩnh lặng với những rừng cây thông xanh mát mắt, rừng thông Bồ Bồ là điểm đến cho những ai muốn tìm về với thiên nhiên giữa lòng phố thị.",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -12161,10 +12161,10 @@
       "embedding_text": "Hồ Đồng Xanh | Đà Nẵng | entertainment | Tựa như một bức tranh sơn thủy với màu sắc xanh làm chủ đạo. Hồ Đồng Xanh – Đồng Nghệ là địa điểm du lịch Đà Nẵng dành cho những ai muốn tìm kiếm một chút yên bình và tĩnh lặng giữa phố thị.",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
@@ -12240,10 +12240,10 @@
       "embedding_text": "Ghềnh Bàng | Đà Nẵng | beach | Ghềnh Bàng với bờ biển dài khoảng 2 cây số, nổi bật với những tảng đá đủ hình đủ dạng và vẻ đẹp hoang sơ hiếm có. Nằm trên bán đảo Sơn Trà xanh mát và cách trung tâm Đà Nẵng khoảng 20 km, bạn có thể thuê xe máy từ Đà Nẵng để đến đây. | Bán đảo Sơn Trà | hidden_gem",
       "last_updated": "2026-05-27T10:12:01.072960",
       "ticket_price": {
-        "adult": 0,
-        "child": 0,
-        "student": 0,
-        "elderly": 0,
+        "adult": "free",
+        "child": "free",
+        "student": "free",
+        "elderly": "free",
         "currency": "VND",
         "note": "Không có vé vào cổng tiêu chuẩn được công bố; gửi xe, ăn uống, tàu thuyền hoặc dịch vụ thương mại tính riêng."
       },
