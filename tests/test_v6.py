@@ -177,6 +177,7 @@ def test_v8_api_passes_conversation_context_to_stateful_service(monkeypatch) -> 
         def query(self, query, top_k, *, context=None):
             received["context"] = context
             return SimpleNamespace(
+                kb_version="v8",
                 answer_type="recommendation",
                 entities=[],
                 recommendations=[],

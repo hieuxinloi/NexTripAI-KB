@@ -264,18 +264,25 @@ def _compile_plan(
             for target in targets
             if target.kind == TargetKind.PLACE
         ]
-        if place_targets:
-            supplemental_concepts = [
-                target.value
-                for target in targets
-                if target.kind in {
-                    TargetKind.ACTIVITY,
-                    TargetKind.DISH,
-                    TargetKind.CONCEPT,
-                }
-                and target.value
-            ]
-            targets = place_targets
+        supplemental_concepts = [
+            target.value
+            for target in targets
+            if target.kind in {
+                TargetKind.ACTIVITY,
+                TargetKind.DISH,
+                TargetKind.CONCEPT,
+            }
+            and target.value
+        ]
+        if place_targets or (
+            supplemental_concepts
+            and intent in {V5Intent.RECOMMEND, V5Intent.PLAN_CANDIDATES}
+        ):
+            # Recommendation targets are places. Semantic phrases are ranking
+            # hints, not graph entities that the user must clarify. An untyped
+            # place target searches across the catalog when no venue type was
+            # supplied by the planner.
+            targets = place_targets or [QueryTarget(kind=TargetKind.PLACE)]
             preferred_concepts = _clean_values(
                 [
                     *preferred_concepts,

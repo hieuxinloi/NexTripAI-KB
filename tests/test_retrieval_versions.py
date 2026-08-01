@@ -4,6 +4,9 @@ from nextrip_graphrag.retrieval.versions.v1_hybrid.strategy import (
     rank_hard_constraint_results,
     reciprocal_rank_fusion,
 )
+from nextrip_graphrag.versions.registry import version_retrieval_service_class
+from nextrip_graphrag.versions.v5.retrieval import V5RetrievalService
+from nextrip_graphrag.versions.v8.retrieval import V8RetrievalService
 
 
 def _row(place_id: str, score: float = 1.0) -> dict:
@@ -14,6 +17,14 @@ def test_version_registry_keeps_v1_experiments_available() -> None:
     assert available_strategies() == ["v1", "v1_hybrid", "v1_provenance"]
     assert get_strategy("v1").name == "v1"
     assert get_strategy("v1_hybrid").name == "v1_hybrid"
+
+
+def test_typed_version_registry_keeps_v5_and_v8_pipelines_independent() -> None:
+    assert version_retrieval_service_class("v5") is V5RetrievalService
+    assert version_retrieval_service_class("v8") is V8RetrievalService
+    assert V5RetrievalService.kb_version == "v5"
+    assert V8RetrievalService.kb_version == "v8"
+    assert V8RetrievalService.graph_kb_version == "v8"
 
 
 def test_query_features_extract_explicit_travel_constraints() -> None:

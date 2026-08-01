@@ -428,6 +428,30 @@ def query_typed(
             )
         else:
             response = service.query(request.query, request.top_k)
+        if response.kb_version != request.kb_version:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Knowledge Base version mismatch: "
+                    f"requested {request.kb_version.upper()}, "
+                    f"received {response.kb_version.upper()}."
+                ),
+            )
+        manifest = kb_version_manifests()[request.kb_version]
+        response.trace.append(
+            {
+                "step": "version_contract",
+                "status": "ok",
+                "requested_kb_version": request.kb_version,
+                "effective_kb_version": response.kb_version,
+                "graph_kb_version": getattr(
+                    service,
+                    "graph_kb_version",
+                    getattr(service, "kb_version", response.kb_version),
+                ),
+                "retrieval_version": manifest.retrieval_version,
+            }
+        )
     except Exception as exc:
         logger.exception(
             "KB typed query error version={} error_type={} elapsed_ms={}",

@@ -478,6 +478,13 @@ def test_v8_requires_city_only_for_unscoped_generic_place_requests() -> None:
     )
     assert _requires_city_scope(near_scoped) is False
 
+    untyped_recommendation = V5QueryPlan(
+        intent=V5Intent.RECOMMEND,
+        targets=[],
+        confidence=1.0,
+    )
+    assert _requires_city_scope(untyped_recommendation) is True
+
 
 def test_v8_normalizes_structural_planner_mistakes() -> None:
     planner = FakePlanner(
@@ -499,6 +506,34 @@ def test_v8_normalizes_structural_planner_mistakes() -> None:
     assert plan.intent == V5Intent.PLAN_CANDIDATES
     assert [target.kind for target in plan.targets] == [TargetKind.PLACE]
     assert plan.preferred_concepts == ["đặc sản địa phương"]
+
+
+def test_v8_compiles_concept_only_recommendation_to_generic_place_search() -> None:
+    planner = FakePlanner(
+        {
+            "intent": "recommend",
+            "targets": [
+                {"kind": "concept", "value": "chuyến đi nhẹ nhàng"},
+            ],
+            "preferred_concepts": ["gia đình", "cảnh đẹp"],
+            "confidence": 0.95,
+        }
+    )
+
+    plan, planner_name, failure = plan_query(
+        "Gợi ý chuyến đi nhẹ nhàng cho gia đình",
+        planner,
+        CATALOG,
+    )
+
+    assert failure is None
+    assert planner_name == "gemini_semantic_v8"
+    assert plan.targets == [QueryTarget(kind=TargetKind.PLACE)]
+    assert plan.preferred_concepts == [
+        "gia đình",
+        "cảnh đẹp",
+        "chuyến đi nhẹ nhàng",
+    ]
 
 
 def test_v8_two_named_places_are_compiled_as_comparison() -> None:

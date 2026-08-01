@@ -756,10 +756,10 @@ def _requires_city_scope(plan: V5QueryPlan) -> bool:
         or any(constraint.field == "near_subject" for constraint in plan.constraints)
     ):
         return False
-    return any(
-        target.kind.value == "place" and not target.value and bool(target.entity_types)
-        for target in plan.targets
-    )
+    # Broad recommendation/list requests need an explicit user-selected scope
+    # even when the semantic planner did not infer a venue type. Named-place
+    # lookups use different intents and remain eligible for global grounding.
+    return True
 
 
 def _effective_tasks(plan: V5QueryPlan) -> list[QueryTask]:
