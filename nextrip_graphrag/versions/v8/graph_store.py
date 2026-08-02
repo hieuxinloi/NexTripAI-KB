@@ -24,6 +24,18 @@ class V8GraphStore(V5GraphStore):
     place_vector_index = "v8_place_embedding"
     concept_vector_index = "v8_concept_embedding"
 
+    def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        """Run V8 queries, selecting Cypher 25 only for SEARCH statements.
+
+        Neo4j introduced the ``SEARCH`` subclause in Cypher 25. Keeping this
+        compatibility shim in V8 avoids changing V5 query behavior while
+        allowing the isolated projection to use the supported vector syntax.
+        """
+        normalized = query.lstrip()
+        if "SEARCH" in normalized and not normalized.startswith("CYPHER"):
+            query = "CYPHER 25\n" + query
+        return self.run(query, kb_version=self.kb_version, **params)
+
     def personalized_candidates(
         self,
         *,
