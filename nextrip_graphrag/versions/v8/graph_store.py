@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from itertools import chain, zip_longest
 from typing import Any
 
@@ -23,6 +24,34 @@ class V8GraphStore(V5GraphStore):
     place_fulltext_index = "v8_place_fulltext"
     place_vector_index = "v8_place_embedding"
     concept_vector_index = "v8_concept_embedding"
+
+    def refresh_from_processed(
+        self,
+        cities: list[dict[str, Any]],
+        places: list[dict[str, Any]],
+        *,
+        embedder: Any,
+        batch_size: int = 16,
+    ) -> dict[str, int]:
+        """Rebuild only V8 directly from processed records.
+
+        The inherited typed loader is reused with a namespaced input bundle.
+        This keeps its ontology/evidence/facet logic in one place while every
+        generated node and relationship is written with ``kb_version='v8'``
+        and IDs that cannot collide with V5.
+        """
+        if embedder is None:
+            raise ValueError("V8 refresh requires an embedding provider")
+        self.ensure_v5_schema(embedding_dim=self.settings.embedding_dim)
+        namespaced_cities, namespaced_places = _namespace_bundle(cities, places)
+        statistics = self.replace_graph(
+            namespaced_cities,
+            namespaced_places,
+            embedder=embedder,
+            batch_size=batch_size,
+        )
+        self._ensure_search_schema()
+        return statistics
 
     def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
         """Run V8 queries, selecting Cypher 25 only for SEARCH statements.
@@ -471,5 +500,31 @@ def _interleave_entity_types(
     )
     interleaved = chain.from_iterable(zip_longest(*ranked_groups))
     return [row for row in interleaved if row is not None]
+
+
+def _namespace_bundle(
+    cities: list[dict[str, Any]],
+    places: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Copy processed records and namespace graph identifiers for V8."""
+    prefix = "v8:"
+    city_rows = deepcopy(cities)
+    place_rows = deepcopy(places)
+    for city in city_rows:
+        city["id"] = prefix + str(city["id"])
+    for place in place_rows:
+        original_id = str(place["id"])
+        place["id"] = prefix + original_id
+        for field in ("city_id", "category_id", "place_type_id"):
+            place[field] = prefix + str(place[field])
+        props = place["props"]
+        if props.get("id") is not None:
+            props["id"] = prefix + str(props["id"])
+        place["nearby_attractions"] = [
+            {**nearby, "id": prefix + str(nearby["id"])}
+            for nearby in place.get("nearby_attractions", [])
+            if nearby.get("id")
+        ]
+    return city_rows, place_rows
 
 __all__ = ["V8GraphStore"]

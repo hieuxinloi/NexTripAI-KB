@@ -557,6 +557,31 @@ def cmd_v8_project(args: argparse.Namespace) -> None:
     print(json.dumps(statistics, ensure_ascii=False, indent=2))
 
 
+def cmd_v8_refresh(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    bundle = read_processed(args.processed_dir)
+    embedder = CachedBatchEmbedder(
+        GeminiClient(settings),
+        Path(args.embedding_cache),
+        model=settings.embedding_model,
+        dimensions=settings.embedding_dim,
+        delay=args.embedding_delay,
+        max_retries=args.embedding_retries,
+    )
+    store = V8GraphStore(settings.for_v8())
+    try:
+        statistics = store.refresh_from_processed(
+            bundle["cities"],
+            bundle["places"],
+            embedder=embedder,
+            batch_size=args.batch_size,
+        )
+    finally:
+        store.close()
+        embedder.close()
+    print(json.dumps({"kb_version": "v8", **statistics}, ensure_ascii=False, indent=2))
+
+
 def cmd_ask(args: argparse.Namespace) -> None:
     settings = Settings.from_env()
     store = Neo4jGraphStore(settings)
@@ -994,6 +1019,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace only the existing kb_version=v8 projection.",
     )
     v8_project.set_defaults(func=cmd_v8_project)
+
+    v8_refresh = subparsers.add_parser(
+        "v8-refresh",
+        help="Rebuild only the isolated V8 graph from processed data.",
+    )
+    v8_refresh.add_argument("--processed-dir", default="processed_verified")
+    v8_refresh.add_argument("--batch-size", type=int, default=16)
+    v8_refresh.add_argument("--embedding-cache", default="tmp/v8_embedding_cache")
+    v8_refresh.add_argument("--embedding-delay", type=float, default=0.5)
+    v8_refresh.add_argument("--embedding-retries", type=int, default=5)
+    v8_refresh.set_defaults(func=cmd_v8_refresh)
 
     ask = subparsers.add_parser("ask", help="Ask the GraphRAG chatbot.")
     ask.add_argument("question")

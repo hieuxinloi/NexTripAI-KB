@@ -30,6 +30,7 @@ from nextrip_graphrag.versions.v2.schemas import EntityResult
 from nextrip_graphrag.versions.v8.graph_store import (
     V8GraphStore,
     _diversify_by_entity_type,
+    _namespace_bundle,
 )
 from nextrip_graphrag.versions.v8.query_planner import V8PlannerDraft, plan_query
 from nextrip_graphrag.versions.v8.schemas import V8QueryPlan
@@ -100,6 +101,30 @@ def test_v8_distance_uses_isolated_projection_and_native_geodesic() -> None:
 def test_v8_speed_estimate_accepts_mode_and_explicit_speed() -> None:
     assert _speed_from_query("đi xe máy") == (30.0, "motorbike")
     assert _speed_from_query("đi với vận tốc 42 km/h") == (42.0, "custom")
+
+
+def test_v8_namespace_bundle_does_not_mutate_processed_records() -> None:
+    cities = [{"id": "city_da_nang", "name": "Đà Nẵng"}]
+    places = [
+        {
+            "id": "cafe-1",
+            "city_id": "city_da_nang",
+            "category_id": "category_cafe",
+            "place_type_id": "type_cafe",
+            "props": {"id": "cafe-1", "name": "Cafe"},
+            "nearby_attractions": [{"id": "attr-1"}],
+        }
+    ]
+
+    v8_cities, v8_places = _namespace_bundle(cities, places)
+
+    assert cities[0]["id"] == "city_da_nang"
+    assert places[0]["id"] == "cafe-1"
+    assert v8_cities[0]["id"] == "v8:city_da_nang"
+    assert v8_places[0]["id"] == "v8:cafe-1"
+    assert v8_places[0]["city_id"] == "v8:city_da_nang"
+    assert v8_places[0]["props"]["id"] == "v8:cafe-1"
+    assert v8_places[0]["nearby_attractions"][0]["id"] == "v8:attr-1"
 
 
 class FakePlanner:
