@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from contextvars import ContextVar
 from functools import cached_property
@@ -28,6 +29,7 @@ from ..v6.schemas import ConversationContext
 from ..v5.retrieval import _RetrievalOutcome
 from ..v5.schemas import (
     GeoScope,
+    TargetResult,
     QueryTarget,
     QueryTask,
     TargetKind,
@@ -35,6 +37,7 @@ from ..v5.schemas import (
     V5QueryPlan,
     V5QueryResponse,
 )
+from ..v4.schemas import MatchedPath
 from ..v7.entity_linker import SemanticEntityLinker
 from ..v7.query_planner import _keep_material_clarification
 from .query_planner import plan_query
@@ -48,6 +51,16 @@ _PERSONALIZATION: ContextVar[dict[str, Any] | None] = ContextVar(
 _EXPLICIT_CONCEPTS: ContextVar[frozenset[str]] = ContextVar(
     "v8_explicit_concepts",
     default=frozenset(),
+)
+
+_DEFAULT_SPEED_KMH = {
+    "walking": 5.0,
+    "motorbike": 30.0,
+    "car": 35.0,
+}
+_SPEED_PATTERN = re.compile(
+    r"(?P<speed>\d+(?:[.,]\d+)?)\s*(?:km\s*/?\s*h|km\s*/?\s*gio|km\s*/?\s*giờ)",
+    re.IGNORECASE,
 )
 
 
@@ -67,6 +80,60 @@ class V8RetrievalService(V6RetrievalService):
     fulltext_index = "v8_place_fulltext"
     vector_index = "v8_place_embedding"
 
+    def _place_distance(
+        self,
+        origin: TargetResult,
+        destination: TargetResult,
+    ) -> tuple[MatchedPath | None, FactResult | None]:
+        """Compute V8 geodesic distance from the isolated V8 projection.
+
+        V5 stores optional ``NEAR`` relationship distances, but V8 must not
+        inherit those values because they may have been produced by a
+        different projection.  ``point.distance`` is Neo4j's native geodesic
+        calculation and returns metres; the response contract exposes km.
+        """
+        if origin.kind != TargetKind.PLACE or destination.kind != TargetKind.PLACE:
+            return None, None
+        rows = self.store.run_versioned(
+            """
+            MATCH (origin:V8Place {id: $origin_id, kb_version: $kb_version})
+            MATCH (destination:V8Place {id: $destination_id, kb_version: $kb_version})
+            WITH origin, destination,
+                 CASE
+                   WHEN origin.location IS NOT NULL
+                    AND destination.location IS NOT NULL
+                   THEN point.distance(origin.location, destination.location) / 1000.0
+                   ELSE null
+                 END AS distance_km
+            WHERE distance_km IS NOT NULL
+            RETURN distance_km
+            LIMIT 1
+            """,
+            origin_id=origin.target_id,
+            destination_id=destination.target_id,
+        )
+        if not rows:
+            return None, None
+        distance_km = round(float(rows[0]["distance_km"]), 3)
+        return (
+            MatchedPath(
+                place_id=origin.target_id,
+                nodes=[origin.target_id, destination.target_id],
+                relationships=["V8_GEODESIC_DISTANCE"],
+                score=round(1 / (1 + distance_km), 6),
+            ),
+            FactResult(
+                fact_id=f"v8-geodesic-distance:{origin.target_id}:{destination.target_id}",
+                subject_id=origin.target_id,
+                predicate="distance_km",
+                value=distance_km,
+                value_type="number",
+                unit="km",
+                confidence=1.0,
+                evidence_ids=[],
+            ),
+        )
+
     def query(
         self,
         query: str,
@@ -79,6 +146,7 @@ class V8RetrievalService(V6RetrievalService):
         concepts_token = _EXPLICIT_CONCEPTS.set(frozenset())
         try:
             response = super().query(query, top_k=top_k, context=context)
+            response = self._with_travel_time_estimates(response, query)
         finally:
             _PERSONALIZATION.reset(personalization_token)
             _EXPLICIT_CONCEPTS.reset(concepts_token)
@@ -106,6 +174,47 @@ class V8RetrievalService(V6RetrievalService):
             }
         )
         payload["warnings"] = list(dict.fromkeys([*response.warnings, warning]))
+        return self.response_model.model_validate(payload)
+
+    def _with_travel_time_estimates(
+        self,
+        response: V8QueryResponse,
+        query: str,
+    ) -> V8QueryResponse:
+        """Add transparent time estimates derived from V8 geodesic facts."""
+        distance_facts = [
+            fact for fact in response.facts if fact.predicate == "distance_km"
+        ]
+        if not distance_facts:
+            return response
+        speed_kmh, mode = _speed_from_query(query)
+        extra = [
+            FactResult(
+                fact_id=f"v8-travel-time:{fact.fact_id}",
+                subject_id=fact.subject_id,
+                predicate="travel_time_minutes",
+                value=max(1, round(float(fact.value) / speed_kmh * 60)),
+                value_type="number",
+                unit="minutes",
+                confidence=0.95,
+                evidence_ids=[],
+            )
+            for fact in distance_facts
+        ]
+        payload = response.model_dump(mode="python")
+        payload["facts"] = [
+            *payload["facts"],
+            *[item.model_dump(mode="python") for item in extra],
+        ]
+        payload["trace"].append(
+            {
+                "step": "v8_geodesic_time_estimate",
+                "status": "ok",
+                "transport_mode": mode,
+                "speed_kmh": speed_kmh,
+                "distance_type": "straight_line",
+            }
+        )
         return self.response_model.model_validate(payload)
 
     @cached_property
@@ -914,6 +1023,21 @@ def _place_payload(item: RetrieverResultItem) -> dict[str, Any]:
     place = dict(item.content)
     place["score"] = item.metadata["score"]
     return place
+
+
+def _speed_from_query(query: str) -> tuple[float, str]:
+    normalized = query.casefold()
+    explicit = _SPEED_PATTERN.search(normalized)
+    if explicit:
+        return max(float(explicit.group("speed").replace(",", ".")), 0.1), "custom"
+    for mode, aliases in (
+        ("walking", ("\u0111i b\u1ed9", "walking", "walk")),
+        ("car", ("\u00f4 t\u00f4", "oto", "car", "driving")),
+        ("motorbike", ("xe m\u00e1y", "xemay", "motorbike", "scooter")),
+    ):
+        if any(alias in normalized for alias in aliases):
+            return _DEFAULT_SPEED_KMH[mode], mode
+    return _DEFAULT_SPEED_KMH["motorbike"], "motorbike_default"
 
 
 __all__ = ["V8RetrievalService", "V8QueryResponse"]

@@ -23,6 +23,7 @@ from nextrip_graphrag.versions.v5.schemas import (
     TargetKind,
     V5Intent,
     V5QueryPlan,
+    TargetResult,
 )
 from nextrip_graphrag.versions.v4.schemas import RankingCriterion
 from nextrip_graphrag.versions.v2.schemas import EntityResult
@@ -42,6 +43,7 @@ from nextrip_graphrag.versions.v8.retrieval import (
     _requires_city_scope,
     _restore_unresolved_named_targets,
     _scope_recovery_plan,
+    _speed_from_query,
 )
 from nextrip_graphrag.versions.v5.retrieval import _RetrievalOutcome
 from nextrip_graphrag.versions.v6.retrieval import V6RetrievalService
@@ -58,6 +60,46 @@ CATALOG = {
     "concepts": ["families", "quiet", "sea view"],
     "places": ["Cầu Rồng", "Eo Gió"],
 }
+
+
+def test_v8_distance_uses_isolated_projection_and_native_geodesic() -> None:
+    class FakeStore:
+        def __init__(self) -> None:
+            self.query = ""
+
+        def run_versioned(self, query, **params):
+            self.query = query
+            assert params["origin_id"] == "v8:origin"
+            assert params["destination_id"] == "v8:destination"
+            return [{"distance_km": 2.34567}]
+
+    store = FakeStore()
+    service = V8RetrievalService(store)
+    path, fact = service._place_distance(
+        TargetResult(
+            target_id="v8:origin",
+            kind=TargetKind.PLACE,
+            name="Origin",
+        ),
+        TargetResult(
+            target_id="v8:destination",
+            kind=TargetKind.PLACE,
+            name="Destination",
+        ),
+    )
+
+    assert path is not None
+    assert path.relationships == ["V8_GEODESIC_DISTANCE"]
+    assert fact is not None
+    assert fact.value == 2.346
+    assert "V8Place" in store.query
+    assert "point.distance(origin.location, destination.location)" in store.query
+    assert "NEAR" not in store.query
+
+
+def test_v8_speed_estimate_accepts_mode_and_explicit_speed() -> None:
+    assert _speed_from_query("đi xe máy") == (30.0, "motorbike")
+    assert _speed_from_query("đi với vận tốc 42 km/h") == (42.0, "custom")
 
 
 class FakePlanner:
@@ -78,6 +120,7 @@ def test_v8_keeps_personalization_isolated_between_concurrent_queries(
         barrier.wait()
         return SimpleNamespace(
             trace=[],
+            facts=[],
             observed=(query, _PERSONALIZATION.get()),
         )
 
