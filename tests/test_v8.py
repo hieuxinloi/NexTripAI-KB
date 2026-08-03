@@ -102,6 +102,36 @@ def test_v8_keeps_personalization_isolated_between_concurrent_queries(
     assert _PERSONALIZATION.get() is None
 
 
+def test_v8_planner_preserves_actual_route_mode_and_explicit_speed() -> None:
+    planner = FakePlanner(
+        {
+            "intent": "tool_required",
+            "targets": [
+                {"kind": "place", "value": "Eo Gió"},
+                {"kind": "place", "value": "Kỳ Co"},
+            ],
+            "required_tools": ["route"],
+            "route_options": {
+                "travel_mode": "motorbike",
+                "speed_kmh": 30,
+            },
+            "confidence": 1,
+        }
+    )
+
+    plan, source, failure = plan_query(
+        "Đi xe máy 30 km/h từ Eo Gió đến Kỳ Co mất bao lâu?",
+        planner,
+        CATALOG,
+    )
+
+    assert failure is None
+    assert source == "gemini_semantic_v8"
+    assert plan.required_tools == ["route"]
+    assert plan.route_options.travel_mode == "motorbike"
+    assert plan.route_options.speed_kmh == 30
+
+
 def test_v8_personalization_enriches_soft_preferences_and_budget_ranking() -> None:
     service = V8RetrievalService(SimpleNamespace())
     plan = V5QueryPlan(

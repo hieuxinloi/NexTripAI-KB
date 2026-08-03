@@ -38,7 +38,7 @@ from ..v5.schemas import (
 from ..v7.entity_linker import SemanticEntityLinker
 from ..v7.query_planner import _keep_material_clarification
 from .query_planner import plan_query
-from .schemas import V8QueryPlan, V8QueryResponse
+from .schemas import RouteContext, RouteEndpoint, V8QueryPlan, V8QueryResponse
 
 
 _PERSONALIZATION: ContextVar[dict[str, Any] | None] = ContextVar(
@@ -92,7 +92,7 @@ class V8RetrievalService(V6RetrievalService):
             None,
         )
         if recovery is None:
-            return response
+            return self._attach_route_context(response)
 
         resolved_city = str(recovery["resolved_city"])
         source_cities = [str(city) for city in recovery["source_cities"]]
@@ -106,7 +106,69 @@ class V8RetrievalService(V6RetrievalService):
             }
         )
         payload["warnings"] = list(dict.fromkeys([*response.warnings, warning]))
-        return self.response_model.model_validate(payload)
+        return self._attach_route_context(
+            self.response_model.model_validate(payload)
+        )
+
+    def _attach_route_context(self, response: V8QueryResponse) -> V8QueryResponse:
+        if "route" not in getattr(response, "required_tools", []):
+            return response
+        resolved = []
+        seen_ids: set[str] = set()
+        for target in response.query_plan.targets:
+            if target.kind != TargetKind.PLACE or not target.value:
+                continue
+            matches = self.resolver.resolve(
+                target,
+                1,
+                response.query_plan.geo_scope.cities,
+            )
+            if not matches or matches[0].target_id in seen_ids:
+                continue
+            seen_ids.add(matches[0].target_id)
+            resolved.append(matches[0])
+            if len(resolved) == 2:
+                break
+        if not resolved:
+            return response
+        rows = self.store.run_versioned(
+            """
+            UNWIND $place_ids AS place_id
+            MATCH (place:Place {id: place_id, kb_version: $kb_version})
+            WHERE place.location IS NOT NULL
+            RETURN place.id AS place_id,
+                   place.name AS name,
+                   place.location.latitude AS latitude,
+                   place.location.longitude AS longitude
+            """,
+            place_ids=[item.target_id for item in resolved],
+        )
+        by_id = {str(row["place_id"]): row for row in rows}
+        endpoints = [
+            RouteEndpoint(
+                place_id=item.target_id,
+                name=item.name,
+                latitude=float(by_id[item.target_id]["latitude"]),
+                longitude=float(by_id[item.target_id]["longitude"]),
+            )
+            for item in resolved
+            if item.target_id in by_id
+        ]
+        if not endpoints:
+            return response
+        return response.model_copy(
+            update={
+                "route_context": RouteContext(
+                    endpoints=endpoints,
+                    options=response.query_plan.route_options,
+                )
+            }
+        )
+
+    def _place_distance(self, origin, destination):
+        """V8 never exposes geodesic distance as a road-route fact."""
+        del origin, destination
+        return None, None
 
     @cached_property
     def _place_hybrid_retriever(self) -> HybridCypherRetriever:
