@@ -32,6 +32,7 @@ from nextrip_graphrag.versions.v8.graph_store import (
     _diversify_by_entity_type,
     _namespace_bundle,
 )
+from nextrip_graphrag.versions.v8.entity_resolution import resolve_duplicate_places
 from nextrip_graphrag.versions.v8.query_planner import (
     V8PlannerDraft,
     _apply_geodesic_nearby_policy,
@@ -129,6 +130,120 @@ def test_v8_namespace_bundle_does_not_mutate_processed_records() -> None:
     assert v8_places[0]["city_id"] == "v8:city_da_nang"
     assert v8_places[0]["props"]["id"] == "v8:cafe-1"
     assert v8_places[0]["nearby_attractions"][0]["id"] == "v8:attr-1"
+
+
+def test_v8_entity_resolution_merges_duplicate_sources_and_redirects_edges() -> None:
+    places = [
+        _resolution_place(
+            "attr-rich",
+            "FLC Zoo Safari Park Quy Nhơn",
+            13.883761,
+            109.269955,
+            source_name="source-a",
+            source_url="https://example.com/a",
+            description="A detailed verified description " * 5,
+            nearby=[{"id": "attr-copy", "distance_km": 0.02}],
+        ),
+        _resolution_place(
+            "attr-copy",
+            "FLC Zoo Safari Park",
+            13.883574,
+            109.269960,
+            source_name="source-b",
+            source_url="https://example.com/b",
+            description="Another source description",
+            nearby=[{"id": "beach-1", "distance_km": 2.4}],
+        ),
+        _resolution_place(
+            "beach-1",
+            "Bãi biển Nhơn Lý",
+            13.90,
+            109.29,
+            source_name="source-c",
+            source_url="https://example.com/c",
+            description="A different place",
+            nearby=[{"id": "attr-copy", "distance_km": 2.4}],
+        ),
+    ]
+
+    resolved, report = resolve_duplicate_places(places)
+    by_id = {place["id"]: place for place in resolved}
+
+    assert report.input_places == 3
+    assert report.canonical_places == 2
+    assert report.merged_places == 1
+    assert report.duplicate_groups == 1
+    assert report.id_redirects == {"attr-copy": "attr-rich"}
+    assert by_id["attr-rich"]["props"]["aliases"] == ["FLC Zoo Safari Park"]
+    assert by_id["attr-rich"]["merged_evidence"][0]["source_name"] == "source-b"
+    assert by_id["attr-rich"]["nearby_attractions"] == [
+        {"id": "beach-1", "distance_km": 2.4}
+    ]
+    assert by_id["beach-1"]["nearby_attractions"][0]["id"] == "attr-rich"
+
+
+def test_v8_entity_resolution_does_not_merge_name_only_or_location_only() -> None:
+    places = [
+        _resolution_place(
+            "same-name-a",
+            "Highlands Coffee",
+            16.05,
+            108.20,
+        ),
+        _resolution_place(
+            "same-name-b",
+            "Highlands Coffee",
+            16.07,
+            108.20,
+        ),
+        _resolution_place(
+            "close-other-name",
+            "Nhà hàng Biển Đông",
+            16.05001,
+            108.20001,
+        ),
+    ]
+
+    resolved, report = resolve_duplicate_places(places)
+
+    assert len(resolved) == 3
+    assert report.merged_places == 0
+    assert report.id_redirects == {}
+
+
+def _resolution_place(
+    place_id: str,
+    name: str,
+    latitude: float,
+    longitude: float,
+    *,
+    source_name: str = "source",
+    source_url: str = "https://example.com",
+    description: str = "description",
+    nearby: list[dict[str, object]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": place_id,
+        "city_id": "city_quy_nhon",
+        "entity_type": "attraction",
+        "category_id": "category_entertainment",
+        "category_name": "Giải trí",
+        "category_value": "entertainment",
+        "place_type_id": "type_attraction",
+        "place_type_name": "Điểm tham quan",
+        "props": {
+            "id": place_id,
+            "name": name,
+            "city": "Quy Nhơn",
+            "lat": latitude,
+            "lng": longitude,
+            "description": description,
+            "source_name": source_name,
+            "source_url": source_url,
+        },
+        "terms": {"tags": ["family"]},
+        "nearby_attractions": nearby or [],
+    }
 
 
 def test_v8_nearby_policy_keeps_approximate_distance_inside_graph() -> None:

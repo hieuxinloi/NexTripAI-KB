@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from hashlib import sha256
 from itertools import chain, zip_longest
 from typing import Any
 
 from neo4j_graphrag.indexes import create_fulltext_index, create_vector_index
 
 from ..v5.graph_store import V5GraphStore
+from .entity_resolution import resolve_duplicate_places
 
 
 class V8GraphStore(V5GraphStore):
@@ -43,15 +45,85 @@ class V8GraphStore(V5GraphStore):
         if embedder is None:
             raise ValueError("V8 refresh requires an embedding provider")
         self.ensure_v5_schema(embedding_dim=self.settings.embedding_dim)
-        namespaced_cities, namespaced_places = _namespace_bundle(cities, places)
+        canonical_places, resolution = resolve_duplicate_places(places)
+        namespaced_cities, namespaced_places = _namespace_bundle(
+            cities,
+            canonical_places,
+        )
         statistics = self.replace_graph(
             namespaced_cities,
             namespaced_places,
             embedder=embedder,
             batch_size=batch_size,
         )
+        self._load_merged_source_evidence(namespaced_places)
+        self.run_versioned(
+            """
+            MATCH (catalog:TravelCatalog {kb_version: $kb_version})
+            SET catalog.input_place_count = $input_places,
+                catalog.canonical_place_count = $canonical_places,
+                catalog.merged_place_count = $merged_places,
+                catalog.duplicate_group_count = $duplicate_groups,
+                catalog.entity_resolution_method = 'name_city_type_geo_v8'
+            """,
+            input_places=resolution.input_places,
+            canonical_places=resolution.canonical_places,
+            merged_places=resolution.merged_places,
+            duplicate_groups=resolution.duplicate_groups,
+        )
         self._ensure_search_schema()
-        return statistics
+        return {
+            **statistics,
+            "input_places": resolution.input_places,
+            "canonical_places": resolution.canonical_places,
+            "merged_places": resolution.merged_places,
+            "duplicate_groups": resolution.duplicate_groups,
+        }
+
+    def _load_merged_source_evidence(
+        self,
+        places: list[dict[str, Any]],
+    ) -> None:
+        rows = []
+        for place in places:
+            for evidence in place.get("merged_evidence", []):
+                source_key = str(
+                    evidence.get("url")
+                    or f"merged-record:{evidence['source_place_id']}"
+                )
+                source_hash = sha256(source_key.encode("utf-8")).hexdigest()[:20]
+                rows.append(
+                    {
+                        **evidence,
+                        "place_id": place["id"],
+                        "document_id": f"doc:{source_hash}",
+                        "text_unit_id": (
+                            f"text-unit:merged-source:{place['id']}:{source_hash}"
+                        ),
+                    }
+                )
+        if not rows:
+            return
+        self.run_versioned(
+            """
+            UNWIND $rows AS row
+            MATCH (place:Place {id: row.place_id, kb_version: $kb_version})
+            MERGE (document:Document {id: row.document_id})
+            SET document.title = coalesce(row.source_name, row.title),
+                document.url = row.url,
+                document.source_name = row.source_name,
+                document.kb_version = $kb_version
+            MERGE (unit:TextUnit {id: row.text_unit_id})
+            SET unit.title = row.title,
+                unit.text = row.text,
+                unit.evidence_origin = 'entity_resolution_source',
+                unit.confidence = 0.9,
+                unit.kb_version = $kb_version
+            MERGE (unit)-[:PART_OF]->(document)
+            MERGE (unit)-[:MENTIONS]->(place)
+            """,
+            rows=rows,
+        )
 
     def run_versioned(self, query: str, **params: Any) -> list[dict[str, Any]]:
         """Run V8 queries, selecting Cypher 25 only for SEARCH statements.
