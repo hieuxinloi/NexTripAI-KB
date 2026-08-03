@@ -21,13 +21,7 @@ from ..v5.schemas import (
     V5Intent,
 )
 from ..v7.query_planner import EntityType, RequestedField, ToolKind
-from .schemas import (
-    EntityMention,
-    MentionKind,
-    MentionRole,
-    RouteOptions,
-    V8QueryPlan,
-)
+from .schemas import EntityMention, MentionKind, MentionRole, V8QueryPlan
 
 
 EnumValue = TypeVar("EnumValue", bound=StrEnum)
@@ -56,10 +50,6 @@ proof that a named entity must belong to that city.
 Use only canonical values listed in graph_contract; do not invent IDs.
 Use aggregate for counts, plan_candidates for itinerary candidates, and
 tool_required for live weather, price, traffic, booking, or availability.
-Road distance and travel time always require the route tool. Preserve the two
-named endpoints as place targets. Set route_options.travel_mode from the user's
-vehicle and route_options.speed_kmh only when the user explicitly supplies a
-speed. Never estimate road distance from straight-line distance.
 For recommendations and lists, use a place target and provide canonical
 entity_types when the user specifies a venue type. Put cities and areas in
 geo_scope, never as a place name. Keep uncertain semantic phrases as concepts;
@@ -150,7 +140,6 @@ class V8PlannerDraft(BaseModel):
     duration_days: int | None = Field(default=None, ge=1, le=30)
     limit: int = Field(default=DEFAULT_TYPED_QUERY_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K)
     required_tools: list[ToolKind] = Field(default_factory=list)
-    route_options: RouteOptions = Field(default_factory=RouteOptions)
     clarification_needed: bool = False
     confidence: float = Field(default=0.0, ge=0, le=1)
 
@@ -351,7 +340,6 @@ def _compile_plan(
         duration_days=draft.duration_days,
         limit=draft.limit,
         required_tools=tools,
-        route_options=draft.route_options,
         clarification_needed=(
             False
             if named_mentions

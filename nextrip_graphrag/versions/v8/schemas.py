@@ -36,33 +36,8 @@ class EntityMention(BaseModel):
     confidence: float = Field(default=0.0, ge=0, le=1)
 
 
-class RouteTravelMode(StrEnum):
-    CAR = "car"
-    MOTORBIKE = "motorbike"
-    BICYCLE = "bicycle"
-    WALKING = "walking"
-
-
-class RouteOptions(BaseModel):
-    travel_mode: RouteTravelMode = RouteTravelMode.CAR
-    speed_kmh: float | None = Field(default=None, gt=0, le=200)
-
-
-class RouteEndpoint(BaseModel):
-    place_id: str
-    name: str
-    latitude: float
-    longitude: float
-
-
-class RouteContext(BaseModel):
-    endpoints: list[RouteEndpoint] = Field(default_factory=list, max_length=2)
-    options: RouteOptions = Field(default_factory=RouteOptions)
-
-
 class V8QueryPlan(V5QueryPlan):
     entity_mentions: list[EntityMention] = Field(default_factory=list)
-    route_options: RouteOptions = Field(default_factory=RouteOptions)
 
 
 class V8QueryResponse(V6QueryResponse):
@@ -70,4 +45,3 @@ class V8QueryResponse(V6QueryResponse):
 
     kb_version: Literal["v8"] = "v8"
     query_plan: V8QueryPlan
-    route_context: RouteContext | None = None
