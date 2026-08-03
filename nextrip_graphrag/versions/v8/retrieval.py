@@ -26,7 +26,7 @@ from ..v6.context import (
 )
 from ..v6.retrieval import V6RetrievalService
 from ..v6.schemas import ConversationContext
-from ..v5.retrieval import _RetrievalOutcome
+from ..v5.retrieval import _RetrievalOutcome, _place_types, _single_city
 from ..v5.schemas import (
     GeoScope,
     TargetResult,
@@ -337,6 +337,11 @@ class V8RetrievalService(V6RetrievalService):
     ) -> _RetrievalOutcome:
         retrieval_query = self._personalized_retrieval_query(query)
         tasks = _effective_tasks(plan)
+        near_subject = _near_subject(plan)
+        if near_subject is not None and not tasks:
+            return self._personalize_outcome(
+                self._execute_geodesic_nearby(plan, near_subject, top_k)
+            )
         if not tasks:
             outcome = super()._execute_plan(plan, retrieval_query, top_k)
             retry_plan = _scope_recovery_plan(plan, outcome)
@@ -396,6 +401,84 @@ class V8RetrievalService(V6RetrievalService):
         merged.trace.extend(task_trace)
         merged.retrieval_strategy = "v8_multi_task_graph"
         return self._personalize_outcome(merged)
+
+    def _execute_geodesic_nearby(
+        self,
+        plan: V5QueryPlan,
+        near_subject: str,
+        top_k: int,
+    ) -> _RetrievalOutcome:
+        anchor = self._anchor(near_subject)
+        if anchor is None:
+            return _RetrievalOutcome(missing_fields=[f"near_reference:{near_subject}"])
+        limit = min(top_k, plan.limit)
+        entity_types = _place_types(plan.targets)
+        city = _single_city(plan.geo_scope.cities) or str(anchor["city"])
+        rows = self.store.run_versioned(
+            """
+            MATCH (anchor:V8Place {id: $anchor_id, kb_version: $kb_version})
+            MATCH (candidate:V8Place {kb_version: $kb_version})
+            WHERE candidate.id <> anchor.id
+              AND candidate.location IS NOT NULL
+              AND anchor.location IS NOT NULL
+              AND candidate.city = $city
+              AND ($entity_types = [] OR candidate.entity_type IN $entity_types)
+            WITH candidate,
+                 point.distance(anchor.location, candidate.location) / 1000.0
+                   AS distance_km
+            ORDER BY distance_km ASC,
+                     coalesce(candidate.rating, 0) DESC,
+                     candidate.name ASC
+            RETURN candidate {.*, distance_km: distance_km,
+                              score: 1.0 / (1.0 + distance_km)} AS place
+            LIMIT $limit
+            """,
+            anchor_id=anchor["id"],
+            city=city,
+            entity_types=entity_types,
+            limit=limit,
+        )
+        recommendations = [_entity(row["place"]) for row in rows]
+        facts = [
+            FactResult(
+                fact_id=(
+                    f"v8-nearby-distance:{anchor['id']}:{item.place_id}"
+                ),
+                subject_id=item.place_id,
+                predicate="distance_km",
+                value=round(float(item.distance_km), 3),
+                value_type="number",
+                unit="km",
+                confidence=1.0,
+                evidence_ids=[],
+            )
+            for item in recommendations
+            if item.distance_km is not None
+        ]
+        paths = [
+            MatchedPath(
+                place_id=item.place_id,
+                nodes=[str(anchor["id"]), item.place_id],
+                relationships=["V8_GEODESIC_DISTANCE"],
+                score=float(item.score or 0),
+            )
+            for item in recommendations
+        ]
+        return _RetrievalOutcome(
+            recommendations=recommendations,
+            facts=facts,
+            matched_paths=paths,
+            trace=[
+                {
+                    "step": "v8_geodesic_nearby",
+                    "status": "ok",
+                    "anchor_id": anchor["id"],
+                    "result_count": len(recommendations),
+                }
+            ],
+            retrieval_strategy="v8_neo4j_point_distance",
+            place_evidence_required=True,
+        )
 
     def _personalized_retrieval_query(self, query: str) -> str:
         personalization = _PERSONALIZATION.get() or {}
@@ -743,6 +826,15 @@ def _public_missing_fields(
         else:
             fields.append(item)
     return list(dict.fromkeys(fields))
+
+
+def _near_subject(plan: V5QueryPlan) -> str | None:
+    for constraint in plan.constraints:
+        if constraint.field == "near_subject" and constraint.value:
+            return str(constraint.value)
+    if plan.geo_scope.near_entities:
+        return plan.geo_scope.near_entities[0]
+    return None
 
 
 def _scope_recovery_plan(

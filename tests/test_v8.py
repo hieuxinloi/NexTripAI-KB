@@ -32,7 +32,11 @@ from nextrip_graphrag.versions.v8.graph_store import (
     _diversify_by_entity_type,
     _namespace_bundle,
 )
-from nextrip_graphrag.versions.v8.query_planner import V8PlannerDraft, plan_query
+from nextrip_graphrag.versions.v8.query_planner import (
+    V8PlannerDraft,
+    _apply_geodesic_nearby_policy,
+    plan_query,
+)
 from nextrip_graphrag.versions.v8.schemas import V8QueryPlan
 from nextrip_graphrag.versions.v8.retrieval import (
     V8RetrievalService,
@@ -125,6 +129,64 @@ def test_v8_namespace_bundle_does_not_mutate_processed_records() -> None:
     assert v8_places[0]["city_id"] == "v8:city_da_nang"
     assert v8_places[0]["props"]["id"] == "v8:cafe-1"
     assert v8_places[0]["nearby_attractions"][0]["id"] == "v8:attr-1"
+
+
+def test_v8_nearby_policy_keeps_approximate_distance_inside_graph() -> None:
+    plan = V8QueryPlan(
+        intent=V5Intent.TOOL_REQUIRED,
+        targets=[QueryTarget(kind=TargetKind.PLACE)],
+        geo_scope=GeoScope(near_entities=["Eo Gió"]),
+        required_tools=["route"],
+        confidence=1,
+    )
+
+    result = _apply_geodesic_nearby_policy(plan)
+
+    assert result.intent == V5Intent.RECOMMEND
+    assert result.required_tools == []
+    assert result.geo_scope.near_entities == ["Eo Gió"]
+
+
+def test_v8_nearby_retrieval_uses_point_distance(monkeypatch) -> None:
+    class FakeStore:
+        def run_versioned(self, query, **params):
+            assert "point.distance(anchor.location, candidate.location)" in query
+            assert params["anchor_id"] == "v8:attr_qn_eo_gio"
+            return [
+                {
+                    "place": {
+                        "id": "v8:attr_qn_ky_co",
+                        "name": "Kỳ Co",
+                        "city": "Quy Nhơn",
+                        "entity_type": "attraction",
+                        "category_name": "Bãi biển",
+                        "distance_km": 3.25,
+                        "score": 1 / 4.25,
+                    }
+                }
+            ]
+
+    service = V8RetrievalService(FakeStore())
+    monkeypatch.setattr(
+        service,
+        "_anchor",
+        lambda _subject: {
+            "id": "v8:attr_qn_eo_gio",
+            "city": "Quy Nhơn",
+        },
+    )
+    plan = V8QueryPlan(
+        intent=V5Intent.RECOMMEND,
+        targets=[QueryTarget(kind=TargetKind.PLACE)],
+        geo_scope=GeoScope(near_entities=["Eo Gió"]),
+        confidence=1,
+    )
+
+    outcome = service._execute_geodesic_nearby(plan, "Eo Gió", top_k=5)
+
+    assert outcome.retrieval_strategy == "v8_neo4j_point_distance"
+    assert outcome.recommendations[0].name == "Kỳ Co"
+    assert outcome.facts[0].value == 3.25
 
 
 class FakePlanner:

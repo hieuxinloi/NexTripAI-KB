@@ -50,6 +50,10 @@ proof that a named entity must belong to that city.
 Use only canonical values listed in graph_contract; do not invent IDs.
 Use aggregate for counts, plan_candidates for itinerary candidates, and
 tool_required for live weather, price, traffic, booking, or availability.
+Nearby discovery, straight-line distance, and approximate travel time from a
+named anchor are GraphRAG operations: use recommend with geo_scope.near_entities
+and do not request route or transport. Reserve route/transport tools for a
+specific destination, turn-by-turn directions, or live traffic ETA.
 For recommendations and lists, use a place target and provide canonical
 entity_types when the user specifies a venue type. Put cities and areas in
 geo_scope, never as a place name. Keep uncertain semantic phrases as concepts;
@@ -172,6 +176,7 @@ def plan_query(
         )
         plan = _compile_plan(draft)
         plan = _restore_exact_catalog_place(plan, query, catalog)
+        plan = _apply_geodesic_nearby_policy(plan)
     except (ValidationError, ValueError, TypeError) as exc:
         logger.warning(
             "V8 planner violated structured graph contract "
@@ -307,7 +312,20 @@ def _compile_plan(
     ]
     cities = _clean_values([*draft.geo_scope.cities, *mentioned_cities])
     areas = _clean_values(draft.geo_scope.areas)
-    near_entities = _clean_values(draft.geo_scope.near_entities)
+    mentioned_near_entities = [
+        mention.surface
+        for mention in mentions
+        if mention.role == MentionRole.NEAR_ANCHOR
+        and mention.kind
+        in {
+            MentionKind.VENUE_NAME,
+            MentionKind.BRAND_NAME,
+            MentionKind.VENUE_OR_BRAND,
+        }
+    ]
+    near_entities = _clean_values(
+        [*draft.geo_scope.near_entities, *mentioned_near_entities]
+    )
     requested = _enum_values(draft.requested_fields)
     ranking = list(dict.fromkeys(draft.ranking_criteria))
     tools = _enum_values(draft.required_tools)
@@ -347,6 +365,42 @@ def _compile_plan(
             else draft.clarification_needed
         ),
         confidence=draft.confidence,
+    )
+
+
+def _apply_geodesic_nearby_policy(plan: V8QueryPlan) -> V8QueryPlan:
+    """Keep open-ended nearby discovery inside the V8 knowledge graph."""
+    near_subjects = [
+        str(constraint.value)
+        for constraint in plan.constraints
+        if constraint.field == "near_subject" and constraint.value
+    ]
+    anchors = _clean_values([*plan.geo_scope.near_entities, *near_subjects])
+    named_destinations = [
+        target
+        for target in plan.targets
+        if target.kind == TargetKind.PLACE and target.value
+    ]
+    if not anchors or named_destinations:
+        return plan
+    remaining_tools = [
+        tool
+        for tool in plan.required_tools
+        if tool not in {ToolKind.ROUTE.value, ToolKind.TRANSPORT.value}
+    ]
+    if remaining_tools == plan.required_tools:
+        return plan
+    intent = plan.intent
+    if intent == V5Intent.TOOL_REQUIRED and not remaining_tools:
+        intent = V5Intent.RECOMMEND
+    targets = plan.targets or [QueryTarget(kind=TargetKind.PLACE)]
+    return plan.model_copy(
+        update={
+            "intent": intent,
+            "targets": targets,
+            "required_tools": remaining_tools,
+            "clarification_needed": False,
+        }
     )
 
 
