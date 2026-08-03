@@ -2639,9 +2639,7 @@
       "signature_dishes": [
         "bánh ít",
         "bánh tráng",
-        "bánh kết",
-        "bánh hồng",
-        "bánh được"
+        "bánh hồng"
       ],
       "ambience": [
         "casual"
@@ -3496,8 +3494,7 @@
         "currency": "VND"
       },
       "signature_dishes": [
-        "bánh bèo",
-        "bánh được"
+        "bánh bèo"
       ],
       "ambience": [
         "casual"
@@ -10549,7 +10546,12 @@
         "max": 500000,
         "currency": "VND"
       },
-      "signature_dishes": [],
+      "signature_dishes": [
+        "sò mía",
+        "nghêu",
+        "tôm hùm",
+        "tôm tít"
+      ],
       "ambience": [
         "casual"
       ],

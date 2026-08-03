@@ -65,6 +65,17 @@ def test_verified_dataset_normalizes_to_expected_manifest() -> None:
     } == set()
 
 
+def test_verified_signature_dishes_exclude_description_fragments() -> None:
+    bundle = normalize_dataset(DATA_DIR)
+    invalid_fragments = {"bánh được", "bánh kết"}
+
+    for place in bundle["places"]:
+        dishes = {
+            dish.casefold() for dish in place["terms"].get("signature_dishes", [])
+        }
+        assert dishes.isdisjoint(invalid_fragments), place["id"]
+
+
 def test_verified_file_metadata_matches_records() -> None:
     for path in DATA_DIR.glob("*_final.json"):
         payload = json.loads(path.read_text(encoding="utf-8"))
