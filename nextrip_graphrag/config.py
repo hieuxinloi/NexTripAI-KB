@@ -108,7 +108,7 @@ class Settings:
     neo4j_connection_timeout: float = 3.0
     neo4j_max_transaction_retry_time: float = 3.0
     google_api_key: str | None = None
-    gemini_planner_model: str = ""
+    gemini_planner_model: str = "gemini-2.5-flash"
     gemini_thinking_level: str = "minimal"
     gemini_timeout_ms: int = 30000
     gemini_retry_attempts: int = 3
