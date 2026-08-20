@@ -1,0 +1,89 @@
+name: nextrip-traffic
+
+services:
+  valhalla:
+    # Official Valhalla organization image, release and multi-arch manifest
+    # digest pinned. Never replace this with :latest in a deployment.
+    image: ghcr.io/valhalla/valhalla-scripted:3.8.3@sha256:24ef7955899dececb94e26c6dfb89d64fabfae875f980432694b0261eb6c251b
+    restart: unless-stopped
+    environment:
+      serve_tiles: "True"
+      use_tiles_ignore_pbf: "True"
+      force_rebuild: "False"
+      build_elevation: "False"
+      build_admins: "True"
+      build_time_zones: "True"
+      build_transit: "False"
+      build_tar: "True"
+      server_threads: "${VALHALLA_SERVER_THREADS:-2}"
+      tileset_name: "nextrip_vietnam"
+    volumes:
+      - type: bind
+        source: ${VALHALLA_DATA_DIR:-./valhalla-data}/${VALHALLA_DATASET_VERSION:-vietnam-2026-08-19}
+        target: /custom_files
+    ports:
+      - "${VALHALLA_BIND_ADDRESS:-127.0.0.1}:${VALHALLA_PORT:-8002}:8002"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8002/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 45m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  traffic-api:
+    build:
+      context: ../..
+      dockerfile: deploy/traffic/Dockerfile
+    image: nextrip-traffic-api:${NEXTRIP_TRAFFIC_IMAGE_TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      valhalla:
+        condition: service_healthy
+    environment:
+      NEXTRIP_KB_ROOT: /app
+      VALHALLA_ENABLED: "${VALHALLA_ENABLED:-true}"
+      VALHALLA_URL: http://valhalla:8002
+      HERE_ENABLED: "${HERE_ENABLED:-true}"
+      HERE_API_KEY: "${HERE_API_KEY:-}"
+      HERE_ROUTES_URL: "${HERE_ROUTES_URL:-https://router.hereapi.com/v8/routes}"
+      TRAFFIC_API_KEY: "${TRAFFIC_API_KEY:?set TRAFFIC_API_KEY}"
+      TRAFFIC_PROVIDER_TIMEOUT_SECONDS: "${TRAFFIC_PROVIDER_TIMEOUT_SECONDS:-20}"
+      TRAFFIC_ROUTE_TTL_SECONDS: "${TRAFFIC_ROUTE_TTL_SECONDS:-600}"
+      TRAFFIC_MATRIX_TTL_SECONDS: "${TRAFFIC_MATRIX_TTL_SECONDS:-600}"
+      TRAFFIC_FREE_FLOW_TTL_SECONDS: "${TRAFFIC_FREE_FLOW_TTL_SECONDS:-86400}"
+      TRAFFIC_DEPARTURE_BUCKET_MINUTES: "${TRAFFIC_DEPARTURE_BUCKET_MINUTES:-5}"
+      TRAFFIC_MAX_MATRIX_CELLS: "${TRAFFIC_MAX_MATRIX_CELLS:-25}"
+      TRAFFIC_STALE_IF_ERROR_SECONDS: "${TRAFFIC_STALE_IF_ERROR_SECONDS:-3600}"
+      TRAFFIC_CIRCUIT_FAILURE_THRESHOLD: "${TRAFFIC_CIRCUIT_FAILURE_THRESHOLD:-3}"
+      TRAFFIC_CIRCUIT_COOLDOWN_SECONDS: "${TRAFFIC_CIRCUIT_COOLDOWN_SECONDS:-60}"
+    volumes:
+      - type: bind
+        source: ../../data/current/place
+        target: /app/data/current/place
+        read_only: true
+      - traffic_cache:/app/data/current/traffic
+    ports:
+      - "${TRAFFIC_BIND_ADDRESS:-127.0.0.1}:${TRAFFIC_PORT:-8010}:8010"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  traffic_cache:
+    name: nextrip_traffic_cache

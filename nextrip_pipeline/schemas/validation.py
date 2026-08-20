@@ -48,4 +48,3 @@ class ValidationResult(NexTripModel):
     requires_human_review: bool = False
     duration_ms: int = Field(default=0, ge=0)
     validated_at: AwareDatetime
-

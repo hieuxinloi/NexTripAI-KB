@@ -23,6 +23,27 @@ class EntityType(StrEnum):
     RESTAURANT = "restaurant"
 
 
+# ``EntityType`` is retained for compatibility with the existing registry and
+# crawl adapters. New canonical place contracts should use the more explicit
+# ``PlaceType`` name.
+PlaceType = EntityType
+
+
+class RecordSubjectType(StrEnum):
+    PLACE = "place"
+    CITY = "city"
+    ACCESS_POINT = "access_point"
+    HOTEL_PRICE = "hotel_price"
+    ADMISSION_PRICE = "admission_price"
+    SPEND = "spend"
+    RATING = "rating"
+    OPENING_SCHEDULE = "opening_schedule"
+    OPENING_STATUS = "opening_status"
+    MENU = "menu"
+    ROUTE = "route"
+    ROUTE_MATRIX = "route_matrix"
+
+
 class VerificationStatus(StrEnum):
     LEGACY_VERIFIED = "legacy_verified"
     AUTO_VERIFIED = "auto_verified"
@@ -31,4 +52,3 @@ class VerificationStatus(StrEnum):
     PENDING_REVIEW = "pending_review"
     QUARANTINED = "quarantined"
     REJECTED = "rejected"
-

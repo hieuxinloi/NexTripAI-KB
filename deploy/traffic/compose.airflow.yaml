@@ -1,0 +1,149 @@
+x-airflow-common: &airflow-common
+  build:
+    context: ../..
+    dockerfile: deploy/traffic/Dockerfile.airflow
+  image: nextrip-traffic-airflow:${NEXTRIP_AIRFLOW_IMAGE_TAG:-3.3.0-local}
+  user: "${AIRFLOW_UID:-50000}:0"
+  restart: unless-stopped
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:?set AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+    AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY:?set AIRFLOW_FERNET_KEY}"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_API_JWT_SECRET:?set AIRFLOW_API_JWT_SECRET}"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    NEXTRIP_KB_ROOT: /opt/airflow/nextrip
+    NEXTRIP_TRAFFIC_AIRFLOW_ENABLED: "${NEXTRIP_TRAFFIC_AIRFLOW_ENABLED:-false}"
+    NEXTRIP_TRAFFIC_PREWARM_ENABLED: "${NEXTRIP_TRAFFIC_PREWARM_ENABLED:-false}"
+    NEXTRIP_TRAFFIC_MAINTENANCE_SCHEDULE: "${NEXTRIP_TRAFFIC_MAINTENANCE_SCHEDULE:-17 * * * *}"
+    NEXTRIP_TRAFFIC_PREWARM_SCHEDULE: "${NEXTRIP_TRAFFIC_PREWARM_SCHEDULE:-*/10 * * * *}"
+    NEXTRIP_TRAFFIC_PREWARM_CONFIG: config/traffic-prewarm.json
+    VALHALLA_ENABLED: "${VALHALLA_ENABLED:-true}"
+    VALHALLA_URL: http://valhalla:8002
+    HERE_ENABLED: "${HERE_ENABLED:-true}"
+    HERE_API_KEY: "${HERE_API_KEY:-}"
+    HERE_ROUTES_URL: "${HERE_ROUTES_URL:-https://router.hereapi.com/v8/routes}"
+    TRAFFIC_PROVIDER_TIMEOUT_SECONDS: "${TRAFFIC_PROVIDER_TIMEOUT_SECONDS:-20}"
+    TRAFFIC_ROUTE_TTL_SECONDS: "${TRAFFIC_ROUTE_TTL_SECONDS:-600}"
+    TRAFFIC_MATRIX_TTL_SECONDS: "${TRAFFIC_MATRIX_TTL_SECONDS:-600}"
+    TRAFFIC_FREE_FLOW_TTL_SECONDS: "${TRAFFIC_FREE_FLOW_TTL_SECONDS:-86400}"
+    TRAFFIC_DEPARTURE_BUCKET_MINUTES: "${TRAFFIC_DEPARTURE_BUCKET_MINUTES:-5}"
+    TRAFFIC_MAX_MATRIX_CELLS: "${TRAFFIC_MAX_MATRIX_CELLS:-25}"
+    TRAFFIC_STALE_IF_ERROR_SECONDS: "${TRAFFIC_STALE_IF_ERROR_SECONDS:-3600}"
+    TRAFFIC_CIRCUIT_FAILURE_THRESHOLD: "${TRAFFIC_CIRCUIT_FAILURE_THRESHOLD:-3}"
+    TRAFFIC_CIRCUIT_COOLDOWN_SECONDS: "${TRAFFIC_CIRCUIT_COOLDOWN_SECONDS:-60}"
+  volumes:
+    - type: bind
+      source: ../../data/current/place
+      target: /opt/airflow/nextrip/data/current/place
+      read_only: true
+    - traffic_cache:/opt/airflow/nextrip/data/current/traffic
+    - airflow_logs:/opt/airflow/logs
+  depends_on:
+    airflow-db:
+      condition: service_healthy
+    valhalla:
+      condition: service_healthy
+
+services:
+  airflow-db:
+    image: postgres:17.6-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: "${AIRFLOW_DB_PASSWORD:?set AIRFLOW_DB_PASSWORD}"
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
+  airflow-init:
+    <<: *airflow-common
+    restart: "no"
+    user: "0:0"
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: "${AIRFLOW_ADMIN_USERNAME:-airflow}"
+      _AIRFLOW_WWW_USER_PASSWORD: "${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD}"
+    command: version
+
+  airflow-api-server:
+    <<: *airflow-common
+    command: api-server
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      valhalla:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "${AIRFLOW_BIND_ADDRESS:-127.0.0.1}:${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      valhalla:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      valhalla:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  traffic_cache:
+    name: nextrip_traffic_cache
+  airflow_db:
+    name: nextrip_traffic_airflow_db
+  airflow_logs:
+    name: nextrip_traffic_airflow_logs

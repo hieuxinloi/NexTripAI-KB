@@ -1,0 +1,16 @@
+{
+  "mapping_id": "trivago-mcp-hotel-qn-025",
+  "entity_id": "hotel_qn_025",
+  "entity_type": "hotel",
+  "source_id": "trivago-mcp",
+  "external_id": "292003c34d4f",
+  "status": "confirmed",
+  "confidence": 1.0,
+  "matched_at": "2026-08-18T05:00:00Z",
+  "verified_at": "2026-08-18T09:30:05Z",
+  "attributes": {
+    "hotel_name": "Fleur De Lys Hotel Quy Nhon",
+    "destination": "Quy Nhơn",
+    "trivago_accommodation_url": "https://www.trivago.vn/vi/lm/khach-san-fleur-de-lys-hotel-quy-nhon-quy-nhon"
+  }
+}

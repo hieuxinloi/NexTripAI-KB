@@ -1,0 +1,17 @@
+{
+  "mapping_id": "google-maps-attr-qn-001",
+  "entity_id": "attr_qn_001",
+  "entity_type": "attraction",
+  "source_id": "google-maps-web",
+  "external_id": "Eo Gió Quy Nhơn",
+  "status": "auto_matched",
+  "confidence": 0.8,
+  "matched_at": "2026-08-18T05:00:00Z",
+  "attributes": {
+    "search_query": "Eo Gió, Quy Nhơn, Việt Nam",
+    "master_name": "Eo Gió",
+    "master_latitude": 13.886306673168534,
+    "master_longitude": 109.29259101816162,
+    "city_id": "city_quy_nhon"
+  }
+}

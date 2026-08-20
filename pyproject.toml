@@ -17,6 +17,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+crawl = [
+  "playwright>=1.46.0,<2",
+]
+menu-ocr = [
+  "Pillow>=10.0.0,<13",
+  "rapidocr>=3.0.0,<4",
+  "onnxruntime>=1.20.0,<2",
+]
+orchestration = [
+  "apache-airflow>=2.10.0,<4",
+  "apache-airflow-providers-standard>=1.0.0,<2",
+  "pendulum>=3.0.0,<4",
+]
+mcp = [
+  "mcp>=2,<3",
+]
 dev = [
   "pytest>=8.3.0",
   "ruff==0.16.0",
@@ -26,6 +42,7 @@ dev = [
 nextrip-graphrag = "nextrip_graphrag.__main__:main"
 nextrip-pipeline = "nextrip_pipeline.cli:main"
 nextrip-traffic = "nextrip_traffic.cli:main"
+nextrip-current-mcp = "nextrip_current.mcp:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -36,4 +53,5 @@ include = [
   "nextrip_graphrag*",
   "nextrip_pipeline*",
   "nextrip_traffic*",
+  "nextrip_current*",
 ]

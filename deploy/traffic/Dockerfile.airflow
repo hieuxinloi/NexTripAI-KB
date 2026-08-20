@@ -1,0 +1,25 @@
+FROM apache/airflow:3.3.0-python3.11
+
+USER root
+
+ENV PYTHONPATH=/opt/airflow/nextrip \
+    NEXTRIP_KB_ROOT=/opt/airflow/nextrip
+
+WORKDIR /opt/airflow/nextrip
+
+# Airflow 3.3.0's official Python 3.11 image already pins the versions of
+# httpx, pydantic and python-dotenv used by the traffic CLI. Copy only the
+# application code/config so the Airflow dependency set remains intact.
+COPY --chown=airflow:0 nextrip_pipeline ./nextrip_pipeline
+COPY --chown=airflow:0 nextrip_traffic ./nextrip_traffic
+COPY --chown=airflow:0 config ./config
+# This deployment intentionally contains only the gated traffic DAG. The
+# ungated legacy crawl DAGs must not become active as a side effect.
+COPY --chown=airflow:0 dags/nextrip_traffic.py /opt/airflow/dags/nextrip_traffic.py
+
+RUN mkdir -p /opt/airflow/nextrip/data/current/place \
+        /opt/airflow/nextrip/data/current/traffic \
+    && chown -R airflow:0 /opt/airflow/nextrip /opt/airflow/dags \
+    && chmod -R g=u /opt/airflow/nextrip /opt/airflow/dags
+
+USER airflow

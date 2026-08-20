@@ -13,6 +13,8 @@ Read this before implementation:
 - Data enrichment workflow: [docs/DATA_ENRICHMENT.md](docs/DATA_ENRICHMENT.md)
 - Data enrichment run report: [docs/DATA_ENRICHMENT_RUN_REPORT.md](docs/DATA_ENRICHMENT_RUN_REPORT.md)
 - Logging: [docs/LOGGING.md](docs/LOGGING.md)
+- Hybrid traffic pipeline: [docs/traffic-pipeline.md](docs/traffic-pipeline.md)
+- Current Data HTTP/MCP facade: [docs/current-data-mcp.md](docs/current-data-mcp.md)
 
 ## Data Source
 

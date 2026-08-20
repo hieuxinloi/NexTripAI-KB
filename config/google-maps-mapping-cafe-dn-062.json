@@ -1,0 +1,19 @@
+{
+  "mapping_id": "google-maps-cafe-dn-062",
+  "entity_id": "cafe_dn_062",
+  "entity_type": "cafe",
+  "source_id": "google-maps-web",
+  "external_id": "Quán cà phê Xóm Mèo Coffee & Petshop Đà Nẵng",
+  "external_url": "https://www.google.com/maps/place/X%C3%B3m+M%C3%A8o+Coffee/@16.0462401,108.2371618,17z/data=!4m15!1m8!3m7!1s0x3142192f0319d6eb:0xf873e96faa231d34!2zWMOzbSBNw6hvIENvZmZlZQ!8m2!3d16.0462064!4d108.2370407!10e9!16s%2Fg%2F11q46hcg47!3m5!1s0x3142192f0319d6eb:0xf873e96faa231d34!8m2!3d16.0462064!4d108.2370407!16s%2Fg%2F11q46hcg47?hl=en&entry=ttu&g_ep=EgoyMDI2MDgxMi4wIKXMDSoASAFQAw%3D%3D",
+  "status": "auto_matched",
+  "confidence": 0.8,
+  "matched_at": "2026-08-18T13:00:00Z",
+  "attributes": {
+    "search_query": "Xóm Mèo Coffee & Petshop, 88 Mỹ An 7, Ngũ Hành Sơn, Đà Nẵng",
+    "master_name": "Quán cà phê Xóm Mèo Coffee & Petshop Đà Nẵng",
+    "google_place_name": "Xóm Mèo Coffee",
+    "verified_menu_image_url": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkAmH_2P5PPukuiU3GE_pX1NJ1yQEgR1ksXw1G6emcDJXSh_l_kB5bxQr9w6_tziNorhlXm54h4pBXZiC3VpIttQ8_eaael0UFU1taGYdU7qzCilbibBh6WZoSI37JxxGb5eS1h-fCP1Rkp=w203-h586-k-no",
+    "master_latitude": 16.04633012991991,
+    "master_longitude": 108.23712116631447
+  }
+}

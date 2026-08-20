@@ -1,15 +1,80 @@
-from .common import EntityType, NexTripModel, VerificationStatus
+from .city import AccessPointRecord, AccessPointType, CityRecord
+from .common import (
+    EntityType,
+    NexTripModel,
+    PlaceType,
+    RecordSubjectType,
+    VerificationStatus,
+)
+from .current_place import (
+    CurrentPlaceOpeningHours,
+    CurrentPlaceProvenance,
+    CurrentPlaceSnapshot,
+)
+from .external_mapping import ExternalEntityMapping, MappingStatus
+from .google_maps import GoogleMapsPlaceObservation
+from .hotel_availability import (
+    HotelAvailabilityObservation,
+    HotelAvailabilityReason,
+    HotelAvailabilityStatus,
+)
+from .media import PlaceMediaAsset, PlaceMediaObservation, PlaceMediaRole
+from .menu import (
+    MenuItem,
+    MenuObservation,
+    MenuOcrLine,
+    MenuSourceObservation,
+    MenuSourceType,
+    NormalizedMenu,
+    NormalizedMenuItem,
+)
 from .opening_status import (
     DailyOpeningStatus,
     OpeningInterval,
     OpeningStatusObservation,
+    DailyOpeningSchedule,
+    Weekday,
+    WeeklyOpeningScheduleObservation,
 )
-from .place import Address, BusinessStatus, GeoPoint, PlaceRecord
-from .price import Occupancy, OfferAvailability, PriceObservation
+from .place import (
+    Address,
+    BusinessStatus,
+    Contact,
+    GeoPoint,
+    ImageReference,
+    PlaceRecord,
+)
+from .price import (
+    AdmissionPriceObservation,
+    HotelPriceObservation,
+    Occupancy,
+    OfferAvailability,
+    PriceObservation,
+    PriceUnit,
+    SpendObservation,
+    SpendType,
+)
+from .profiles import (
+    AccessibilityProfile,
+    AttractionProfile,
+    CafeProfile,
+    HappyHour,
+    HotelProfile,
+    NightlifeProfile,
+    PlaceProfile,
+    ReservationPolicy,
+    RestaurantProfile,
+    TimeWindow,
+    VisitDuration,
+)
+from .rating import RatingObservation
 from .route import (
     ProviderRole,
     RouteObservation,
+    RouteMatrixCell,
+    RouteMatrixResult,
     RoutingProvider,
+    TrafficBasis,
     TransportMode,
 )
 from .source import SourceRecord
@@ -22,25 +87,74 @@ from .validation import (
 
 __all__ = [
     "Address",
+    "AccessPointRecord",
+    "AccessPointType",
+    "AccessibilityProfile",
+    "AdmissionPriceObservation",
+    "AttractionProfile",
     "BusinessStatus",
+    "CafeProfile",
+    "CityRecord",
+    "Contact",
+    "CurrentPlaceProvenance",
+    "CurrentPlaceOpeningHours",
+    "CurrentPlaceSnapshot",
+    "DailyOpeningSchedule",
     "DailyOpeningStatus",
     "EntityType",
+    "ExternalEntityMapping",
     "GeoPoint",
+    "GoogleMapsPlaceObservation",
+    "MenuItem",
+    "MenuObservation",
+    "MenuOcrLine",
+    "NormalizedMenu",
+    "NormalizedMenuItem",
+    "MenuSourceObservation",
+    "MenuSourceType",
+    "HappyHour",
+    "HotelAvailabilityObservation",
+    "HotelAvailabilityReason",
+    "HotelAvailabilityStatus",
+    "HotelPriceObservation",
+    "HotelProfile",
+    "ImageReference",
     "NexTripModel",
+    "MappingStatus",
     "Occupancy",
     "OfferAvailability",
     "OpeningInterval",
     "OpeningStatusObservation",
+    "NightlifeProfile",
+    "PlaceProfile",
+    "PlaceMediaAsset",
+    "PlaceMediaObservation",
+    "PlaceMediaRole",
     "PlaceRecord",
+    "PlaceType",
     "PriceObservation",
+    "PriceUnit",
     "ProviderRole",
     "RouteObservation",
+    "RouteMatrixCell",
+    "RouteMatrixResult",
     "RoutingProvider",
+    "RatingObservation",
+    "RecordSubjectType",
+    "ReservationPolicy",
+    "RestaurantProfile",
     "SourceRecord",
     "SuggestedAction",
+    "SpendObservation",
+    "SpendType",
+    "TimeWindow",
+    "TrafficBasis",
     "TransportMode",
     "ValidationEvidence",
     "ValidationResult",
     "ValidationStatus",
     "VerificationStatus",
+    "VisitDuration",
+    "Weekday",
+    "WeeklyOpeningScheduleObservation",
 ]

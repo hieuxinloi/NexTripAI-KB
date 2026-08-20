@@ -23,3 +23,18 @@ tmp_pdf_extract.txt
 travel_data/
 processed/
 enrichment_workspace/
+
+# Generated pipeline records and local runtime state
+/data/raw/
+/data/normalized/
+/data/validation/
+/data/quality/
+/data/review/
+/data/decisions/
+/data/reports/
+/data/runs/
+/data/cache/
+/data/crawl_artifacts/
+/data/current/
+/state/
+/config/sources.local.json
