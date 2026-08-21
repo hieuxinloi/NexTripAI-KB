@@ -22,6 +22,7 @@ from .candidate import (
     ExistingCanonicalIdentity,
 )
 from .detail import CandidateDetailRun
+from .detail import CandidateDetailStage, candidate_detail_payload
 from .discovery import (
     GoogleMapsDiscoveryRun,
     StagedGoogleMapsCandidate,
@@ -700,6 +701,7 @@ class CanonicalReplacementProposalBatchRunner:
 
         pool = _candidate_pool(discoveries)[: self.max_detail_candidates]
         used_candidate_keys: set[str] = set()
+        detail_cache: dict[str, CandidateDetailRun | str] = {}
         results: list[ReplacementVacancyResult] = []
         for vacancy in vacancies:
             failures: list[ReplacementCandidateFailure] = []
@@ -728,20 +730,27 @@ class CanonicalReplacementProposalBatchRunner:
                     )
                     continue
 
-                detail_request_count += 1
+                cached_detail = detail_cache.get(rebound.candidate.candidate_key)
                 try:
-                    detail_run = self.detail_service.run(
-                        rebound,
-                        vacancy,
-                        tuple(working_existing),
-                        run_id=_child_run_id(
-                            batch_run_id,
-                            "detail",
-                            vacancy.vacancy_id,
-                            rebound.candidate.candidate_key,
-                        ),
-                    )
-                    _validate_detail_run(detail_run, rebound, vacancy)
+                    if isinstance(cached_detail, CandidateDetailRun):
+                        detail_run = _rebind_detail_run(cached_detail, vacancy)
+                    elif isinstance(cached_detail, str):
+                        raise RuntimeError(cached_detail)
+                    else:
+                        detail_request_count += 1
+                        detail_run = self.detail_service.run(
+                            rebound,
+                            vacancy,
+                            tuple(working_existing),
+                            run_id=_child_run_id(
+                                batch_run_id,
+                                "detail",
+                                vacancy.vacancy_id,
+                                rebound.candidate.candidate_key,
+                            ),
+                        )
+                        _validate_detail_run(detail_run, rebound, vacancy)
+                        detail_cache[rebound.candidate.candidate_key] = detail_run
                 except CrawlBlockedError as error:
                     message = _error_text(error)
                     results.append(
@@ -762,6 +771,10 @@ class CanonicalReplacementProposalBatchRunner:
                     )
                     return results, message
                 except Exception as error:
+                    if not isinstance(cached_detail, CandidateDetailRun):
+                        detail_cache.setdefault(
+                            rebound.candidate.candidate_key, _error_text(error)
+                        )
                     failures.append(
                         ReplacementCandidateFailure(
                             candidate_key=rebound.candidate.candidate_key,
@@ -974,6 +987,39 @@ def _validate_detail_run(
         raise ValueError("detail result belongs to another staged candidate")
     if detail.validation.candidate_key != staged.candidate.candidate_key:
         raise ValueError("detail validation belongs to another staged candidate")
+
+
+def _rebind_detail_run(
+    detail_run: CandidateDetailRun,
+    vacancy: EntityCityVacancy,
+) -> CandidateDetailRun:
+    """Reuse one immutable Google detail capture for another slot vacancy."""
+    detail = detail_run.detail
+    if detail.vacancy.vacancy_id == vacancy.vacancy_id:
+        return detail_run
+    payload = detail.model_dump(mode="python")
+    payload["vacancy"] = vacancy
+    payload["detail_hash"] = stable_sha256(
+        candidate_detail_payload(
+            schema_version=detail.schema_version,
+            detail_id=detail.detail_id,
+            run_id=detail.run_id,
+            source_record_id=detail.source_record_id,
+            observation_id=detail.observation_id,
+            vacancy=vacancy,
+            candidate=detail.candidate,
+            validation=detail.validation,
+        )
+    )
+    rebound = CandidateDetailStage.model_validate(payload)
+    return CandidateDetailRun(
+        mapping=detail_run.mapping,
+        source_record=detail_run.source_record,
+        raw_path=detail_run.raw_path,
+        observation=detail_run.observation,
+        detail=rebound,
+        detail_path=detail_run.detail_path,
+    )
 
 
 def _vacancy_sort_key(vacancy: EntityCityVacancy) -> tuple[str, str, str]:

@@ -43,7 +43,9 @@ from nextrip_pipeline.canonical.projection import (
     build_existing_identity_projection,
     load_approved_replacements,
 )
+from nextrip_pipeline.canonical.candidate import ExistingCanonicalIdentity
 from nextrip_pipeline.canonical.replacement_batch import (
+    CanonicalReplacementProposal,
     CanonicalReplacementProposalBatch,
     CanonicalReplacementProposalBatchRunner,
     CanonicalReplacementProposalBatchWriter,
@@ -756,10 +758,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     propose_replacements.add_argument(
         "--search-term",
-        default=None,
+        action="append",
+        default=[],
         help=(
-            "Override the Maps query term. Requires exactly one --entity-type; "
-            "the city name is appended automatically."
+            "Override the Maps query term; repeat to union multiple pools. "
+            "Requires exactly one --entity-type and --city-id."
         ),
     )
 
@@ -1796,21 +1799,52 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if arguments.command == "propose-canonical-replacements":
         try:
-            if arguments.search_term and len(arguments.entity_type) != 1:
+            if arguments.search_term and (
+                len(arguments.entity_type) != 1 or len(arguments.city_id) != 1
+            ):
                 raise ValueError(
-                    "--search-term requires exactly one --entity-type"
+                    "repeated --search-term requires exactly one --entity-type "
+                    "and --city-id"
                 )
             manifest = read_canonical_identity_manifest(arguments.manifest)
             master = load_verified_master(arguments.master_dir)
             approved_records = load_approved_replacements(
                 arguments.approved_replacement_dir
             )
+            prior_proposals: list[CanonicalReplacementProposal] = []
+            for prior_path in arguments.summary_dir.glob("run=*.json"):
+                try:
+                    prior_batch = CanonicalReplacementProposalBatch.model_validate_json(
+                        prior_path.read_text(encoding="utf-8")
+                    )
+                except (OSError, ValidationError, ValueError):
+                    continue
+                prior_proposals.extend(
+                    result.proposal
+                    for result in prior_batch.results
+                    if result.proposal is not None
+                )
             projection = build_existing_identity_projection(
                 master,
                 manifest,
                 current_place_directory=arguments.current_place_dir,
                 current_google_mapping_directory=arguments.current_mapping_dir,
                 approved_replacements=approved_records,
+            )
+            prior_ids = {item.proposed_place_id for item in prior_proposals}
+            projection.identities.extend(
+                ExistingCanonicalIdentity(
+                    place_id=item.proposed_place_id,
+                    entity_type=item.candidate.entity_type,
+                    city_id=item.candidate.city_id,
+                    name=item.candidate.name,
+                    phone=item.candidate.phone,
+                    website_url=item.candidate.website_url,
+                    location=item.candidate.location,
+                    external_identities=item.candidate.external_identities,
+                )
+                for item in prior_proposals
+                if item.proposed_place_id not in {x.place_id for x in projection.identities}
             )
             selected_types = set(arguments.entity_type)
             selected_cities = set(arguments.city_id)
@@ -1839,7 +1873,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             blocked_ids = {
                 item.legacy_place_id for item in master.slots
-            } | {item.id for item in approved_records}
+            } | {item.id for item in approved_records} | prior_ids
             retired_ids = {
                 item.retired_place_id for item in manifest.retired_place_ids
             }
@@ -1850,7 +1884,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             entity_search_terms = None
             if arguments.search_term:
                 entity_search_terms = {
-                    EntityType(arguments.entity_type[0]): arguments.search_term
+                    EntityType(arguments.entity_type[0]): arguments.search_term[0]
                 }
             discovery = GoogleMapsCandidateDiscovery(
                 GoogleMapsCandidateDiscoveryAdapter(
@@ -1881,6 +1915,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result_limit=arguments.result_limit,
                 max_detail_candidates=arguments.max_detail_candidates,
                 max_vacancies=arguments.max_vacancies,
+                search_terms=(
+                    {
+                        (arguments.city_id[0], EntityType(arguments.entity_type[0])):
+                        tuple(arguments.search_term)
+                    }
+                    if arguments.search_term
+                    else None
+                ),
             ).run(vacancies, projection.identities, run_id=run_id)
         except (OSError, ValidationError, ValueError, RuntimeError) as error:
             print(f"Cannot propose canonical replacements: {error}", file=sys.stderr)
