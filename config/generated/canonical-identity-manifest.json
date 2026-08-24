@@ -1,8 +1,8 @@
 {
-  "schema_version": "1.0.0",
-  "manifest_id": "canonical_identity_0eee0ac1ea52c759cb16",
-  "manifest_hash": "0eee0ac1ea52c759cb1665a59a3d82a554fe851558ce22296a7ba8c9c954ae2b",
-  "generated_at": "2026-08-20T13:23:21.040489Z",
+  "schema_version": "1.1.0",
+  "manifest_id": "canonical_identity_586d0bcb5f55157f40c2",
+  "manifest_hash": "586d0bcb5f55157f40c2cb43ebec36f177cb423a0272c613a711c181903b371a",
+  "generated_at": "2026-08-23T04:29:46.240458Z",
   "identities": [
     {
       "canonical_place_id": "attr_dn_001",
@@ -1941,20 +1941,6 @@
       "identity_hash": "6ade24276c2cbffc61e4c2703a4abb162aab56793457989b4fa569fa54368cf6"
     },
     {
-      "canonical_place_id": "cafe_dn_017",
-      "active_legacy_place_id": "cafe_dn_017",
-      "legacy_place_ids": [
-        "cafe_dn_017"
-      ],
-      "city_id": "city_da_nang",
-      "primary_type": "cafe",
-      "secondary_types": [],
-      "tags": [
-        "instagrammable"
-      ],
-      "identity_hash": "2ba150822fed4f55b3cfad80d521c61974c5416b4d0545f40c766b40ca18d38d"
-    },
-    {
       "canonical_place_id": "cafe_dn_018",
       "active_legacy_place_id": "cafe_dn_018",
       "legacy_place_ids": [
@@ -2069,16 +2055,20 @@
       "canonical_place_id": "cafe_dn_026",
       "active_legacy_place_id": "cafe_dn_026",
       "legacy_place_ids": [
-        "cafe_dn_026"
+        "cafe_dn_026",
+        "night_dn_050"
       ],
       "city_id": "city_da_nang",
       "primary_type": "cafe",
-      "secondary_types": [],
+      "secondary_types": [
+        "nightlife"
+      ],
       "tags": [
         "instagrammable",
+        "late_night_cafe",
         "relaxing"
       ],
-      "identity_hash": "e9bac657d47ca13e041e8a099be187694eda626c6b7d784eab985b1bc4780755"
+      "identity_hash": "b51cd82454db94d17d9433a2ccd2b17487c2534e0525c6395e579f08728bb027"
     },
     {
       "canonical_place_id": "cafe_dn_027",
@@ -2675,6 +2665,62 @@
       "identity_hash": "824b168ecc730710e95ae4cb1d7ceee9e419d6f5eda9893f23029da94adc6306"
     },
     {
+      "canonical_place_id": "cafe_dn_072",
+      "active_legacy_place_id": "cafe_dn_072",
+      "legacy_place_ids": [
+        "cafe_dn_072"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "daf8116206aa67fda6ca2f4b5cd32d3b5157cdcfbf889473133f5de3856a3ce5"
+    },
+    {
+      "canonical_place_id": "cafe_dn_074",
+      "active_legacy_place_id": "cafe_dn_074",
+      "legacy_place_ids": [
+        "cafe_dn_074"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "0f747bb6c2ac077e141f2971f34219c4c61d496582246e53a3cd349b810b0ca1"
+    },
+    {
+      "canonical_place_id": "cafe_dn_075",
+      "active_legacy_place_id": "cafe_dn_075",
+      "legacy_place_ids": [
+        "cafe_dn_075"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "13a4ec27764a4ec55ae6635c372618de64866cd499be7a1f2defbfc03a9fc012"
+    },
+    {
+      "canonical_place_id": "cafe_dn_076",
+      "active_legacy_place_id": "cafe_dn_076",
+      "legacy_place_ids": [
+        "cafe_dn_076"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "9b16e391f0ecd9585badb75f4e4ab3f65f1ef3e9cce6ff7ec845fb24beac3424"
+    },
+    {
       "canonical_place_id": "cafe_qn_001",
       "active_legacy_place_id": "cafe_qn_001",
       "legacy_place_ids": [
@@ -2721,13 +2767,18 @@
       "canonical_place_id": "cafe_qn_005",
       "active_legacy_place_id": "cafe_qn_005",
       "legacy_place_ids": [
-        "cafe_qn_005"
+        "cafe_qn_005",
+        "night_qn_039"
       ],
       "city_id": "city_quy_nhon",
       "primary_type": "cafe",
-      "secondary_types": [],
-      "tags": [],
-      "identity_hash": "857d1ddaca10b75cf12b0d2161b5bb666c784fdae02f6f63cc0b91c44356a067"
+      "secondary_types": [
+        "nightlife"
+      ],
+      "tags": [
+        "late_night_cafe"
+      ],
+      "identity_hash": "c8fcb66185b2fddbc1fcb628c67ecbf8ff95113625f7d8a8afde787b225b39ac"
     },
     {
       "canonical_place_id": "cafe_qn_006",
@@ -3192,6 +3243,146 @@
       "identity_hash": "1498a016fc4e284a563c8e7280eac64a27dd0c2f1a0be84fb997838daa5f4090"
     },
     {
+      "canonical_place_id": "cafe_qn_037",
+      "active_legacy_place_id": "cafe_qn_037",
+      "legacy_place_ids": [
+        "cafe_qn_037"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "e76d2f961078666dcce0054f18c0624c645956d746fc06ade1aeeee09cdd56df"
+    },
+    {
+      "canonical_place_id": "cafe_qn_038",
+      "active_legacy_place_id": "cafe_qn_038",
+      "legacy_place_ids": [
+        "cafe_qn_038"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "e3123810a852ec3b51a6ab767ca0a2cb3a45d91ad2801dba5dbf18d8974c79eb"
+    },
+    {
+      "canonical_place_id": "cafe_qn_039",
+      "active_legacy_place_id": "cafe_qn_039",
+      "legacy_place_ids": [
+        "cafe_qn_039"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "ea88bffe711445d56e7244f53de413d3642be658b68892cb7ec08f017e3b9b44"
+    },
+    {
+      "canonical_place_id": "cafe_qn_040",
+      "active_legacy_place_id": "cafe_qn_040",
+      "legacy_place_ids": [
+        "cafe_qn_040"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "adbbc757051b5a10b33abb473c95fe5b2449ac90a6f35b523c92784fdd054e51"
+    },
+    {
+      "canonical_place_id": "cafe_qn_041",
+      "active_legacy_place_id": "cafe_qn_041",
+      "legacy_place_ids": [
+        "cafe_qn_041"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "4b778fe4c56f7c890ec7afb02bf355be6dfd376e740d69f368f7ff7e0a10c4b5"
+    },
+    {
+      "canonical_place_id": "cafe_qn_042",
+      "active_legacy_place_id": "cafe_qn_042",
+      "legacy_place_ids": [
+        "cafe_qn_042"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "f13bc78054a305c0e37df645da124accb5f1e0fc8a268c56520a26a2da990ad7"
+    },
+    {
+      "canonical_place_id": "cafe_qn_043",
+      "active_legacy_place_id": "cafe_qn_043",
+      "legacy_place_ids": [
+        "cafe_qn_043"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "9fbd96cdcb576dde9db7c04f13f1372c26dbf23f32debd2f6cc30b052b16733f"
+    },
+    {
+      "canonical_place_id": "cafe_qn_044",
+      "active_legacy_place_id": "cafe_qn_044",
+      "legacy_place_ids": [
+        "cafe_qn_044"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "b699fa299986e1cebab5e93c9007b1bcb288f6e4a9df2cfe6698479778a03983"
+    },
+    {
+      "canonical_place_id": "cafe_qn_045",
+      "active_legacy_place_id": "cafe_qn_045",
+      "legacy_place_ids": [
+        "cafe_qn_045"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "147322cb9529007544d76491376c67d2ffbda62d06a4d8e1b4895c24d0bcdac1"
+    },
+    {
+      "canonical_place_id": "cafe_qn_046",
+      "active_legacy_place_id": "cafe_qn_046",
+      "legacy_place_ids": [
+        "cafe_qn_046"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "cafe",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "db1bb98e342c7fe9c3b054b087678d5d5e54c93241abb4645ecb5490691aa446"
+    },
+    {
       "canonical_place_id": "hotel_dn_001",
       "active_legacy_place_id": "hotel_dn_001",
       "legacy_place_ids": [
@@ -3200,8 +3391,15 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "37463d1f1109bcefab6c23d18f51207ff1c159ebd66c09326a800d264500948a"
+      "tags": [
+        "bar",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "a484ac8d87661206b99defc82ba270eea726b70a16c7face1a6e48e6060d599e"
     },
     {
       "canonical_place_id": "hotel_dn_002",
@@ -3226,8 +3424,13 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "81f48c5a60c1e626f1d1b69b85de9c61aa8aedd84043a7de3e47d7339e6f1bb6"
+      "tags": [
+        "gym",
+        "parking",
+        "restaurant",
+        "wifi"
+      ],
+      "identity_hash": "276dcbcb75df1fe0de5a184739ef5904becc3967ad1fa6b217838e2185224d21"
     },
     {
       "canonical_place_id": "hotel_dn_004",
@@ -3238,8 +3441,11 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "f058ce958164f38acaa9f038a53bc0febd8bdb0429d4ce57d8e06dfba7929a05"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "e15fd4b4e0ba06c9f082c76af586eefd9ccdcb762f984351bdee9f526116b138"
     },
     {
       "canonical_place_id": "hotel_dn_005",
@@ -3250,8 +3456,16 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "8c464698aec981bf3d8677424ed2f4355b4491d471fb305d32648d28a1fcb104"
+      "tags": [
+        "bar",
+        "gym",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "5a2ef821fcb2cfa4d5a1664eac4a1aa5dd6813f2313b5cde57923fc015b44a55"
     },
     {
       "canonical_place_id": "hotel_dn_006",
@@ -3262,8 +3476,14 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "01345388c11d30a811c584227310d4e43d649876c81030477878420994c71f18"
+      "tags": [
+        "bar",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "0bf8206e114e81773ac29ff4f7f85be203f4f1ec4296bdf5dcd76cafd0d1afd5"
     },
     {
       "canonical_place_id": "hotel_dn_007",
@@ -3275,9 +3495,15 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "sea_view"
+        "bar",
+        "parking",
+        "pool",
+        "restaurant",
+        "sea_view",
+        "spa",
+        "wifi"
       ],
-      "identity_hash": "c11a3933277d10cc774d18af66a19fe04420846f4daf7b4f9c7966b4f2f1d988"
+      "identity_hash": "43721bb94937e0b8df6ddf8431a6dc2eedf5879935f3d2e6c144f8b1bbd319f4"
     },
     {
       "canonical_place_id": "hotel_dn_008",
@@ -3288,8 +3514,15 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "603136b95efb811ebb59e454a1ff1495f9ed5d81256680455810a9ff9702ae4b"
+      "tags": [
+        "gym",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "3fe860e735a5bb3da68c2ef84f2d8077b1366ff256b48f63edec4485aba863d5"
     },
     {
       "canonical_place_id": "hotel_dn_009",
@@ -3300,8 +3533,11 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "61fa969b170b81315ac5f411b62f2946f0206cb27bd469099e75e49c2369cc48"
+      "tags": [
+        "parking",
+        "pool"
+      ],
+      "identity_hash": "bedd628027d33d0f7f9ade716b7f2c5eb1ef23ec6c12eeca454bddbc5d634d3d"
     },
     {
       "canonical_place_id": "hotel_dn_010",
@@ -3312,8 +3548,10 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "57020cc1ba0eec5ac2cd1ee1eb8d81f6851fd5b86078846c9dadf86dfb2b6c6f"
+      "tags": [
+        "wifi"
+      ],
+      "identity_hash": "ba4e33bfd557acbbf290e50feca35097ccc792c4a258f49145ff9713b9fa7dcd"
     },
     {
       "canonical_place_id": "hotel_dn_011",
@@ -3324,8 +3562,11 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "5148db3fb88026adeaa7aa624e525fbcb4346d1d1933f32d72f6c229d9f761ad"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "9a6edcc67cb2f715e0e60396fec88174cfcf0820ef165a46c0d751e7a492cb07"
     },
     {
       "canonical_place_id": "hotel_dn_012",
@@ -3336,8 +3577,11 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "b6005bee169767ea47361be57ea0668c9f02e9c474b4576c5c2b88953635ebb5"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "f539a139ec6d1684553a6d97109aa9f81a15dc49a5e52733619cf8786a46aefa"
     },
     {
       "canonical_place_id": "hotel_dn_013",
@@ -3348,8 +3592,11 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "387b9ce44e7de5fb2e16a916f4b75073687718563b00e753d022607c96412efd"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "99f8aab50a490fbece3d6475bde3181beee73ffbc104bf6de518a9811200874a"
     },
     {
       "canonical_place_id": "hotel_dn_014",
@@ -3361,9 +3608,11 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "sea_view"
+        "parking",
+        "sea_view",
+        "wifi"
       ],
-      "identity_hash": "534d2cbd38970e1430f9e86e0d71dfd7351262ba6786e517742cc20f1b70c88d"
+      "identity_hash": "cd75ff5c96086b8d4008cc42ef1fc10a2518c768061b78879d76c154b99e3826"
     },
     {
       "canonical_place_id": "hotel_dn_015",
@@ -3374,8 +3623,11 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "580a1bdf242a58697b8a31d2597eb8b74af50c0e5ce52e9218f580b3d3422594"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "48bbd0d7f6a6915ced135c1e53dcecd66db9995991275867addd2fcc25585060"
     },
     {
       "canonical_place_id": "hotel_dn_016",
@@ -3398,8 +3650,12 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "13f709a2c33ded5bb577ee8b4aa6cc27d7c724f5952e2994ababdef40d1b6f2b"
+      "tags": [
+        "parking",
+        "restaurant",
+        "wifi"
+      ],
+      "identity_hash": "aa04a4680e80a39f80ed8496ca3f41bf51215ce1a9fc1d4f5da4b51838319bf2"
     },
     {
       "canonical_place_id": "hotel_dn_018",
@@ -3434,8 +3690,16 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "1e48b31559b05c36cc5c35559c2ba4b57d9034248504b44edc0225c8dbb74315"
+      "tags": [
+        "bar",
+        "gym",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "41bfab3275cc638376dc40f890e2173e9010610fa32e635a2141ecb4104f9caa"
     },
     {
       "canonical_place_id": "hotel_dn_021",
@@ -3459,9 +3723,11 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "sea_view"
+        "parking",
+        "sea_view",
+        "wifi"
       ],
-      "identity_hash": "5abee24e759abe8acf4983cc5d4b393f21783c85aa2f818daa7f5b39aa207acc"
+      "identity_hash": "05656ee659d259c12b873a7b69e72fc0b8d0fed6f8ebb8f83cc1b3375f280a12"
     },
     {
       "canonical_place_id": "hotel_dn_023",
@@ -3473,9 +3739,15 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "luxury"
+        "bar",
+        "luxury",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
       ],
-      "identity_hash": "2b470b9de17d55ba4057a6344d73557516e67f2193966536b197ba9e4dfd1944"
+      "identity_hash": "f31bb7f8af0823f6e5c35d81ce3e098fa40f23cc5a26a42c2a389b9e52ba07f3"
     },
     {
       "canonical_place_id": "hotel_dn_024",
@@ -3486,8 +3758,11 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "aa23a363dbdaf845742849f8d6e24dd4fc89869aafaabfdcbcce2f6d2ea5aeca"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "6fb6872761563ad9b5b32753ddd90a3404f0b70c5f6d42a9a78629a553c9c869"
     },
     {
       "canonical_place_id": "hotel_dn_025",
@@ -3498,8 +3773,10 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "eb2b95fa320389fd4e59836d65c36a12b69861b80a3e79e73cb4ba6de1565979"
+      "tags": [
+        "wifi"
+      ],
+      "identity_hash": "ca505a54a3664cf103484d2fc2400516225acfade894108b90ecaff5e25ba9f9"
     },
     {
       "canonical_place_id": "hotel_dn_026",
@@ -3560,9 +3837,11 @@
       "secondary_types": [],
       "tags": [
         "luxury",
-        "pool"
+        "parking",
+        "pool",
+        "wifi"
       ],
-      "identity_hash": "eca027785daa7c2a97c7d4fb66186a716b17c4aa3e18f44bcf81d303c14d8227"
+      "identity_hash": "4dd7a2a17ba471f03c6887f989486f34561a905e1c7d439db22d63b20df24d83"
     },
     {
       "canonical_place_id": "hotel_dn_030",
@@ -3573,8 +3852,15 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "3573c72adb89b441c615d323fe1b6ce508941d30a1cc1bdc8727156f8c4e1f3b"
+      "tags": [
+        "bar",
+        "gym",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "6f8442019aae6c64b693c3ff7e5e1081e3713d3363f393b7d120890d37180aa9"
     },
     {
       "canonical_place_id": "hotel_dn_031",
@@ -3585,8 +3871,12 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "eeb49c7d45ed56bcb0f88eae024970f4c53c3628411300f942f77ef6b171aad7"
+      "tags": [
+        "parking",
+        "restaurant",
+        "wifi"
+      ],
+      "identity_hash": "1d6ee1f565052ece09983ecf6ae4c3daaa859d1e4af01b499133ab2af395cd6f"
     },
     {
       "canonical_place_id": "hotel_dn_032",
@@ -3598,9 +3888,12 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "pool"
+        "parking",
+        "pool",
+        "spa",
+        "wifi"
       ],
-      "identity_hash": "adb7e0e1b3592809168d19f80a3fc3415031daaafdb5c3a9358f63a4f757ecfe"
+      "identity_hash": "e0b0ac4e9fc29ba44ebbd90ee3ccc346905fdb19d2ca2bec8e3bf7e38b75118c"
     },
     {
       "canonical_place_id": "hotel_dn_033",
@@ -3639,9 +3932,12 @@
       "secondary_types": [],
       "tags": [
         "budget_friendly",
-        "luxury"
+        "luxury",
+        "parking",
+        "pool",
+        "wifi"
       ],
-      "identity_hash": "b4f2c197314a0982e861ca953340fee96a6b8af09fac40e38c3d0d895d940479"
+      "identity_hash": "2849a69760bb656c98ac266561853605b062869ed25709cef0eb41eccee55abd"
     },
     {
       "canonical_place_id": "hotel_dn_036",
@@ -3679,8 +3975,12 @@
       "city_id": "city_da_nang",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "76354d8ca074897f0a89bc695136729a489fdf0a6e80db006e585b3babf140a6"
+      "tags": [
+        "bar",
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "02d2db6365e0c7b3a75862f5cff82048a8f8acaf0b8e2f41189376d4caa67a6d"
     },
     {
       "canonical_place_id": "hotel_dn_039",
@@ -3751,9 +4051,15 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "pool"
+        "bar",
+        "gym",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
       ],
-      "identity_hash": "f04664e19e92abe44e16dbfa416f72cafd38a52dde6ed657235c3f83aeb1bf88"
+      "identity_hash": "fbe07971d4b5ed232ff28c68dc280602a693cf65efa5a237be92ef9797629ffb"
     },
     {
       "canonical_place_id": "hotel_qn_001",
@@ -3834,8 +4140,11 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "dbf843422d3468be182fc76aabacb8a66feaa0ba33d447eeae5dab5282a0868d"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "b9d990864352afc79d50dfef6398945e003acdeb485f7e8ab06652a86dc06b17"
     },
     {
       "canonical_place_id": "hotel_qn_007",
@@ -3847,9 +4156,12 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "luxury"
+        "luxury",
+        "parking",
+        "restaurant",
+        "wifi"
       ],
-      "identity_hash": "55dd5aea0857f1e497abface2465324c63c279ced85c66d3cfbf7d0af7506890"
+      "identity_hash": "e46e1c3866dc64ebe97f5c59a8c92149f854ed2b0d22c54987d7a87568707351"
     },
     {
       "canonical_place_id": "hotel_qn_008",
@@ -3878,9 +4190,13 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "budget_friendly"
+        "bar",
+        "budget_friendly",
+        "parking",
+        "restaurant",
+        "wifi"
       ],
-      "identity_hash": "f74bc2313961095e68ef4ad67b2b14588f7eb40ea9387ab49b22468cab7ed129"
+      "identity_hash": "f52d3b60014c709c5029bf259efcb137bd86af653718b09fcfc14bbf306506e8"
     },
     {
       "canonical_place_id": "hotel_qn_010",
@@ -3891,8 +4207,11 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "4f3d877263601be0f1a3e71739796ab92f74df3bf2cf050ce53943d71b62cb07"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "d41b3ad542607e43efa2be67f65b4c47850035be36acf5720e641b8248dd0dbf"
     },
     {
       "canonical_place_id": "hotel_qn_011",
@@ -3903,8 +4222,12 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "928aee338ea6c402ebc4dd01c121e4480c92e4358ef8e19532affeb108387278"
+      "tags": [
+        "gym",
+        "pool",
+        "wifi"
+      ],
+      "identity_hash": "5edf0deb855db0089a1854db9772f0d6a90d1121ae54041236ac834374f21179"
     },
     {
       "canonical_place_id": "hotel_qn_012",
@@ -3916,9 +4239,11 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "luxury"
+        "luxury",
+        "parking",
+        "wifi"
       ],
-      "identity_hash": "cbd1181279eaea5946cb71295a4bf7c90ecb51af408f8fe8345075eef88af04d"
+      "identity_hash": "5d671d247334c7d531f31c06ea863d57253914a60da8b2797c1225c61ce58f49"
     },
     {
       "canonical_place_id": "hotel_qn_013",
@@ -3929,8 +4254,12 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "3d9d5652599ef1e97e862a40ddaf19476900651114d31221a45123023baf4967"
+      "tags": [
+        "bar",
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "20494d9cc51d6f0a9b8e8e152783ededb9a58f89e20f3c0f7eb99060f0e8f79b"
     },
     {
       "canonical_place_id": "hotel_qn_014",
@@ -3941,8 +4270,11 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "de50a0d7f4e5558e9dc5c24a8fa67ed88d6a0c51453bd7c60c010d53836b5b3a"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "6a50ef39e141fbf2b14ef29d3899e04eb513ddd6cc4cc5d93366ad5dd3c371e0"
     },
     {
       "canonical_place_id": "hotel_qn_015",
@@ -3953,8 +4285,14 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "199cccb080d2fe75339e3842da976f132da70d9e9c42e748687171d4c55d5dbb"
+      "tags": [
+        "bar",
+        "parking",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "26774e060a2694df4334b8955df9a0f8d803efa40aa20ff74d46e058e1da0542"
     },
     {
       "canonical_place_id": "hotel_qn_016",
@@ -3966,9 +4304,11 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "budget_friendly"
+        "budget_friendly",
+        "parking",
+        "wifi"
       ],
-      "identity_hash": "0b2a589d3015cf459cb7525701669243e52d5bb5c8d7a65d4ee8cacbe32c5770"
+      "identity_hash": "b33b495361fbbb83f365174b4b53e8af366aae2aa7f8a5e09f446fe31d68c739"
     },
     {
       "canonical_place_id": "hotel_qn_017",
@@ -3979,8 +4319,12 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "b1b78981a231231b04262b43f96675d6367b891ddc3f5ca8d7888754503c74fa"
+      "tags": [
+        "parking",
+        "restaurant",
+        "wifi"
+      ],
+      "identity_hash": "ca632e2fabd3bcbbbebed3769ecd8459faf7f7d0aa5314b893a609485cacacae"
     },
     {
       "canonical_place_id": "hotel_qn_018",
@@ -3991,8 +4335,12 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "66619f6526fd74cd91cec79a82c32d132c04d7f7c76894a04243458231252488"
+      "tags": [
+        "bar",
+        "parking",
+        "restaurant"
+      ],
+      "identity_hash": "b341de1a8e1221d72609e60984cf8a4061ae84d6922cd1cce75203a689f314e5"
     },
     {
       "canonical_place_id": "hotel_qn_019",
@@ -4003,8 +4351,11 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "c1709d45ccbaa28deda498da31f294cff6f9e5beeeb8c67e6ccac17fa30d8d69"
+      "tags": [
+        "parking",
+        "wifi"
+      ],
+      "identity_hash": "d54f91e49249b079c8f06b01f8971f5b8f39246bec58029aeb0d803e09de8f6b"
     },
     {
       "canonical_place_id": "hotel_qn_020",
@@ -4015,8 +4366,13 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "d798601e3b102c5fdf7891745c1299cfc9037194f5c20190a847c4a0bbd8148d"
+      "tags": [
+        "bar",
+        "parking",
+        "pool",
+        "wifi"
+      ],
+      "identity_hash": "3a954c8067d933c9001bb288b926230091acfd13e1cb6c650b73878d8ac126ca"
     },
     {
       "canonical_place_id": "hotel_qn_021",
@@ -4027,8 +4383,12 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "452ed3cbe23d454ca8b9666ad3e3b1c48316da1d885ff36b0701b90a016e27a5"
+      "tags": [
+        "parking",
+        "pool",
+        "wifi"
+      ],
+      "identity_hash": "e882686f95dd48afc262c97a948daabbee33693fbf27431580a52f6753e74233"
     },
     {
       "canonical_place_id": "hotel_qn_022",
@@ -4051,8 +4411,13 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "11a9a5b398d6af5a8e8b0a66db0102a6518fc7324b0ca7e5db170db471c61043"
+      "tags": [
+        "parking",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "aa498c8e9ff0617a1cc5664f957ba3ab0a4cbf43548542ad41bfdad5d4b40d01"
     },
     {
       "canonical_place_id": "hotel_qn_024",
@@ -4138,8 +4503,16 @@
       "city_id": "city_quy_nhon",
       "primary_type": "hotel",
       "secondary_types": [],
-      "tags": [],
-      "identity_hash": "390e5701fdb6739eb5a30866a5d2568c715abc0f5ec75ba35f4ff43c459535c2"
+      "tags": [
+        "bar",
+        "gym",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
+      ],
+      "identity_hash": "a221763bd80ab6f88d6396d90d9a4c28865eeaa579b3bcea4d9aefec811b791c"
     },
     {
       "canonical_place_id": "hotel_qn_030",
@@ -4151,9 +4524,16 @@
       "primary_type": "hotel",
       "secondary_types": [],
       "tags": [
-        "luxury"
+        "bar",
+        "gym",
+        "luxury",
+        "parking",
+        "pool",
+        "restaurant",
+        "spa",
+        "wifi"
       ],
-      "identity_hash": "ed554fc21b1857ceaa0fd6adcfce2c67ff522ffab1071a72ee1ceb0aefd9e427"
+      "identity_hash": "a4644dc93aa0498c09c4199858ec1b1895f96b603e0e7c6fd6a99ab73d3d5a50"
     },
     {
       "canonical_place_id": "night_dn_001",
@@ -4604,21 +4984,6 @@
       "identity_hash": "e24c5611166a8d10dff36d1746f492b6c89379b4d2a149729842f3e7da639dcd"
     },
     {
-      "canonical_place_id": "night_dn_037",
-      "active_legacy_place_id": "night_dn_037",
-      "legacy_place_ids": [
-        "night_dn_037"
-      ],
-      "city_id": "city_da_nang",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "instagrammable",
-        "late_night_cafe"
-      ],
-      "identity_hash": "06266aadb49d6eaf900ecb1f575e9fdb9a6059a2df3a27da3d29108302fdc701"
-    },
-    {
       "canonical_place_id": "night_dn_038",
       "active_legacy_place_id": "night_dn_038",
       "legacy_place_ids": [
@@ -4753,22 +5118,6 @@
       "identity_hash": "3acd515a059933b6e426e39851067a9566ad5e92a37dc26ba6b5c5996a65c008"
     },
     {
-      "canonical_place_id": "night_dn_050",
-      "active_legacy_place_id": "night_dn_050",
-      "legacy_place_ids": [
-        "night_dn_050"
-      ],
-      "city_id": "city_da_nang",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "instagrammable",
-        "late_night_cafe",
-        "relaxing"
-      ],
-      "identity_hash": "1416d612e59754d9b93b0a996620b30a0dc46c7b08317652bf666eee385eda8c"
-    },
-    {
       "canonical_place_id": "night_dn_052",
       "active_legacy_place_id": "night_dn_052",
       "legacy_place_ids": [
@@ -4810,21 +5159,6 @@
         "relaxing"
       ],
       "identity_hash": "73d14ebc2df557ba356e45e645f0398a30ce8b2c50adaf7b458ac60ea39decef"
-    },
-    {
-      "canonical_place_id": "night_dn_058",
-      "active_legacy_place_id": "night_dn_058",
-      "legacy_place_ids": [
-        "night_dn_058"
-      ],
-      "city_id": "city_da_nang",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "late_night_restaurant",
-        "popular"
-      ],
-      "identity_hash": "ae48fd4b777871ccfb2924912bcf1276617355c14639a531842399f1b01b818e"
     },
     {
       "canonical_place_id": "night_dn_061",
@@ -5258,6 +5592,328 @@
       "identity_hash": "e8e0b1073b4fed6dc62f5abcc60988f98004df71f105af72dd3efb422135ad6b"
     },
     {
+      "canonical_place_id": "night_dn_105",
+      "active_legacy_place_id": "night_dn_105",
+      "legacy_place_ids": [
+        "night_dn_105"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "54315fbd8a7d16f4595e032c9952f48c31e3fefc01b7644b0ce88eae8a859ecc"
+    },
+    {
+      "canonical_place_id": "night_dn_106",
+      "active_legacy_place_id": "night_dn_106",
+      "legacy_place_ids": [
+        "night_dn_106"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "83e138548f2c17b1e13427cd3ec5aca7dfe47eb66e4545c4dfaa73dd63bae35e"
+    },
+    {
+      "canonical_place_id": "night_dn_107",
+      "active_legacy_place_id": "night_dn_107",
+      "legacy_place_ids": [
+        "night_dn_107"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "303bb1e82a9901bc74362fd0a6e27fa8c9880423360416f997a165460df7d552"
+    },
+    {
+      "canonical_place_id": "night_dn_108",
+      "active_legacy_place_id": "night_dn_108",
+      "legacy_place_ids": [
+        "night_dn_108"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "a89962633df34f262e1800736f450f1cb1ab6a93c33740e8582bf4e54bc0bf36"
+    },
+    {
+      "canonical_place_id": "night_dn_109",
+      "active_legacy_place_id": "night_dn_109",
+      "legacy_place_ids": [
+        "night_dn_109"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "cffb3082c84b16ee131a595c31110615cad18e5c7ec915db3c5f43e81fb77cc2"
+    },
+    {
+      "canonical_place_id": "night_dn_110",
+      "active_legacy_place_id": "night_dn_110",
+      "legacy_place_ids": [
+        "night_dn_110"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "15fe49f7f5b2735a995723b52730b649596d52825a826629c0a7b9d6d5ccd564"
+    },
+    {
+      "canonical_place_id": "night_dn_111",
+      "active_legacy_place_id": "night_dn_111",
+      "legacy_place_ids": [
+        "night_dn_111"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "628d308f7033780b3935477d97f0509beb179fb79c3b74178d86c0f32b939dea"
+    },
+    {
+      "canonical_place_id": "night_dn_112",
+      "active_legacy_place_id": "night_dn_112",
+      "legacy_place_ids": [
+        "night_dn_112"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "35b480b28be9507c661e6e917ef5d998f538775a70f22082396387ded0eabe76"
+    },
+    {
+      "canonical_place_id": "night_dn_113",
+      "active_legacy_place_id": "night_dn_113",
+      "legacy_place_ids": [
+        "night_dn_113"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "d8adaa701531ff17e32386b9d438266da2ad4b10b3411f787164eb73c1c9c332"
+    },
+    {
+      "canonical_place_id": "night_dn_114",
+      "active_legacy_place_id": "night_dn_114",
+      "legacy_place_ids": [
+        "night_dn_114"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "0fa474dba049cab695c4792145595b55687d2df509f4b9069cc193a9b5564cfb"
+    },
+    {
+      "canonical_place_id": "night_dn_115",
+      "active_legacy_place_id": "night_dn_115",
+      "legacy_place_ids": [
+        "night_dn_115"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "2b99d32a47fb61f20c0b4e635e7a6c13ece3311105f1f2f1c32878cdfb541c6a"
+    },
+    {
+      "canonical_place_id": "night_dn_116",
+      "active_legacy_place_id": "night_dn_116",
+      "legacy_place_ids": [
+        "night_dn_116"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "cc2afc641139d0479a9a2a0daedd141a5c090e8c713f02ed889590ff44e2f9e7"
+    },
+    {
+      "canonical_place_id": "night_dn_117",
+      "active_legacy_place_id": "night_dn_117",
+      "legacy_place_ids": [
+        "night_dn_117"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "93753e7199efa0fcdd672f9aab6ae73c9289a0916db08fc629f0805614a138f1"
+    },
+    {
+      "canonical_place_id": "night_dn_118",
+      "active_legacy_place_id": "night_dn_118",
+      "legacy_place_ids": [
+        "night_dn_118"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "5777a1b78a3de8dcf6783373a856ef9dfa1de64be9c25484bec7cba17adb1c8c"
+    },
+    {
+      "canonical_place_id": "night_dn_119",
+      "active_legacy_place_id": "night_dn_119",
+      "legacy_place_ids": [
+        "night_dn_119"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "320ebaf497f5ee06adc6ef3287847a0c029a7388400fe17ddcb894e3c2acd357"
+    },
+    {
+      "canonical_place_id": "night_dn_120",
+      "active_legacy_place_id": "night_dn_120",
+      "legacy_place_ids": [
+        "night_dn_120"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "23992d212c6a0c332163d71d76d739325c7399cf8a18921fba80bb2acfa7f47d"
+    },
+    {
+      "canonical_place_id": "night_dn_121",
+      "active_legacy_place_id": "night_dn_121",
+      "legacy_place_ids": [
+        "night_dn_121"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "91c25caf25fbc1fda471bff2cd6beaa5d7a1f576567419e85d46766774d71720"
+    },
+    {
+      "canonical_place_id": "night_dn_122",
+      "active_legacy_place_id": "night_dn_122",
+      "legacy_place_ids": [
+        "night_dn_122"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "dfe65d8980780d87fa203700167523ac08f6d6228d3187c294efe635fef6fe8e"
+    },
+    {
+      "canonical_place_id": "night_dn_123",
+      "active_legacy_place_id": "night_dn_123",
+      "legacy_place_ids": [
+        "night_dn_123"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "cdbfc345a9bce67fbbdbf597e43daf1ea4970ad6723c88dfc1d8217df033edd5"
+    },
+    {
+      "canonical_place_id": "night_dn_124",
+      "active_legacy_place_id": "night_dn_124",
+      "legacy_place_ids": [
+        "night_dn_124"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "71ff42ca011913016944c793669e7ca7e476f37c95ab38ca1c3f8decbd69ead9"
+    },
+    {
+      "canonical_place_id": "night_dn_125",
+      "active_legacy_place_id": "night_dn_125",
+      "legacy_place_ids": [
+        "night_dn_125"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "6f789a8b88f9053f38b0089bbfb81aeb5c60b7bce040dcf297f8a6b5633cc86e"
+    },
+    {
+      "canonical_place_id": "night_dn_126",
+      "active_legacy_place_id": "night_dn_126",
+      "legacy_place_ids": [
+        "night_dn_126"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "45352510902f0d57c621ed554956e6faf31d9831e25033a05ec8c6e141af6c1d"
+    },
+    {
+      "canonical_place_id": "night_dn_127",
+      "active_legacy_place_id": "night_dn_127",
+      "legacy_place_ids": [
+        "night_dn_127"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "eb164027258d413f5d1c8ad61e71c3333bbf5ce8b36faba86d96692cbc9dcb90"
+    },
+    {
       "canonical_place_id": "night_qn_001",
       "active_legacy_place_id": "night_qn_001",
       "legacy_place_ids": [
@@ -5610,20 +6266,6 @@
       "identity_hash": "f749913efbfb10e3c5cceb12a5dcd332a4d3d37eb340d0c354c4e78de52ff045"
     },
     {
-      "canonical_place_id": "night_qn_039",
-      "active_legacy_place_id": "night_qn_039",
-      "legacy_place_ids": [
-        "night_qn_039"
-      ],
-      "city_id": "city_quy_nhon",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "late_night_cafe"
-      ],
-      "identity_hash": "bf5cead2b570367648bb747c64951ca58902091959918b3c996a6aa5e5818eec"
-    },
-    {
       "canonical_place_id": "night_qn_041",
       "active_legacy_place_id": "night_qn_041",
       "legacy_place_ids": [
@@ -5696,21 +6338,6 @@
       "identity_hash": "9d9ce88a837b7191726099111081d76910e52950bd805623d69035a646b4b79b"
     },
     {
-      "canonical_place_id": "night_qn_051",
-      "active_legacy_place_id": "night_qn_051",
-      "legacy_place_ids": [
-        "night_qn_051"
-      ],
-      "city_id": "city_quy_nhon",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "added_2026_expansion",
-        "late_night_restaurant"
-      ],
-      "identity_hash": "b0325ef73f1178e5ec18a9486b08e754b374f38f82ef64efbdb5af7e0f6f35e0"
-    },
-    {
       "canonical_place_id": "night_qn_054",
       "active_legacy_place_id": "night_qn_054",
       "legacy_place_ids": [
@@ -5739,21 +6366,6 @@
         "popular"
       ],
       "identity_hash": "820c69afb7ad5cb153c9a327f8adee0bda546d9cc3d05fa1803312844313c17f"
-    },
-    {
-      "canonical_place_id": "night_qn_060",
-      "active_legacy_place_id": "night_qn_060",
-      "legacy_place_ids": [
-        "night_qn_060"
-      ],
-      "city_id": "city_quy_nhon",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "added_2026_expansion",
-        "late_night_restaurant"
-      ],
-      "identity_hash": "178e4f538dc6f28348c65d99bea62c84eca386e6594d67a366ecdcabe1b9f9ba"
     },
     {
       "canonical_place_id": "night_qn_065",
@@ -5787,21 +6399,6 @@
         "popular"
       ],
       "identity_hash": "767c7777619ae78a9cc65e558aa2c720e9116bd0ca8ffd0a607a697cc4e215fc"
-    },
-    {
-      "canonical_place_id": "night_qn_068",
-      "active_legacy_place_id": "night_qn_068",
-      "legacy_place_ids": [
-        "night_qn_068"
-      ],
-      "city_id": "city_quy_nhon",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "added_2026_expansion",
-        "late_night_restaurant"
-      ],
-      "identity_hash": "e0a362cd865736b8d1e695abfc1347da5f9780ddb1a70282a250b9ad7b2147e8"
     },
     {
       "canonical_place_id": "night_qn_073",
@@ -5965,20 +6562,6 @@
       "identity_hash": "1ea77f20c8167564bd3c52e24b60ef218e74416dd632030c25a6c21abfb211fc"
     },
     {
-      "canonical_place_id": "night_qn_088",
-      "active_legacy_place_id": "night_qn_088",
-      "legacy_place_ids": [
-        "night_qn_088"
-      ],
-      "city_id": "city_quy_nhon",
-      "primary_type": "nightlife",
-      "secondary_types": [],
-      "tags": [
-        "late_night_restaurant"
-      ],
-      "identity_hash": "55acfc308b1d939143d71e79664b1c9a011c4392fa36635fc87dd888f562c149"
-    },
-    {
       "canonical_place_id": "night_qn_089",
       "active_legacy_place_id": "night_qn_089",
       "legacy_place_ids": [
@@ -6079,6 +6662,286 @@
         "canonical_replacement"
       ],
       "identity_hash": "cddb7a48e1e6c80314808ee9d0c51296b19ea7aa3fe18f92ccde7e0411559d6d"
+    },
+    {
+      "canonical_place_id": "night_qn_105",
+      "active_legacy_place_id": "night_qn_105",
+      "legacy_place_ids": [
+        "night_qn_105"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "9944e5b60e816ecab8bafd8160fa15de159c1be90597221bfd73062fb6a5d837"
+    },
+    {
+      "canonical_place_id": "night_qn_106",
+      "active_legacy_place_id": "night_qn_106",
+      "legacy_place_ids": [
+        "night_qn_106"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "9a6d8ef2f2dfa3980c2c9d7734d9a5291e9091db0fcd21a950db3f9f1d236882"
+    },
+    {
+      "canonical_place_id": "night_qn_107",
+      "active_legacy_place_id": "night_qn_107",
+      "legacy_place_ids": [
+        "night_qn_107"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "b6c4801ed1132fd496735c37287ab52080e9f56bd7cfe2d1664cfcae6178c4ad"
+    },
+    {
+      "canonical_place_id": "night_qn_108",
+      "active_legacy_place_id": "night_qn_108",
+      "legacy_place_ids": [
+        "night_qn_108"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "887f1b223059dbbab59f989665227a03e41d633a640fbda10fc162265b96a9d8"
+    },
+    {
+      "canonical_place_id": "night_qn_109",
+      "active_legacy_place_id": "night_qn_109",
+      "legacy_place_ids": [
+        "night_qn_109"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "7e9a586dd258ba8c3b0687253167623144a87c759646e2a58f0bc9b9230c2fc8"
+    },
+    {
+      "canonical_place_id": "night_qn_110",
+      "active_legacy_place_id": "night_qn_110",
+      "legacy_place_ids": [
+        "night_qn_110"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "7006d6bc97466fbbfdf795e06e17e79fcdf8404738e86f659b6e2d18e8dede80"
+    },
+    {
+      "canonical_place_id": "night_qn_111",
+      "active_legacy_place_id": "night_qn_111",
+      "legacy_place_ids": [
+        "night_qn_111"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "aea2167185b1a68b5774e210cc3ec6365381045ed765c74e7975e6e1e8522222"
+    },
+    {
+      "canonical_place_id": "night_qn_112",
+      "active_legacy_place_id": "night_qn_112",
+      "legacy_place_ids": [
+        "night_qn_112"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "fa16ee84761d61fbd0cb9ebbcb5e621ed8a028215f7f183f522efa2930ca94f4"
+    },
+    {
+      "canonical_place_id": "night_qn_113",
+      "active_legacy_place_id": "night_qn_113",
+      "legacy_place_ids": [
+        "night_qn_113"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "9b9295f4d2a505b4d49ffbb18be6ec8d3d529f6e38a102de25f24e50fda9c8cc"
+    },
+    {
+      "canonical_place_id": "night_qn_114",
+      "active_legacy_place_id": "night_qn_114",
+      "legacy_place_ids": [
+        "night_qn_114"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "1ead7125dddae4c3287e312e50ed3cf6c001f8599641f13eb2ecb1f7ed8a887e"
+    },
+    {
+      "canonical_place_id": "night_qn_115",
+      "active_legacy_place_id": "night_qn_115",
+      "legacy_place_ids": [
+        "night_qn_115"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "ba6795522e95dd338c1d1bc866416e8c73f107c4e625be2e2a7073bdbf912a5f"
+    },
+    {
+      "canonical_place_id": "night_qn_116",
+      "active_legacy_place_id": "night_qn_116",
+      "legacy_place_ids": [
+        "night_qn_116"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "9255a181e4e8744cda578283891a7e9343651f4b4c12189324a2a643d895cdff"
+    },
+    {
+      "canonical_place_id": "night_qn_117",
+      "active_legacy_place_id": "night_qn_117",
+      "legacy_place_ids": [
+        "night_qn_117"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "1c802ef6c0e2b2abad2cf09f051fcb9da344a72c97fae73b20c7d4a8ae4695d8"
+    },
+    {
+      "canonical_place_id": "night_qn_118",
+      "active_legacy_place_id": "night_qn_118",
+      "legacy_place_ids": [
+        "night_qn_118"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "5f0956e698adcd37d4ee319cb1a560b91d01b3d8cbad13238e9ae3db8d4c10ac"
+    },
+    {
+      "canonical_place_id": "night_qn_119",
+      "active_legacy_place_id": "night_qn_119",
+      "legacy_place_ids": [
+        "night_qn_119"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "eed0c2ec9afd620c401655a8dfce58f028107d93c0f73152eccba6d6c6faad6d"
+    },
+    {
+      "canonical_place_id": "night_qn_120",
+      "active_legacy_place_id": "night_qn_120",
+      "legacy_place_ids": [
+        "night_qn_120"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "7b18a522693c2b43bfa08402132cc5a8fe3cfb99ce00cfe4a4416c895437e6d7"
+    },
+    {
+      "canonical_place_id": "night_qn_121",
+      "active_legacy_place_id": "night_qn_121",
+      "legacy_place_ids": [
+        "night_qn_121"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "f07662b5f4e974bd571561932ebdbebef8e48a82fc6c62b8946ed960f9cbfc56"
+    },
+    {
+      "canonical_place_id": "night_qn_122",
+      "active_legacy_place_id": "night_qn_122",
+      "legacy_place_ids": [
+        "night_qn_122"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "d0809f0a387c3e7b321bd0208dc40aa9b924d80c5c623cc8d11868c9da92275f"
+    },
+    {
+      "canonical_place_id": "night_qn_123",
+      "active_legacy_place_id": "night_qn_123",
+      "legacy_place_ids": [
+        "night_qn_123"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "b0cca4ef6caf81319ace6a160dd11784251597dc2d4f12912a219e9403112fff"
+    },
+    {
+      "canonical_place_id": "night_qn_124",
+      "active_legacy_place_id": "night_qn_124",
+      "legacy_place_ids": [
+        "night_qn_124"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "nightlife",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "3b93b3f876ef053ea9023e99a2368fac2a1da9d71748925abd60b48fa347d72c"
     },
     {
       "canonical_place_id": "rest_dn_001",
@@ -7525,15 +8388,19 @@
       "canonical_place_id": "rest_dn_112",
       "active_legacy_place_id": "rest_dn_112",
       "legacy_place_ids": [
-        "rest_dn_112"
+        "rest_dn_112",
+        "night_dn_058"
       ],
       "city_id": "city_da_nang",
       "primary_type": "restaurant",
-      "secondary_types": [],
+      "secondary_types": [
+        "nightlife"
+      ],
       "tags": [
+        "late_night_restaurant",
         "popular"
       ],
-      "identity_hash": "229e555764f8d507566009126e75c51a23893de8d84712ba03c266d45d39fce7"
+      "identity_hash": "fe995932c7820bd098d0ee10191dd2b862cfbbd713554d21b12cc979cf76cac8"
     },
     {
       "canonical_place_id": "rest_dn_113",
@@ -7550,16 +8417,63 @@
       "identity_hash": "5f17af0629b359a2dc92a772a1f2490840a3521e150b4f795cb63c05bfddd6ef"
     },
     {
+      "canonical_place_id": "rest_dn_114",
+      "active_legacy_place_id": "rest_dn_114",
+      "legacy_place_ids": [
+        "rest_dn_114"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "5713798c13e2854ef356eed932e4363cac2849675776b1c1d65fe321aeefdbfd"
+    },
+    {
+      "canonical_place_id": "rest_dn_115",
+      "active_legacy_place_id": "rest_dn_115",
+      "legacy_place_ids": [
+        "rest_dn_115"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "3d7bac859988807e2bec0e40fcde8e71315c998e40793987db0b568619c32793"
+    },
+    {
+      "canonical_place_id": "rest_dn_116",
+      "active_legacy_place_id": "rest_dn_116",
+      "legacy_place_ids": [
+        "rest_dn_116"
+      ],
+      "city_id": "city_da_nang",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "176d8a4b2f5f11ff1f850a402aa622d616064a6b60f3b0e6dd3883ac76d0361a"
+    },
+    {
       "canonical_place_id": "rest_qn_001",
       "active_legacy_place_id": "rest_qn_001",
       "legacy_place_ids": [
-        "rest_qn_001"
+        "rest_qn_001",
+        "night_qn_088"
       ],
       "city_id": "city_quy_nhon",
       "primary_type": "restaurant",
-      "secondary_types": [],
-      "tags": [],
-      "identity_hash": "00f55d83ab85a9c0227899f177132aa0b31288febabf64158eade2cc658e307b"
+      "secondary_types": [
+        "nightlife"
+      ],
+      "tags": [
+        "late_night_restaurant"
+      ],
+      "identity_hash": "8a912b02a0e5c05be1d0662019ff9c5d58f6e4b94e0efbeb061ae94a5f04c04c"
     },
     {
       "canonical_place_id": "rest_qn_002",
@@ -8496,15 +9410,19 @@
       "canonical_place_id": "rest_qn_081",
       "active_legacy_place_id": "rest_qn_081",
       "legacy_place_ids": [
-        "rest_qn_081"
+        "rest_qn_081",
+        "night_qn_068"
       ],
       "city_id": "city_quy_nhon",
       "primary_type": "restaurant",
-      "secondary_types": [],
-      "tags": [
-        "added_2026_expansion"
+      "secondary_types": [
+        "nightlife"
       ],
-      "identity_hash": "2b433adf77dd3c2bc79668818b0462742335db22eb9c880a9608daf75330750a"
+      "tags": [
+        "added_2026_expansion",
+        "late_night_restaurant"
+      ],
+      "identity_hash": "5f5bed9b895b1e8488737fbbbe42b9561b2d8f45424320ea5b81c376db78c55f"
     },
     {
       "canonical_place_id": "rest_qn_082",
@@ -8672,29 +9590,37 @@
       "canonical_place_id": "rest_qn_093",
       "active_legacy_place_id": "rest_qn_093",
       "legacy_place_ids": [
-        "rest_qn_093"
+        "rest_qn_093",
+        "night_qn_060"
       ],
       "city_id": "city_quy_nhon",
       "primary_type": "restaurant",
-      "secondary_types": [],
-      "tags": [
-        "added_2026_expansion"
+      "secondary_types": [
+        "nightlife"
       ],
-      "identity_hash": "81f7115d3adae8774a9f41582843aa5ecf2d924a7d5dd8a3196e5bc02151aa92"
+      "tags": [
+        "added_2026_expansion",
+        "late_night_restaurant"
+      ],
+      "identity_hash": "438a6ec9840d119657bc897be04aef59359c73f2df486d4291f83cc005431f9a"
     },
     {
       "canonical_place_id": "rest_qn_094",
       "active_legacy_place_id": "rest_qn_094",
       "legacy_place_ids": [
-        "rest_qn_094"
+        "rest_qn_094",
+        "night_qn_051"
       ],
       "city_id": "city_quy_nhon",
       "primary_type": "restaurant",
-      "secondary_types": [],
-      "tags": [
-        "added_2026_expansion"
+      "secondary_types": [
+        "nightlife"
       ],
-      "identity_hash": "7eb5d6883a4c1a0404fccc82f813a194e0d8ce4139b69ce5c133e19d9cb7d67c"
+      "tags": [
+        "added_2026_expansion",
+        "late_night_restaurant"
+      ],
+      "identity_hash": "14d8b41920b4021660e29f4e2791c64a0fad1bf2433c662122a84743f081c89e"
     },
     {
       "canonical_place_id": "rest_qn_095",
@@ -8957,6 +9883,221 @@
         "added_2026_expansion"
       ],
       "identity_hash": "01182eaa1f871af7a65823b55fb503985ea8ae5bc71efab2298b3a4e9700b363"
+    },
+    {
+      "canonical_place_id": "rest_qn_112",
+      "active_legacy_place_id": "rest_qn_112",
+      "legacy_place_ids": [
+        "rest_qn_112"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "89c58081b9c49c87b0e3a4ef9684f77880ef620c2e4f2bb768bdf869fe1e8f22"
+    },
+    {
+      "canonical_place_id": "rest_qn_113",
+      "active_legacy_place_id": "rest_qn_113",
+      "legacy_place_ids": [
+        "rest_qn_113"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "2d799c38878a9843108fe6de95fbdc8a32154104700bb9d37af5435d9e3dd5a8"
+    },
+    {
+      "canonical_place_id": "rest_qn_114",
+      "active_legacy_place_id": "rest_qn_114",
+      "legacy_place_ids": [
+        "rest_qn_114"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "819c81e7d2be9bbe1bcc7d4ba9e98f5e1c725db1afd74891024fbc3eb75e779f"
+    },
+    {
+      "canonical_place_id": "rest_qn_115",
+      "active_legacy_place_id": "rest_qn_115",
+      "legacy_place_ids": [
+        "rest_qn_115"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "9135388bb3acc7a38f8678cf160b39568b4facb2e0fbcf2283025c8328a177db"
+    },
+    {
+      "canonical_place_id": "rest_qn_116",
+      "active_legacy_place_id": "rest_qn_116",
+      "legacy_place_ids": [
+        "rest_qn_116"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "77a073babd0ed426308682a19c3c456ce6fb71974147f9e7b9daaba9747c66e1"
+    },
+    {
+      "canonical_place_id": "rest_qn_117",
+      "active_legacy_place_id": "rest_qn_117",
+      "legacy_place_ids": [
+        "rest_qn_117"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "fe1611a7b52d2eb7cff9b966cb06a4e90eeae13e8f4d8853e0b80fcca727a458"
+    },
+    {
+      "canonical_place_id": "rest_qn_118",
+      "active_legacy_place_id": "rest_qn_118",
+      "legacy_place_ids": [
+        "rest_qn_118"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "5b9b9f8c424377a95414e55ab0573a08d3f6f20cdc4fb4bcad309cf28b701a24"
+    },
+    {
+      "canonical_place_id": "rest_qn_119",
+      "active_legacy_place_id": "rest_qn_119",
+      "legacy_place_ids": [
+        "rest_qn_119"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "dace042855603be358bd09f5fec1f0dab13711e7d2b6a4bbbf8875fdb094a4e0"
+    },
+    {
+      "canonical_place_id": "rest_qn_120",
+      "active_legacy_place_id": "rest_qn_120",
+      "legacy_place_ids": [
+        "rest_qn_120"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "907f9cf0166b68703c9646fb68c314cf82adcc33df7ec3f9305108c9d314d3d0"
+    },
+    {
+      "canonical_place_id": "rest_qn_121",
+      "active_legacy_place_id": "rest_qn_121",
+      "legacy_place_ids": [
+        "rest_qn_121"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "1a622ca46fc2de0650fd1bc96656d9e4c8d8c46fb6c152e68828795d72aaf4d5"
+    },
+    {
+      "canonical_place_id": "rest_qn_122",
+      "active_legacy_place_id": "rest_qn_122",
+      "legacy_place_ids": [
+        "rest_qn_122"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "4c01d2c1f555da5f608fdd43c6b6a801bd8b0d9eb53e4ded6f3ec8136079e34e"
+    },
+    {
+      "canonical_place_id": "rest_qn_123",
+      "active_legacy_place_id": "rest_qn_123",
+      "legacy_place_ids": [
+        "rest_qn_123"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "170523301fe1c8a9e50b88e65f41d4a032e477ac933ce55705ed6a54c1b4de8c"
+    },
+    {
+      "canonical_place_id": "rest_qn_124",
+      "active_legacy_place_id": "rest_qn_124",
+      "legacy_place_ids": [
+        "rest_qn_124"
+      ],
+      "city_id": "city_quy_nhon",
+      "primary_type": "restaurant",
+      "secondary_types": [],
+      "tags": [
+        "canonical_replacement"
+      ],
+      "identity_hash": "d536521f8a916ec0ad3fa35b815362ae9c02d7ad65ca1ed1060ec5b2584dcc2d"
+    }
+  ],
+  "quarantined_identities": [
+    {
+      "quarantine_id": "quarantine_2d481b9c06adab20ef65",
+      "identity": {
+        "canonical_place_id": "cafe_dn_017",
+        "active_legacy_place_id": "cafe_dn_017",
+        "legacy_place_ids": [
+          "cafe_dn_017",
+          "night_dn_037"
+        ],
+        "city_id": "city_da_nang",
+        "primary_type": "cafe",
+        "secondary_types": [
+          "nightlife"
+        ],
+        "tags": [
+          "instagrammable",
+          "late_night_cafe"
+        ],
+        "identity_hash": "bc1aecf140e54fbe1fd61466d6046ac70ca1e29bcc9b5a7d99dd458c9f7fc6b2"
+      },
+      "source_manifest_id": "canonical_identity_a4c389fee0953db944d6",
+      "source_manifest_hash": "a4c389fee0953db944d693646ad47f41a72abbf837ec50b166a2288d90beb90f",
+      "invalidation_approval_id": "canonical-invalidation-d48f999781f163b4d6c6",
+      "invalidation_approval_hash": "d48f999781f163b4d6c6e6143b95f15dcd2b0652a51e4e95714d8f2b1971ceba",
+      "reason": "entity_type_ineligible",
+      "reviewer": "Oanhh",
+      "invalidated_at": "2026-08-22T11:09:25.573822Z",
+      "evidence_hashes": [
+        "a04e6fbb994756e12f3c102d9caae74a6414cbd8eaf38d7198228f01834f7298"
+      ]
     }
   ],
   "retired_place_ids": [
@@ -9017,6 +10158,14 @@
       "reason": "human_review_batch_same_google_identity_evidence"
     },
     {
+      "retirement_id": "retirement_c725d22dd286dbe6bb0d",
+      "retired_place_id": "night_dn_037",
+      "canonical_place_id": "cafe_dn_017",
+      "city_id": "city_da_nang",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
+    },
+    {
       "retirement_id": "retirement_95274083e177ba8b4563",
       "retired_place_id": "night_dn_043",
       "canonical_place_id": "cafe_dn_050",
@@ -9031,6 +10180,14 @@
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
       "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "retirement_id": "retirement_77fd096870afec873bb5",
+      "retired_place_id": "night_dn_050",
+      "canonical_place_id": "cafe_dn_026",
+      "city_id": "city_da_nang",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_crawled_name_address_phone_category_and_coordinates"
     },
     {
       "retirement_id": "retirement_1cd3b2c85dade999eea2",
@@ -9055,6 +10212,14 @@
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
       "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "retirement_id": "retirement_7b7e44248e1be05eb65f",
+      "retired_place_id": "night_dn_058",
+      "canonical_place_id": "rest_dn_112",
+      "city_id": "city_da_nang",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
     },
     {
       "retirement_id": "retirement_8ad31245cbe73a4db7bd",
@@ -9273,6 +10438,14 @@
       "reason": "human_review_batch_same_google_identity_evidence"
     },
     {
+      "retirement_id": "retirement_cda0c0003128391f709d",
+      "retired_place_id": "night_qn_039",
+      "canonical_place_id": "cafe_qn_005",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_master_name_address_and_23m_distance"
+    },
+    {
       "retirement_id": "retirement_18f9fb18c633a2cc304f",
       "retired_place_id": "night_qn_044",
       "canonical_place_id": "cafe_qn_018",
@@ -9311,6 +10484,14 @@
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
       "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "retirement_id": "retirement_dc7f0fc61d60a21a595e",
+      "retired_place_id": "night_qn_051",
+      "canonical_place_id": "rest_qn_094",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
     },
     {
       "retirement_id": "retirement_19212e16e5c3437d7667",
@@ -9361,6 +10542,14 @@
       "reason": "human_review_batch_same_google_identity_evidence"
     },
     {
+      "retirement_id": "retirement_f6a4439522b6c95a4de5",
+      "retired_place_id": "night_qn_060",
+      "canonical_place_id": "rest_qn_093",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
+    },
+    {
       "retirement_id": "retirement_ab054dee72695526cbf3",
       "retired_place_id": "night_qn_061",
       "canonical_place_id": "rest_qn_083",
@@ -9399,6 +10588,14 @@
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
       "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "retirement_id": "retirement_650ad59044442ad1f3f3",
+      "retired_place_id": "night_qn_068",
+      "canonical_place_id": "rest_qn_081",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
     },
     {
       "retirement_id": "retirement_1e02cb0cc8773d032881",
@@ -9463,6 +10660,14 @@
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
       "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "retirement_id": "retirement_36ecfad77a31093096ef",
+      "retired_place_id": "night_qn_088",
+      "canonical_place_id": "rest_qn_001",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "reason": "human_review_same_crawled_name_address_phone_category_and_coordinates"
     },
     {
       "retirement_id": "retirement_3b234bbea28942cc6403",
@@ -9559,6 +10764,7 @@
       "retired_place_id": "attr_dn_040",
       "city_id": "city_da_nang",
       "entity_type": "attraction",
+      "source_subtype": null,
       "status": "filled",
       "replacement_place_id": "attr_dn_068"
     },
@@ -9567,6 +10773,7 @@
       "retired_place_id": "attr_dn_051",
       "city_id": "city_da_nang",
       "entity_type": "attraction",
+      "source_subtype": null,
       "status": "filled",
       "replacement_place_id": "attr_dn_069"
     },
@@ -9575,6 +10782,7 @@
       "retired_place_id": "attr_dn_053",
       "city_id": "city_da_nang",
       "entity_type": "attraction",
+      "source_subtype": null,
       "status": "filled",
       "replacement_place_id": "attr_dn_070"
     },
@@ -9583,30 +10791,52 @@
       "retired_place_id": "attr_dn_037",
       "city_id": "city_da_nang",
       "entity_type": "attraction",
+      "source_subtype": null,
       "status": "filled",
       "replacement_place_id": "attr_dn_071"
+    },
+    {
+      "vacancy_id": "vacancy_abd24d9849c0dea16612",
+      "retired_place_id": "cafe_dn_017",
+      "city_id": "city_da_nang",
+      "entity_type": "cafe",
+      "source_subtype": null,
+      "status": "filled",
+      "replacement_place_id": "cafe_dn_076"
     },
     {
       "vacancy_id": "vacancy_b49ddb186b15b69809c9",
       "retired_place_id": "cafe_dn_044",
       "city_id": "city_da_nang",
       "entity_type": "cafe",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": null,
+      "status": "filled",
+      "replacement_place_id": "cafe_dn_072"
     },
     {
       "vacancy_id": "vacancy_16c79b55e96238179c9b",
       "retired_place_id": "night_dn_063",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_105"
+    },
+    {
+      "vacancy_id": "vacancy_207aed6c647492d7e8a0",
+      "retired_place_id": "night_dn_037",
+      "city_id": "city_da_nang",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "cafe_dn_075"
     },
     {
       "vacancy_id": "vacancy_24166cdadf3f57bc4f88",
       "retired_place_id": "night_dn_086",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
       "status": "filled",
       "replacement_place_id": "night_dn_104"
     },
@@ -9615,246 +10845,304 @@
       "retired_place_id": "night_dn_074",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_106"
     },
     {
       "vacancy_id": "vacancy_3230c358ab4f5192221a",
       "retired_place_id": "night_dn_065",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_107"
     },
     {
       "vacancy_id": "vacancy_3d2aef52a4b016cc2c13",
       "retired_place_id": "night_dn_057",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_108"
     },
     {
       "vacancy_id": "vacancy_3efaf717738bcbd7db07",
       "retired_place_id": "night_dn_066",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_109"
     },
     {
       "vacancy_id": "vacancy_58a384f5abdbaa17faca",
       "retired_place_id": "night_dn_069",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_110"
+    },
+    {
+      "vacancy_id": "vacancy_60a4768cb6f917ed5af1",
+      "retired_place_id": "night_dn_050",
+      "city_id": "city_da_nang",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "cafe_dn_074"
     },
     {
       "vacancy_id": "vacancy_648e51e19a17631f9bb0",
       "retired_place_id": "night_dn_053",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_dn_111"
     },
     {
       "vacancy_id": "vacancy_6538c9b5fa20a3e98035",
       "retired_place_id": "night_dn_060",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_112"
     },
     {
       "vacancy_id": "vacancy_6c4e3bb1a3901a4f9ad4",
       "retired_place_id": "night_dn_059",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_113"
     },
     {
       "vacancy_id": "vacancy_7105e9f580f55d2643a6",
       "retired_place_id": "night_dn_091",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_114"
     },
     {
       "vacancy_id": "vacancy_72ac680c6a1249464041",
       "retired_place_id": "night_dn_047",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_dn_115"
     },
     {
       "vacancy_id": "vacancy_78f838c0e42210076061",
       "retired_place_id": "night_dn_094",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_116"
     },
     {
       "vacancy_id": "vacancy_85264e84c9bf118b34a2",
       "retired_place_id": "night_dn_096",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_117"
     },
     {
       "vacancy_id": "vacancy_957dc19ae51aecd0a2ef",
       "retired_place_id": "night_dn_077",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_118"
     },
     {
       "vacancy_id": "vacancy_abde36f9bc98b6540c1c",
       "retired_place_id": "night_dn_051",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_dn_119"
     },
     {
       "vacancy_id": "vacancy_acc3f9001e6b6c61b9e1",
       "retired_place_id": "night_dn_035",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_dn_120"
     },
     {
       "vacancy_id": "vacancy_ba01e027726625e6cd37",
       "retired_place_id": "night_dn_075",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_121"
     },
     {
       "vacancy_id": "vacancy_c5e4865cc12dbc018b08",
       "retired_place_id": "night_dn_088",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_122"
+    },
+    {
+      "vacancy_id": "vacancy_d46a6d2d04d8a733f295",
+      "retired_place_id": "night_dn_058",
+      "city_id": "city_da_nang",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_dn_116"
     },
     {
       "vacancy_id": "vacancy_de75abab02a1b8a486b6",
       "retired_place_id": "night_dn_097",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_123"
     },
     {
       "vacancy_id": "vacancy_e24d7bd7e7a107602169",
       "retired_place_id": "night_dn_043",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_dn_124"
     },
     {
       "vacancy_id": "vacancy_e4716b6c61d7792470e1",
       "retired_place_id": "night_dn_087",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_125"
     },
     {
       "vacancy_id": "vacancy_e853c4c3176452515ab8",
       "retired_place_id": "night_dn_082",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_dn_126"
     },
     {
       "vacancy_id": "vacancy_ef1865a6b3ce0c9bc086",
       "retired_place_id": "night_dn_033",
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_dn_127"
     },
     {
       "vacancy_id": "vacancy_b7b5d1ab1077db57e23f",
       "retired_place_id": "rest_dn_090",
       "city_id": "city_da_nang",
       "entity_type": "restaurant",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": null,
+      "status": "filled",
+      "replacement_place_id": "rest_dn_115"
     },
     {
       "vacancy_id": "vacancy_fc7d3e796f6459ab9c2a",
       "retired_place_id": "rest_dn_054",
       "city_id": "city_da_nang",
       "entity_type": "restaurant",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": null,
+      "status": "filled",
+      "replacement_place_id": "rest_dn_114"
     },
     {
       "vacancy_id": "vacancy_015239923f7ba8f1e7e1",
       "retired_place_id": "night_qn_045",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_qn_105"
+    },
+    {
+      "vacancy_id": "vacancy_0d13ba12971861847866",
+      "retired_place_id": "night_qn_068",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_121"
     },
     {
       "vacancy_id": "vacancy_0d3c204c5673c301aa1b",
       "retired_place_id": "night_qn_044",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_qn_106"
     },
     {
       "vacancy_id": "vacancy_0f330751951f04d9f08a",
       "retired_place_id": "night_qn_021",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_qn_107"
     },
     {
       "vacancy_id": "vacancy_0fe9089a83e737eb87fc",
       "retired_place_id": "night_qn_069",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_108"
     },
     {
       "vacancy_id": "vacancy_172df284d7e1f1f997db",
       "retired_place_id": "night_qn_095",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_109"
     },
     {
       "vacancy_id": "vacancy_195db3d5f9e0f9ee6d2e",
       "retired_place_id": "night_qn_049",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_110"
     },
     {
       "vacancy_id": "vacancy_1aaef910658182a0fe07",
       "retired_place_id": "night_qn_019",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
+      "source_subtype": "late_night_cafe",
       "status": "filled",
       "replacement_place_id": "night_qn_100"
     },
@@ -9863,14 +11151,16 @@
       "retired_place_id": "night_qn_032",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_qn_111"
     },
     {
       "vacancy_id": "vacancy_261621eb780afddee107",
       "retired_place_id": "night_qn_097",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
       "status": "filled",
       "replacement_place_id": "night_qn_101"
     },
@@ -9879,30 +11169,43 @@
       "retired_place_id": "night_qn_029",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_qn_112"
     },
     {
       "vacancy_id": "vacancy_384afe9888ad3dda6ce5",
       "retired_place_id": "night_qn_092",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_113"
+    },
+    {
+      "vacancy_id": "vacancy_4101bbf7c6afbb69ea60",
+      "retired_place_id": "night_qn_088",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_122"
     },
     {
       "vacancy_id": "vacancy_4987a8ed2baafe0d9941",
       "retired_place_id": "night_qn_099",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_114"
     },
     {
       "vacancy_id": "vacancy_4d48b133ba97b71c1a8c",
       "retired_place_id": "night_qn_034",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
+      "source_subtype": "late_night_cafe",
       "status": "filled",
       "replacement_place_id": "night_qn_102"
     },
@@ -9911,54 +11214,61 @@
       "retired_place_id": "night_qn_061",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_115"
     },
     {
       "vacancy_id": "vacancy_5bb808ffff8bbfdec69a",
       "retired_place_id": "night_qn_070",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_116"
     },
     {
       "vacancy_id": "vacancy_61123d39166cec7a5572",
       "retired_place_id": "night_qn_046",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_qn_117"
     },
     {
       "vacancy_id": "vacancy_634e9f49ae282b347ca3",
       "retired_place_id": "night_qn_094",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_118"
     },
     {
       "vacancy_id": "vacancy_64c067354804b981e5da",
       "retired_place_id": "night_qn_055",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_119"
     },
     {
       "vacancy_id": "vacancy_6732b447f21a2f0c419c",
       "retired_place_id": "night_qn_037",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "night_qn_120"
     },
     {
       "vacancy_id": "vacancy_71918a92525f6ec48217",
       "retired_place_id": "night_qn_064",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
       "status": "filled",
       "replacement_place_id": "night_qn_103"
     },
@@ -9967,184 +11277,234 @@
       "retired_place_id": "night_qn_082",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_121"
     },
     {
       "vacancy_id": "vacancy_7a0d67a7d90b75798adb",
       "retired_place_id": "night_qn_090",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_122"
+    },
+    {
+      "vacancy_id": "vacancy_7f3543442424b5e8782a",
+      "retired_place_id": "night_qn_051",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_123"
     },
     {
       "vacancy_id": "vacancy_801ad8dbf53492b7c378",
       "retired_place_id": "night_qn_098",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_123"
     },
     {
       "vacancy_id": "vacancy_82ce9a29b55609640891",
       "retired_place_id": "night_qn_063",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "night_qn_124"
     },
     {
       "vacancy_id": "vacancy_8368426924813cd21bd7",
       "retired_place_id": "night_qn_058",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_037"
     },
     {
       "vacancy_id": "vacancy_88b1a720275473b1c266",
       "retired_place_id": "night_qn_052",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_038"
     },
     {
       "vacancy_id": "vacancy_8e56214ebe4ada8357db",
       "retired_place_id": "night_qn_066",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_112"
     },
     {
       "vacancy_id": "vacancy_9f5c4fb80d1fca1ff668",
       "retired_place_id": "night_qn_062",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_113"
     },
     {
       "vacancy_id": "vacancy_a2463b2e96347b59cd11",
       "retired_place_id": "night_qn_056",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_039"
     },
     {
       "vacancy_id": "vacancy_a47610ffb40a20a98847",
       "retired_place_id": "night_qn_050",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_040"
     },
     {
       "vacancy_id": "vacancy_a931d8b0b34d6b505586",
       "retired_place_id": "night_qn_023",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_041"
     },
     {
       "vacancy_id": "vacancy_ab64451cbdba5a97475e",
       "retired_place_id": "night_qn_038",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_042"
     },
     {
       "vacancy_id": "vacancy_ae8b98f227c71065a7fd",
       "retired_place_id": "night_qn_091",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_114"
     },
     {
       "vacancy_id": "vacancy_b990d7c9c1eb51df077e",
       "retired_place_id": "night_qn_028",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_043"
     },
     {
       "vacancy_id": "vacancy_bfeaae6e55ffd3ecc969",
       "retired_place_id": "night_qn_059",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_115"
     },
     {
       "vacancy_id": "vacancy_c7767bbaf88478cb1629",
       "retired_place_id": "night_qn_076",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_116"
     },
     {
       "vacancy_id": "vacancy_c91d3a7f0699d790a330",
       "retired_place_id": "night_qn_036",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_044"
     },
     {
       "vacancy_id": "vacancy_d78a907620f369c7f40a",
       "retired_place_id": "night_qn_085",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_117"
     },
     {
       "vacancy_id": "vacancy_dc1ddabd4f56d212e44f",
       "retired_place_id": "night_qn_096",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_118"
+    },
+    {
+      "vacancy_id": "vacancy_ddfa23f9387726ef8fda",
+      "retired_place_id": "night_qn_060",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_124"
     },
     {
       "vacancy_id": "vacancy_e65ac6112c03a7a69784",
       "retired_place_id": "night_qn_072",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
+      "source_subtype": "late_night_dining",
       "status": "filled",
       "replacement_place_id": "night_qn_104"
+    },
+    {
+      "vacancy_id": "vacancy_e939eef68e8fceb41a6d",
+      "retired_place_id": "night_qn_039",
+      "city_id": "city_quy_nhon",
+      "entity_type": "nightlife",
+      "source_subtype": "late_night_cafe",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_046"
     },
     {
       "vacancy_id": "vacancy_f574b516d283b4feaeea",
       "retired_place_id": "night_qn_053",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "cafe_qn_045"
     },
     {
       "vacancy_id": "vacancy_f68243e15eb90af09dc4",
       "retired_place_id": "night_qn_071",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_119"
     },
     {
       "vacancy_id": "vacancy_fe55edc0c18efe880320",
       "retired_place_id": "night_qn_074",
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "status": "vacant",
-      "replacement_place_id": null
+      "source_subtype": "late_night_dining",
+      "status": "filled",
+      "replacement_place_id": "rest_qn_120"
     }
   ],
   "quotas": [
@@ -10158,9 +11518,9 @@
     {
       "city_id": "city_da_nang",
       "entity_type": "cafe",
-      "target_count": 71,
-      "active_count": 70,
-      "vacancy_count": 1
+      "target_count": 73,
+      "active_count": 73,
+      "vacancy_count": 0
     },
     {
       "city_id": "city_da_nang",
@@ -10172,16 +11532,16 @@
     {
       "city_id": "city_da_nang",
       "entity_type": "nightlife",
-      "target_count": 99,
-      "active_count": 76,
-      "vacancy_count": 23
+      "target_count": 96,
+      "active_count": 96,
+      "vacancy_count": 0
     },
     {
       "city_id": "city_da_nang",
       "entity_type": "restaurant",
-      "target_count": 106,
-      "active_count": 104,
-      "vacancy_count": 2
+      "target_count": 107,
+      "active_count": 107,
+      "vacancy_count": 0
     },
     {
       "city_id": "city_quy_nhon",
@@ -10193,8 +11553,8 @@
     {
       "city_id": "city_quy_nhon",
       "entity_type": "cafe",
-      "target_count": 35,
-      "active_count": 35,
+      "target_count": 45,
+      "active_count": 45,
       "vacancy_count": 0
     },
     {
@@ -10207,15 +11567,15 @@
     {
       "city_id": "city_quy_nhon",
       "entity_type": "nightlife",
-      "target_count": 96,
-      "active_count": 58,
-      "vacancy_count": 38
+      "target_count": 73,
+      "active_count": 73,
+      "vacancy_count": 0
     },
     {
       "city_id": "city_quy_nhon",
       "entity_type": "restaurant",
-      "target_count": 94,
-      "active_count": 94,
+      "target_count": 107,
+      "active_count": 107,
       "vacancy_count": 0
     }
   ]

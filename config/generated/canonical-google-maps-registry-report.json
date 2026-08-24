@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-08-24T08:46:31.431471Z",
+  "total_records": 619,
+  "mapping_count": 619,
+  "entity_counts": {
+    "attraction": 118,
+    "cafe": 118,
+    "nightlife": 169,
+    "restaurant": 214
+  },
+  "city_counts": {
+    "Quy Nhơn": 276,
+    "Đà Nẵng": 343
+  },
+  "overrides_applied": 0,
+  "reused_mapping_count": 0,
+  "duplicate_identity_candidates": [
+    [
+      "cafe_dn_023",
+      "night_dn_056"
+    ],
+    [
+      "cafe_dn_024",
+      "night_dn_022"
+    ],
+    [
+      "cafe_dn_032",
+      "night_dn_024"
+    ],
+    [
+      "cafe_dn_034",
+      "night_dn_044"
+    ],
+    [
+      "cafe_dn_066",
+      "night_dn_027"
+    ],
+    [
+      "night_dn_068",
+      "rest_dn_062"
+    ],
+    [
+      "night_dn_070",
+      "rest_dn_061"
+    ],
+    [
+      "night_dn_072",
+      "rest_dn_086"
+    ],
+    [
+      "night_dn_079",
+      "rest_dn_075"
+    ],
+    [
+      "night_dn_092",
+      "rest_dn_094"
+    ],
+    [
+      "night_qn_057",
+      "rest_qn_044"
+    ],
+    [
+      "night_qn_065",
+      "rest_qn_055"
+    ],
+    [
+      "night_qn_077",
+      "rest_qn_026"
+    ],
+    [
+      "night_qn_080",
+      "rest_qn_038"
+    ],
+    [
+      "night_qn_086",
+      "rest_qn_059"
+    ]
+  ]
+}
