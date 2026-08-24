@@ -1538,24 +1538,22 @@ def _remove_active_projections(
 def _remove_tree(path: Path) -> None:
     """Remove an exact current-data directory, including OneDrive read-only nodes."""
 
-    def make_writable_and_retry(function: Any, value: str, _: object) -> None:
-        os.chmod(value, stat.S_IWRITE)
-        function(value)
+    def make_writable(value: Path) -> None:
+        try:
+            # Replacing the complete mode with S_IWRITE removes directory search
+            # bits on POSIX. Preserve the existing mode and only add owner write.
+            value.chmod(value.stat().st_mode | stat.S_IWRITE)
+        except OSError:
+            pass
 
     # OneDrive commonly marks hydrated directories as read-only reparse points.
     # Clear that attribute only inside the already validated exact target tree.
     for item in sorted(
         path.rglob("*"), key=lambda value: len(value.parts), reverse=True
     ):
-        try:
-            item.chmod(stat.S_IWRITE)
-        except OSError:
-            pass
-    try:
-        path.chmod(stat.S_IWRITE)
-    except OSError:
-        pass
-    shutil.rmtree(path, onerror=make_writable_and_retry)
+        make_writable(item)
+    make_writable(path)
+    shutil.rmtree(path)
 
 
 def _remove_traffic_cache_entries(path: Path, target_ids: set[str]) -> int:

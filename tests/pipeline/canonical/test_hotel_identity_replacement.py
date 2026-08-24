@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -555,6 +556,30 @@ def test_same_id_replacement_is_validated_applied_and_idempotent(
     )
     assert retried.audit_path == applied.audit_path
     assert master_path.read_bytes() == master_after_first_apply
+
+
+def test_remove_tree_preserves_directory_search_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "current" / "hotel_price" / "hotel=hotel_dn_001"
+    nested = target / "context"
+    nested.mkdir(parents=True)
+    (nested / "observation.json").write_text("{}\n", encoding="utf-8")
+    original_rmtree = replacement_module.shutil.rmtree
+
+    def assert_searchable_then_remove(path: Path) -> None:
+        assert path.stat().st_mode & stat.S_IXUSR
+        original_rmtree(path)
+
+    monkeypatch.setattr(
+        replacement_module.shutil,
+        "rmtree",
+        assert_searchable_then_remove,
+    )
+
+    replacement_module._remove_tree(target)
+
+    assert not target.exists()
 
 
 def test_completed_retry_rejects_master_drift(tmp_path: Path) -> None:
