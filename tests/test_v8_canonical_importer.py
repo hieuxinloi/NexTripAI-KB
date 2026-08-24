@@ -273,7 +273,29 @@ def test_prepare_is_deterministic_and_never_assumes_692_places(
     }
     assert first.documents[0]["properties"]["content_hash"]
     assert first.text_units[0]["properties"]["content_hash"]
-    assert "fact:opening_hours=08:00-22:00" in first.text_units[0]["properties"]["text"]
+    text = first.text_units[0]["properties"]["text"]
+    assert text.splitlines()[:7] == [
+        "Tên: First Cafe",
+        "Loại: cafe",
+        "Thành phố: Da Nang",
+        "Địa chỉ: 1 Bach Dang, Da Nang",
+        "Danh mục: Coffee shop",
+        "Tọa độ: 16.0544, 108.2022",
+        "Mô tả: Verified description for First Cafe",
+    ]
+    assert all(
+        marker not in text
+        for marker in (
+            "TÃªn:",
+            "Loáº¡i:",
+            "ThÃ nh phá»‘:",
+            "Äá»‹a chá»‰:",
+            "Danh má»¥c:",
+            "Tá»a Ä‘á»™:",
+            "MÃ´ táº£:",
+        )
+    )
+    assert "fact:opening_hours=08:00-22:00" in text
     assert {item["properties"]["predicate"] for item in first.facts} >= {
         "address",
         "opening_hours",

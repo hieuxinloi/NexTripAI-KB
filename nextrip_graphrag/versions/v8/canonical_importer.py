@@ -1035,14 +1035,14 @@ def _record_source(record: CanonicalActivePlaceRecord) -> tuple[str | None, str]
 def _place_evidence_text(record: CanonicalActivePlaceRecord) -> str:
     category = _record_category(record)
     lines = [
-        f"TÃªn: {record.name}",
-        f"Loáº¡i: {record.primary_type.value}",
-        f"ThÃ nh phá»‘: {record.city}",
-        f"Äá»‹a chá»‰: {record.address}" if record.address else None,
-        f"Danh má»¥c: {category}" if category else None,
-        (f"Tá»a Ä‘á»™: {record.coordinates.lat}, {record.coordinates.lng}"),
+        f"Tên: {record.name}",
+        f"Loại: {record.primary_type.value}",
+        f"Thành phố: {record.city}",
+        f"Địa chỉ: {record.address}" if record.address else None,
+        f"Danh mục: {category}" if category else None,
+        (f"Tọa độ: {record.coordinates.lat}, {record.coordinates.lng}"),
         (
-            f"MÃ´ táº£: {record.data.get('description')}"
+            f"Mô tả: {record.data.get('description')}"
             if _string_or_none(record.data.get("description"))
             else None
         ),
