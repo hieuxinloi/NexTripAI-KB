@@ -208,7 +208,18 @@ def test_plan_reads_current_artifacts_and_builds_deterministic_ids(
     price = next(
         row for row in first.observations if row.kind is V8ObservationKind.HOTEL_PRICE
     )
+    opening = next(
+        row
+        for row in first.observations
+        if row.kind is V8ObservationKind.OPENING_STATUS
+    )
     assert availability.referenced_observation_ids == [price.graph_id]
+    assert datetime.fromisoformat(
+        str(opening.properties["observed_at"]).replace("Z", "+00:00")
+    ) == NOW
+    assert datetime.fromisoformat(
+        str(opening.properties["stale_after"]).replace("Z", "+00:00")
+    ) == NOW + timedelta(days=1)
     assert {item.family for item in first.input_artifacts} == {
         "hotel_price",
         "hotel_availability",
@@ -538,6 +549,9 @@ def _dataset(root: Path) -> CanonicalActiveDataset:
                 data={
                     "business_status": BusinessStatus.ACTIVE.value,
                     "verification_status": VerificationStatus.AUTO_VERIFIED.value,
+                    # A place-level verification timestamp can be older than its
+                    # independently refreshed daily opening observation.
+                    "last_verified": (NOW - timedelta(days=30)).isoformat(),
                     "opening_status": opening.model_dump(mode="json"),
                     "google_maps_refresh": {
                         "source_id": "google-maps-web",

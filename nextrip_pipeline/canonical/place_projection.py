@@ -156,8 +156,8 @@ def project_canonical_place(
         ),
         updated_at=observed_at or _EPOCH,
         stale_after=(
-            observed_at + timedelta(days=1)
-            if opening is not None and google_refresh is not None and observed_at
+            opening.observed_at + timedelta(days=1)
+            if opening is not None and google_refresh is not None
             else None
         ),
     )
@@ -165,16 +165,23 @@ def project_canonical_place(
 
 def _record_timestamp(data: Mapping[str, Any]) -> datetime | None:
     source = data.get("source")
+    google_refresh = data.get("google_maps_refresh")
     candidates = (
-        data.get("last_verified"),
         data.get("last_updated"),
+        (
+            google_refresh.get("observed_at")
+            if isinstance(google_refresh, Mapping)
+            else None
+        ),
+        data.get("last_verified"),
         source.get("crawled_at") if isinstance(source, Mapping) else None,
     )
-    for candidate in candidates:
-        parsed = _parse_datetime(candidate)
-        if parsed is not None:
-            return parsed
-    return None
+    parsed = [
+        timestamp
+        for candidate in candidates
+        if (timestamp := _parse_datetime(candidate)) is not None
+    ]
+    return max(parsed, default=None)
 
 
 def _parse_datetime(value: object) -> datetime | None:

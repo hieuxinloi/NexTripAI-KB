@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -23,7 +23,13 @@ from nextrip_pipeline.canonical.place_projection import (
     project_canonical_dataset_places,
 )
 from nextrip_pipeline.canonical.resolver import build_canonical_identity_manifest
-from nextrip_pipeline.schemas import EntityType
+from nextrip_pipeline.schemas import (
+    DailyOpeningStatus,
+    EntityType,
+    OpeningStatusObservation,
+    VerificationStatus,
+)
+from tests.canonical_dataset_support import CanonicalTestPlace, write_canonical_dataset
 from nextrip_traffic.access_points import AccessPointRegistry
 from nextrip_traffic.config import TrafficSettings
 from nextrip_traffic.runtime import build_traffic_service
@@ -107,6 +113,60 @@ def test_projection_preserves_canonical_place_fields(tmp_path: Path) -> None:
     assert place.price_level == 2
     assert place.provenance.source_id == CANONICAL_PLACE_SOURCE_ID
     assert place.provenance.run_id == dataset.dataset_id
+
+
+def test_daily_opening_ttl_uses_opening_observed_at_not_stale_last_verified(
+    tmp_path: Path,
+) -> None:
+    opening_observed_at = NOW
+    stale_last_verified = NOW - timedelta(days=30)
+    source_record_id = "raw-google-maps-opening-1"
+    opening = OpeningStatusObservation(
+        observation_id="opening-cafe-test-001",
+        run_id="google-maps-run-1",
+        place_id="cafe_test_001",
+        source_record_ids=[source_record_id],
+        local_date=opening_observed_at.date(),
+        status=DailyOpeningStatus.OPEN_TODAY,
+        open_now=True,
+        observed_at=opening_observed_at,
+        verification_status=VerificationStatus.AUTO_VERIFIED,
+    )
+    dataset_path = write_canonical_dataset(
+        tmp_path / "canonical",
+        [
+            CanonicalTestPlace(
+                place_id="cafe_test_001",
+                name="Canonical One",
+                latitude=16.0,
+                longitude=108.0,
+                data={
+                    "last_verified": stale_last_verified.isoformat(),
+                    "last_updated": opening_observed_at.isoformat(),
+                    "opening_status": opening.model_dump(mode="json"),
+                    "google_maps_refresh": {
+                        "source_id": "google-maps-web",
+                        "source_record_id": source_record_id,
+                        "observation_id": "google-maps-place-1",
+                        "decision_id": "google-maps-decision-1",
+                        "run_id": "google-maps-run-1",
+                        "observed_at": opening_observed_at.isoformat(),
+                    },
+                },
+            )
+        ],
+        generated_at=NOW,
+    )
+    dataset = read_canonical_active_dataset(dataset_path)
+
+    place = project_canonical_dataset_places(dataset)["cafe_test_001"]
+
+    assert place.opening is not None
+    assert place.opening.observed_at == opening_observed_at
+    assert place.stale_after == opening_observed_at + timedelta(days=1)
+    assert place.stale_after >= place.opening.observed_at
+    assert place.updated_at == opening_observed_at
+    assert place.provenance.observed_at == opening_observed_at
 
 
 def test_current_data_reads_places_only_from_canonical_dataset(
