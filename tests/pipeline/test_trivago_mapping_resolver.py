@@ -27,14 +27,21 @@ def _entry() -> TrivagoHotelRegistryEntry:
     )
 
 
-def _record(accommodations: object = None) -> SourceRecord:
+def _record(
+    accommodations: object = None,
+    *,
+    review_target_hash: str | None = None,
+) -> SourceRecord:
     structured = (
         {"accommodations": accommodations}
         if accommodations is not None
         else {"content": "No structured accommodation identity"}
     )
+    request = {"entity_id": "hotel-dn-1", "arguments": {}}
+    if review_target_hash is not None:
+        request["review_target_hash"] = review_target_hash
     payload = {
-        "request": {"entity_id": "hotel-dn-1", "arguments": {}},
+        "request": request,
         "response": {"result": {"structuredContent": structured}},
     }
     return SourceRecord(
@@ -344,7 +351,7 @@ def test_resolver_treats_structured_no_accommodations_error_as_missing() -> None
     assert resolution.reason_codes == ["accommodations_missing_from_response"]
 
 
-def test_resolver_never_silently_replaces_a_confirmed_external_id() -> None:
+def test_resolver_never_treats_ranked_candidates_as_an_external_id_change() -> None:
     confirmed = TrivagoHotelRegistryEntry.model_validate(
         {
             **_entry().model_dump(mode="python"),
@@ -370,13 +377,152 @@ def test_resolver_never_silently_replaces_a_confirmed_external_id() -> None:
         ),
     )
 
-    assert resolution.status is TrivagoDiscoveryStatus.REVIEW
-    assert "external_id_change_requires_review" in resolution.reason_codes
+    assert resolution.status is TrivagoDiscoveryStatus.MISSING
+    assert resolution.reason_codes == [
+        "confirmed_external_id_not_returned",
+        "returned_candidates_do_not_prove_identity_change",
+    ]
     resolved = apply_trivago_resolution(confirmed, resolution)
     assert resolved.external_id == "verified-id"
     assert resolved.entity_id == confirmed.entity_id
-    assert resolution.selected_name == "NexTrip Riverside Hotel"
+    assert resolution.selected_external_id is None
+    assert resolution.selected_name is None
     assert resolved.trivago_name == "Verified Trivago Name"
+
+
+def test_resolver_requires_review_for_same_property_with_a_new_external_id() -> None:
+    confirmed = TrivagoHotelRegistryEntry.model_validate(
+        {
+            **_entry().model_dump(mode="python"),
+            "status": TrivagoRegistryStatus.CONFIRMED,
+            "external_id": "verified-id",
+            "external_url": ("https://www.trivago.vn/vi/lm/verified?search=100-123456"),
+            "trivago_name": "Verified Trivago Name",
+            "confidence": 1,
+            "matched_at": NOW,
+            "verified_at": NOW,
+        }
+    )
+    resolution = TrivagoDiscoveryResolver(clock=lambda: NOW).resolve(
+        confirmed,
+        _record(
+            [
+                {
+                    "accommodation_id": "new-external-id",
+                    "accommodation_name": "Verified Trivago Name",
+                    "city": "Đà Nẵng",
+                    "accommodation_url": (
+                        "https://www.trivago.vn/vi/lm/verified"
+                        "?search=100-123456;dr-20260824-20260825"
+                    ),
+                }
+            ]
+        ),
+    )
+
+    assert resolution.status is TrivagoDiscoveryStatus.REVIEW
+    assert resolution.selected_external_id == "new-external-id"
+    assert "stable_property_id_supports_external_id_change" in (resolution.reason_codes)
+    assert "external_id_change_requires_review" in resolution.reason_codes
+    resolved = apply_trivago_resolution(confirmed, resolution)
+    assert resolved.external_id == "verified-id"
+
+
+def _review_target_entry() -> TrivagoHotelRegistryEntry:
+    return TrivagoHotelRegistryEntry(
+        entity_id="hotel-dn-1",
+        master_name="Legacy Daisy Property",
+        city="ÄÃ  Náºµng",
+        address="67 Che Lan Vien",
+        latitude=16.0407,
+        longitude=108.2466,
+        search_query="Legacy Daisy Property, Da Nang",
+        search_aliases=["Daisy Boutique Hotel"],
+        search_queries=[
+            "Legacy Daisy Property, Da Nang",
+            "Daisy Boutique Hotel, Da Nang",
+        ],
+        review_target_external_id="reviewed-daisy-id",
+        review_target_property_id="19017974",
+        review_target_name="Daisy Boutique Hotel",
+        review_target_reviewer="Oanhh-approved-agent-review",
+        review_target_reviewed_at=NOW,
+        review_target_reason="reviewed exact name, address, and coordinates",
+        review_target_hash="a" * 64,
+        review_target_evidence=[{"path": "evidence.json", "file_sha256": "b" * 64}],
+    )
+
+
+def _reviewed_candidate(**updates) -> dict[str, object]:
+    candidate: dict[str, object] = {
+        "accommodation_id": "reviewed-daisy-id",
+        "accommodation_name": "Daisy Boutique Hotel",
+        "country_city": "ÄÃ  Náºµng, Viá»‡t Nam",
+        "accommodation_url": (
+            "https://www.trivago.vn/vi/lm/daisy?currencyCode=VND"
+            "&search=100-19017974;dr-20260823-20260824"
+        ),
+        "latitude": 16.0407,
+        "longitude": 108.2466,
+    }
+    candidate.update(updates)
+    return candidate
+
+
+def test_review_target_confirms_fresh_exact_identity_and_deduplicates_offers() -> None:
+    entry = _review_target_entry()
+    candidate = _reviewed_candidate()
+    resolution = TrivagoDiscoveryResolver(clock=lambda: NOW).resolve(
+        entry,
+        _record(
+            [candidate, {**candidate, "advertisers": "Booking.com"}],
+            review_target_hash=entry.review_target_hash,
+        ),
+    )
+
+    assert resolution.status is TrivagoDiscoveryStatus.CONFIRMED
+    assert resolution.selected_external_id == "reviewed-daisy-id"
+    assert resolution.resolver_version == "1.4.0"
+    assert resolution.review_target_hash == entry.review_target_hash
+    assert "reviewed_search_target_returned" in resolution.reason_codes
+    mapping = apply_trivago_resolution(entry, resolution).to_mapping()
+    assert mapping.attributes["review_target_hash"] == entry.review_target_hash
+
+
+def test_review_target_requires_current_registry_hash_in_raw_request() -> None:
+    entry = _review_target_entry()
+
+    for stale_hash in (None, "c" * 64):
+        resolution = TrivagoDiscoveryResolver(clock=lambda: NOW).resolve(
+            entry,
+            _record(
+                [_reviewed_candidate()],
+                review_target_hash=stale_hash,
+            ),
+        )
+
+        assert resolution.status is TrivagoDiscoveryStatus.REVIEW
+        assert resolution.selected_external_id == entry.review_target_external_id
+        assert "review_target_request_hash_mismatch" in resolution.reason_codes
+        assert "fresh_review_target_evidence_required" in resolution.reason_codes
+
+
+def test_review_target_mismatch_never_confirms() -> None:
+    entry = _review_target_entry()
+    mismatches = [
+        {"accommodation_id": "another-id"},
+        {"accommodation_url": ("https://www.trivago.vn/vi/lm/daisy?search=100-999999")},
+        {"accommodation_name": "Another Daisy Hotel"},
+        {"country_city": "Hanoi, Vietnam"},
+        {"latitude": 16.09, "longitude": 108.2466},
+    ]
+
+    for mismatch in mismatches:
+        resolution = TrivagoDiscoveryResolver(clock=lambda: NOW).resolve(
+            entry,
+            _record([_reviewed_candidate(**mismatch)]),
+        )
+        assert resolution.status is not TrivagoDiscoveryStatus.CONFIRMED
 
 
 def test_review_and_rejected_candidate_names_never_update_registry_name() -> None:

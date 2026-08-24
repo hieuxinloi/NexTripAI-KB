@@ -101,7 +101,9 @@ class TrivagoStayAvailabilityBatchRunner:
 
     Each hotel gets an independent child run. A capture, parser, or storage
     failure is retained on that item and does not stop subsequent hotels.
-    Rejected registry entries are never sent to the provider.
+    Scheduled refreshes only call hotels with confirmed provider identities.
+    Unresolved/review identities require the explicit discovery option, while
+    rejected and terminal review outcomes are never sent to the provider.
     """
 
     def __init__(
@@ -113,6 +115,7 @@ class TrivagoStayAvailabilityBatchRunner:
         max_requests: int | None = None,
         offset: int = 0,
         entity_ids: Sequence[str] = (),
+        include_identity_discovery: bool = False,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if max_requests is not None and max_requests < 1:
@@ -125,6 +128,7 @@ class TrivagoStayAvailabilityBatchRunner:
         self.max_requests = max_requests
         self.offset = offset
         self.entity_ids = frozenset(entity_ids)
+        self.include_identity_discovery = include_identity_discovery
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def run(
@@ -139,11 +143,19 @@ class TrivagoStayAvailabilityBatchRunner:
             raise ValueError("lookahead_days must be between 0 and 14")
 
         started_at = self.clock()
+        eligible_statuses = {TrivagoRegistryStatus.CONFIRMED}
+        if self.include_identity_discovery:
+            eligible_statuses.update(
+                {
+                    TrivagoRegistryStatus.UNRESOLVED,
+                    TrivagoRegistryStatus.REVIEW,
+                }
+            )
         eligible = sorted(
             (
                 entry
                 for entry in registry.entries
-                if entry.status is not TrivagoRegistryStatus.REJECTED
+                if entry.status in eligible_statuses
                 and (not self.entity_ids or entry.entity_id in self.entity_ids)
             ),
             key=lambda entry: entry.entity_id,

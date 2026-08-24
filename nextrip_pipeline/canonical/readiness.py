@@ -20,6 +20,7 @@ from nextrip_pipeline.canonical.evidence import (
 )
 from nextrip_pipeline.canonical.models import (
     DistinctIdentityDecision,
+    VacancyStatus,
     stable_identifier,
     stable_sha256,
 )
@@ -37,12 +38,13 @@ class CanonicalReadinessAlreadyExistsError(FileExistsError):
 
 
 class CanonicalDatasetNotReadyError(RuntimeError):
-    """Raised when a caller attempts to publish an unresolved dataset."""
+    """Raised when unresolved identity or vacancy state blocks publication."""
 
 
 class ReadinessResolution(StrEnum):
     RESOLVED_MERGE = "resolved_merge"
     RESOLVED_DISTINCT = "resolved_distinct"
+    RESOLVED_QUARANTINED = "resolved_quarantined"
     UNRESOLVED = "unresolved"
 
 
@@ -55,6 +57,8 @@ class ReadinessReason(StrEnum):
     DISTINCT_COLLAPSED = "distinct_evidence_collapsed"
     REVIEW_ACTIVE_DISTINCT = "review_ids_remain_distinct_active_identities"
     REVIEW_DISTINCT_COLLAPSED = "review_explicit_distinct_ids_were_collapsed"
+    ELIGIBILITY_INVALIDATED = "evidence_group_is_explicitly_quarantined"
+    MIXED_ACTIVE_QUARANTINED = "evidence_group_mixes_active_and_quarantined_identities"
     UNKNOWN_IDENTITY = "evidence_references_unknown_identity"
 
 
@@ -64,6 +68,14 @@ class CanonicalReadinessGroupResult(NexTripModel):
     place_ids: list[str] = Field(min_length=2)
     canonical_by_place_id: dict[str, str | None]
     active_canonical_ids: list[str] = Field(default_factory=list)
+    quarantined_by_place_id: dict[str, str | None] = Field(
+        default_factory=dict,
+        exclude_if=lambda value: not value,
+    )
+    quarantined_canonical_ids: list[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
     unknown_place_ids: list[str] = Field(default_factory=list)
     resolution: ReadinessResolution
     reason: ReadinessReason
@@ -83,15 +95,39 @@ class CanonicalReadinessGroupResult(NexTripModel):
         )
         if self.active_canonical_ids != expected_active:
             raise ValueError("active_canonical_ids do not match resolved identities")
+        if self.quarantined_by_place_id and list(
+            self.quarantined_by_place_id
+        ) != self.place_ids:
+            raise ValueError("quarantine resolution must cover place_ids in order")
+        quarantine_by_place_id = {
+            place_id: self.quarantined_by_place_id.get(place_id)
+            for place_id in self.place_ids
+        }
+        expected_quarantined = sorted(
+            {
+                canonical_id
+                for canonical_id in quarantine_by_place_id.values()
+                if canonical_id is not None
+            }
+        )
+        if self.quarantined_canonical_ids != expected_quarantined:
+            raise ValueError(
+                "quarantined_canonical_ids do not match quarantined identities"
+            )
         expected_unknown = sorted(
             place_id
             for place_id, canonical_id in self.canonical_by_place_id.items()
             if canonical_id is None
+            and quarantine_by_place_id.get(place_id) is None
         )
         if self.unknown_place_ids != expected_unknown:
             raise ValueError("unknown_place_ids do not match unresolved identities")
         if self.resolution is ReadinessResolution.RESOLVED_MERGE:
-            if self.unknown_place_ids or len(self.active_canonical_ids) != 1:
+            if (
+                self.unknown_place_ids
+                or self.quarantined_canonical_ids
+                or len(self.active_canonical_ids) != 1
+            ):
                 raise ValueError("resolved_merge requires one known canonical identity")
             if self.evidence_status not in {
                 DuplicateEvidenceStatus.CONFIRMED,
@@ -106,8 +142,10 @@ class CanonicalReadinessGroupResult(NexTripModel):
             if self.reason is not expected_reason:
                 raise ValueError("resolved_merge reason does not match evidence status")
         elif self.resolution is ReadinessResolution.RESOLVED_DISTINCT:
-            if self.unknown_place_ids or len(self.active_canonical_ids) != len(
-                self.place_ids
+            if (
+                self.unknown_place_ids
+                or self.quarantined_canonical_ids
+                or len(self.active_canonical_ids) != len(self.place_ids)
             ):
                 raise ValueError(
                     "resolved_distinct requires one active canonical per place ID"
@@ -124,10 +162,32 @@ class CanonicalReadinessGroupResult(NexTripModel):
             )
             if self.reason is not expected_reason:
                 raise ValueError("resolved_distinct reason does not match evidence status")
+        elif self.resolution is ReadinessResolution.RESOLVED_QUARANTINED:
+            if (
+                self.unknown_place_ids
+                or self.active_canonical_ids
+                or len(self.quarantined_canonical_ids) != 1
+            ):
+                raise ValueError(
+                    "resolved_quarantined requires one archived canonical identity"
+                )
+            if self.evidence_status not in {
+                DuplicateEvidenceStatus.CONFIRMED,
+                DuplicateEvidenceStatus.REVIEW,
+            }:
+                raise ValueError(
+                    "only confirmed/review evidence can resolve as quarantined"
+                )
+            if self.reason is not ReadinessReason.ELIGIBILITY_INVALIDATED:
+                raise ValueError(
+                    "resolved_quarantined requires eligibility invalidation reason"
+                )
         else:
             expected_reasons = (
                 {ReadinessReason.UNKNOWN_IDENTITY}
                 if self.unknown_place_ids
+                else {ReadinessReason.MIXED_ACTIVE_QUARANTINED}
+                if self.active_canonical_ids and self.quarantined_canonical_ids
                 else {
                     DuplicateEvidenceStatus.CONFIRMED: {
                         ReadinessReason.CONFIRMED_NOT_MERGED
@@ -148,7 +208,7 @@ class CanonicalReadinessGroupResult(NexTripModel):
 
 def _readiness_payload(
     *,
-    schema_version: Literal["1.0.0", "1.1.0"],
+    schema_version: Literal["1.0.0", "1.1.0", "1.2.0", "1.3.0"],
     dataset_id: str,
     dataset_hash: str,
     audit_id: str,
@@ -161,6 +221,8 @@ def _readiness_payload(
     unresolved_groups: list[CanonicalReadinessGroupResult],
     publish_ready: bool,
     explicit_distinct_decisions: list[DistinctIdentityDecision],
+    resolved_quarantined: list[CanonicalReadinessGroupResult] | None = None,
+    open_vacancy_count: int | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": schema_version,
@@ -171,26 +233,52 @@ def _readiness_payload(
         "manifest_id": manifest_id,
         "manifest_hash": manifest_hash,
         "group_count": group_count,
-        "resolved_merge": [item.model_dump(mode="json") for item in resolved_merge],
+        "resolved_merge": [
+            _readiness_group_payload(item, schema_version)
+            for item in resolved_merge
+        ],
         "resolved_distinct": [
-            item.model_dump(mode="json") for item in resolved_distinct
+            _readiness_group_payload(item, schema_version)
+            for item in resolved_distinct
         ],
         "unresolved_groups": [
-            item.model_dump(mode="json") for item in unresolved_groups
+            _readiness_group_payload(item, schema_version)
+            for item in unresolved_groups
         ],
         "publish_ready": publish_ready,
     }
-    if schema_version == "1.1.0":
+    if schema_version in {"1.1.0", "1.2.0", "1.3.0"}:
         payload["explicit_distinct_decisions"] = [
             item.model_dump(mode="json") for item in explicit_distinct_decisions
         ]
+    if schema_version in {"1.2.0", "1.3.0"}:
+        payload["resolved_quarantined"] = [
+            _readiness_group_payload(item, schema_version)
+            for item in (resolved_quarantined or [])
+        ]
+    if schema_version == "1.3.0":
+        if open_vacancy_count is None:
+            raise ValueError("readiness schema 1.3.0 requires open_vacancy_count")
+        payload["open_vacancy_count"] = open_vacancy_count
     return payload
+
+
+def _readiness_group_payload(
+    result: CanonicalReadinessGroupResult,
+    schema_version: str,
+) -> dict[str, object]:
+    excluded = (
+        {"quarantined_by_place_id", "quarantined_canonical_ids"}
+        if schema_version not in {"1.2.0", "1.3.0"}
+        else set()
+    )
+    return result.model_dump(mode="json", exclude=excluded)
 
 
 class CanonicalDatasetReadinessReport(NexTripModel):
     """Content-addressed decision controlling whether V8 may ingest a dataset."""
 
-    schema_version: Literal["1.0.0", "1.1.0"] = "1.1.0"
+    schema_version: Literal["1.0.0", "1.1.0", "1.2.0", "1.3.0"] = "1.3.0"
     readiness_id: str = Field(min_length=1)
     readiness_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     dataset_id: str = Field(min_length=1)
@@ -204,11 +292,20 @@ class CanonicalDatasetReadinessReport(NexTripModel):
     resolved_distinct: list[CanonicalReadinessGroupResult] = Field(
         default_factory=list
     )
+    resolved_quarantined: list[CanonicalReadinessGroupResult] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
     unresolved_groups: list[CanonicalReadinessGroupResult] = Field(
         default_factory=list
     )
     explicit_distinct_decisions: list[DistinctIdentityDecision] = Field(
         default_factory=list
+    )
+    open_vacancy_count: int | None = Field(
+        default=None,
+        ge=0,
+        exclude_if=lambda value: value is None,
     )
     publish_ready: bool
 
@@ -217,6 +314,10 @@ class CanonicalDatasetReadinessReport(NexTripModel):
         collections = (
             (ReadinessResolution.RESOLVED_MERGE, self.resolved_merge),
             (ReadinessResolution.RESOLVED_DISTINCT, self.resolved_distinct),
+            (
+                ReadinessResolution.RESOLVED_QUARANTINED,
+                self.resolved_quarantined,
+            ),
             (ReadinessResolution.UNRESOLVED, self.unresolved_groups),
         )
         all_groups: list[CanonicalReadinessGroupResult] = []
@@ -231,11 +332,33 @@ class CanonicalDatasetReadinessReport(NexTripModel):
             raise ValueError("each evidence group must appear exactly once")
         if len(all_groups) != self.group_count:
             raise ValueError("readiness groups do not match group_count")
-        if self.publish_ready != (not self.unresolved_groups):
-            raise ValueError("publish_ready must be false when any group is unresolved")
+        if self.schema_version == "1.3.0":
+            if self.open_vacancy_count is None:
+                raise ValueError(
+                    "readiness schema 1.3.0 requires open_vacancy_count"
+                )
+            expected_publish_ready = (
+                not self.unresolved_groups and self.open_vacancy_count == 0
+            )
+        else:
+            if self.open_vacancy_count is not None:
+                raise ValueError(
+                    "readiness schemas 1.0.0-1.2.0 cannot pin open vacancies"
+                )
+            expected_publish_ready = not self.unresolved_groups
+        if self.publish_ready != expected_publish_ready:
+            raise ValueError(
+                "publish_ready does not match unresolved groups and open vacancies"
+            )
         if self.schema_version == "1.0.0" and self.explicit_distinct_decisions:
             raise ValueError(
                 "schema 1.0.0 cannot contain explicit distinct decisions"
+            )
+        if self.schema_version not in {"1.2.0", "1.3.0"} and (
+            self.resolved_quarantined
+        ):
+            raise ValueError(
+                "only readiness schemas 1.2.0+ support quarantined groups"
             )
         expected_decisions = sorted(
             self.explicit_distinct_decisions,
@@ -259,9 +382,11 @@ class CanonicalDatasetReadinessReport(NexTripModel):
             group_count=self.group_count,
             resolved_merge=self.resolved_merge,
             resolved_distinct=self.resolved_distinct,
+            resolved_quarantined=self.resolved_quarantined,
             unresolved_groups=self.unresolved_groups,
             publish_ready=self.publish_ready,
             explicit_distinct_decisions=self.explicit_distinct_decisions,
+            open_vacancy_count=self.open_vacancy_count,
         )
         expected_hash = stable_sha256(payload)
         if self.readiness_hash != expected_hash:
@@ -278,7 +403,7 @@ def evaluate_canonical_dataset_readiness(
     *,
     distinct_decisions: Sequence[DistinctIdentityDecision] = (),
 ) -> CanonicalDatasetReadinessReport:
-    """Fail closed on evidence that is not reflected by canonical identity state."""
+    """Fail closed on unresolved identity evidence or open canonical vacancies."""
 
     validated_dataset = CanonicalActiveDataset.model_validate_json(
         dataset.model_dump_json()
@@ -299,6 +424,16 @@ def evaluate_canonical_dataset_readiness(
     if dataset_ids != manifest_ids:
         raise CanonicalReadinessInputError(
             "dataset does not exactly cover resolver active identities"
+        )
+    manifest_open_vacancy_count = sum(
+        item.status is VacancyStatus.VACANT for item in manifest.vacancies
+    )
+    if (
+        validated_dataset.report.open_vacancy_count
+        != manifest_open_vacancy_count
+    ):
+        raise CanonicalReadinessInputError(
+            "dataset open vacancy count does not match the canonical manifest"
         )
     _validate_evidence_audit(audit)
     validated_distinct_decisions = _validate_distinct_decisions(
@@ -332,6 +467,14 @@ def evaluate_canonical_dataset_readiness(
         ),
         key=lambda item: item.group_id,
     )
+    resolved_quarantined = sorted(
+        (
+            item
+            for item in results
+            if item.resolution is ReadinessResolution.RESOLVED_QUARANTINED
+        ),
+        key=lambda item: item.group_id,
+    )
     unresolved = sorted(
         (
             item
@@ -340,9 +483,10 @@ def evaluate_canonical_dataset_readiness(
         ),
         key=lambda item: item.group_id,
     )
-    publish_ready = not unresolved
+    open_vacancy_count = validated_dataset.report.open_vacancy_count
+    publish_ready = not unresolved and open_vacancy_count == 0
     values: dict[str, object] = {
-        "schema_version": "1.1.0",
+        "schema_version": "1.3.0",
         "dataset_id": validated_dataset.dataset_id,
         "dataset_hash": validated_dataset.dataset_hash,
         "audit_id": audit.audit_id,
@@ -352,7 +496,9 @@ def evaluate_canonical_dataset_readiness(
         "group_count": len(results),
         "resolved_merge": resolved_merge,
         "resolved_distinct": resolved_distinct,
+        "resolved_quarantined": resolved_quarantined,
         "unresolved_groups": unresolved,
+        "open_vacancy_count": open_vacancy_count,
         "explicit_distinct_decisions": validated_distinct_decisions,
         "publish_ready": publish_ready,
     }
@@ -373,14 +519,27 @@ def require_canonical_dataset_publish_ready(
         report.model_dump_json()
     )
     if not validated.publish_ready:
-        group_ids = ", ".join(
-            item.group_id for item in validated.unresolved_groups[:5]
-        )
-        suffix = "" if len(validated.unresolved_groups) <= 5 else ", ..."
+        blockers: list[str] = []
+        if validated.unresolved_groups:
+            group_ids = ", ".join(
+                item.group_id for item in validated.unresolved_groups[:5]
+            )
+            suffix = "" if len(validated.unresolved_groups) <= 5 else ", ..."
+            blockers.append(
+                f"{len(validated.unresolved_groups)} unresolved groups"
+                + (f" ({group_ids}{suffix})" if group_ids else "")
+            )
+        if validated.open_vacancy_count:
+            vacancy_label = (
+                "vacancy"
+                if validated.open_vacancy_count == 1
+                else "vacancies"
+            )
+            blockers.append(
+                f"{validated.open_vacancy_count} open {vacancy_label}"
+            )
         raise CanonicalDatasetNotReadyError(
-            "canonical dataset is not publish-ready: "
-            f"{len(validated.unresolved_groups)} unresolved groups"
-            + (f" ({group_ids}{suffix})" if group_ids else "")
+            "canonical dataset is not publish-ready: " + "; ".join(blockers)
         )
     return validated
 
@@ -395,10 +554,19 @@ def _evaluate_group(
     canonical_by_place_id = {
         place_id: resolver.resolve(place_id) for place_id in place_ids
     }
+    resolved_quarantine_by_place_id = {
+        place_id: resolver.quarantine_for(place_id) for place_id in place_ids
+    }
+    quarantined_by_place_id = (
+        resolved_quarantine_by_place_id
+        if any(resolved_quarantine_by_place_id.values())
+        else {}
+    )
     unknown = sorted(
         place_id
         for place_id, canonical_id in canonical_by_place_id.items()
         if canonical_id is None
+        and resolved_quarantine_by_place_id[place_id] is None
     )
     active = sorted(
         {
@@ -407,9 +575,30 @@ def _evaluate_group(
             if canonical_id is not None
         }
     )
+    quarantined = sorted(
+        {
+            canonical_id
+            for canonical_id in resolved_quarantine_by_place_id.values()
+            if canonical_id is not None
+        }
+    )
     if unknown:
         resolution = ReadinessResolution.UNRESOLVED
         reason = ReadinessReason.UNKNOWN_IDENTITY
+    elif active and quarantined:
+        resolution = ReadinessResolution.UNRESOLVED
+        reason = ReadinessReason.MIXED_ACTIVE_QUARANTINED
+    elif (
+        not active
+        and len(quarantined) == 1
+        and group.status
+        in {
+            DuplicateEvidenceStatus.CONFIRMED,
+            DuplicateEvidenceStatus.REVIEW,
+        }
+    ):
+        resolution = ReadinessResolution.RESOLVED_QUARANTINED
+        reason = ReadinessReason.ELIGIBILITY_INVALIDATED
     elif group.status is DuplicateEvidenceStatus.CONFIRMED:
         if len(active) == 1:
             resolution = ReadinessResolution.RESOLVED_MERGE
@@ -443,6 +632,8 @@ def _evaluate_group(
         place_ids=place_ids,
         canonical_by_place_id=canonical_by_place_id,
         active_canonical_ids=active,
+        quarantined_by_place_id=quarantined_by_place_id,
+        quarantined_canonical_ids=quarantined,
         unknown_place_ids=unknown,
         resolution=resolution,
         reason=reason,

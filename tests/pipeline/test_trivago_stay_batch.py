@@ -10,6 +10,8 @@ from nextrip_pipeline import cli as cli_module
 from nextrip_pipeline.crawl.trivago_registry import (
     TrivagoHotelRegistry,
     TrivagoHotelRegistryEntry,
+    TrivagoRegistryStatus,
+    TrivagoSearchReviewEvidence,
 )
 from nextrip_pipeline.jobs import (
     TrivagoPriceBatchContext,
@@ -24,13 +26,45 @@ from nextrip_pipeline.schemas import HotelAvailabilityStatus, Occupancy
 NOW = datetime(2026, 8, 20, 5, tzinfo=timezone.utc)
 
 
-def _entry(number: int) -> TrivagoHotelRegistryEntry:
-    return TrivagoHotelRegistryEntry(
-        entity_id=f"hotel-{number}",
-        master_name=f"Hotel {number}",
-        city="Da Nang",
-        search_query=f"Hotel {number}, Da Nang, Vietnam",
-    )
+def _entry(
+    number: int,
+    *,
+    status: TrivagoRegistryStatus = TrivagoRegistryStatus.CONFIRMED,
+) -> TrivagoHotelRegistryEntry:
+    values: dict[str, object] = {
+        "entity_id": f"hotel-{number}",
+        "master_name": f"Hotel {number}",
+        "city": "Da Nang",
+        "search_query": f"Hotel {number}, Da Nang, Vietnam",
+        "status": status,
+    }
+    if status is TrivagoRegistryStatus.CONFIRMED:
+        values.update(
+            {
+                "external_id": f"trivago-{number}",
+                "matched_at": NOW,
+                "verified_at": NOW,
+            }
+        )
+    elif status in {
+        TrivagoRegistryStatus.PROVIDER_NOT_LISTED,
+        TrivagoRegistryStatus.IDENTITY_REVERIFY,
+    }:
+        values.update(
+            {
+                "review_target_reviewer": "test-reviewer",
+                "review_target_reviewed_at": NOW,
+                "review_target_reason": "terminal outcome confirmed in test evidence",
+                "review_target_hash": "a" * 64,
+                "review_target_evidence": [
+                    TrivagoSearchReviewEvidence(
+                        path=f"evidence/hotel-{number}.json",
+                        file_sha256="b" * 64,
+                    )
+                ],
+            }
+        )
+    return TrivagoHotelRegistryEntry.model_validate(values)
 
 
 class FixtureStayRunner:
@@ -159,6 +193,52 @@ def test_stay_batch_supports_entity_filter_offset_and_max_requests(tmp_path) -> 
     assert [item.hotel_id for item in summary.items] == ["hotel-3"]
 
 
+def test_stay_batch_requires_explicit_identity_discovery(tmp_path) -> None:
+    registry = TrivagoHotelRegistry(
+        generated_at=NOW,
+        source_file="hotel_final.json",
+        entries=[
+            _entry(1),
+            _entry(2, status=TrivagoRegistryStatus.UNRESOLVED),
+            _entry(3, status=TrivagoRegistryStatus.REVIEW),
+            _entry(4, status=TrivagoRegistryStatus.REJECTED),
+            _entry(5, status=TrivagoRegistryStatus.PROVIDER_NOT_LISTED),
+            _entry(6, status=TrivagoRegistryStatus.IDENTITY_REVERIFY),
+        ],
+    )
+    context = TrivagoPriceBatchContext(
+        check_in=date(2026, 8, 21),
+        check_out=date(2026, 8, 22),
+    )
+
+    scheduled_stay_runner = FixtureStayRunner()
+    scheduled, _ = TrivagoStayAvailabilityBatchRunner(
+        scheduled_stay_runner,
+        FixtureResultWriter(tmp_path / "scheduled-stay"),  # type: ignore[arg-type]
+        TrivagoStayBatchSummaryWriter(tmp_path / "scheduled-batch"),
+        clock=lambda: NOW,
+    ).run(registry, context, run_id="scheduled")
+
+    assert scheduled.eligible_count == 1
+    assert [call[0] for call in scheduled_stay_runner.calls] == ["hotel-1"]
+
+    discovery_stay_runner = FixtureStayRunner()
+    discovery, _ = TrivagoStayAvailabilityBatchRunner(
+        discovery_stay_runner,
+        FixtureResultWriter(tmp_path / "discovery-stay"),  # type: ignore[arg-type]
+        TrivagoStayBatchSummaryWriter(tmp_path / "discovery-batch"),
+        include_identity_discovery=True,
+        clock=lambda: NOW,
+    ).run(registry, context, run_id="discovery")
+
+    assert discovery.eligible_count == 3
+    assert [call[0] for call in discovery_stay_runner.calls] == [
+        "hotel-1",
+        "hotel-2",
+        "hotel-3",
+    ]
+
+
 def test_availability_cli_defaults_and_full_stay_arguments() -> None:
     arguments = cli_module.build_parser().parse_args(["batch-trivago-availability"])
 
@@ -167,6 +247,9 @@ def test_availability_cli_defaults_and_full_stay_arguments() -> None:
     assert arguments.check_in_offset_days == 1
     assert arguments.stay_nights == 1
     assert arguments.lookahead_days == 1
+    assert arguments.identity_retry_limit == 2
+    assert arguments.include_radius_identity_retry is False
+    assert arguments.include_identity_discovery is False
     assert (arguments.adults, arguments.children, arguments.rooms) == (2, 0, 1)
     assert arguments.current_price_dir == Path("data/current/hotel_price")
     assert arguments.current_availability_dir == Path("data/current/hotel_availability")
@@ -231,6 +314,7 @@ def test_availability_cli_wires_exact_stay_and_lookahead(
             "2026-08-24",
             "--lookahead-days",
             "2",
+            "--include-identity-discovery",
             "--children",
             "1",
             "--children-ages",
@@ -248,4 +332,9 @@ def test_availability_cli_wires_exact_stay_and_lookahead(
     )
     assert context.children_ages == [7]
     assert captured["lookahead_days"] == 2
+    runner_kwargs = captured["constructor_args"][0]
+    assert runner_kwargs.identity_retry_limit == 2
+    batch_kwargs = captured["constructor_kwargs"]
+    assert isinstance(batch_kwargs, dict)
+    assert batch_kwargs["include_identity_discovery"] is True
     assert "completed=1" in capsys.readouterr().out

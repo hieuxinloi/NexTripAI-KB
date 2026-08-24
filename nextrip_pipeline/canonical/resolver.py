@@ -4,6 +4,9 @@ from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
+from nextrip_pipeline.schemas import EntityType
+
+from .invalidation import ApprovedCanonicalInvalidation
 from .models import (
     CanonicalIdentityManifest,
     CanonicalPlaceIdentity,
@@ -11,8 +14,10 @@ from .models import (
     EntityCityQuota,
     EntityCityVacancy,
     LegacyPlaceSlot,
+    QuarantinedCanonicalIdentity,
     RetiredPlaceId,
     VacancyReplacementDecision,
+    VacancySourceSubtype,
     VacancyStatus,
     canonical_identity_payload,
     canonical_manifest_payload,
@@ -45,6 +50,15 @@ class CanonicalIdentityResolver:
         self._retired_ids = {
             item.retired_place_id for item in manifest.retired_place_ids
         }
+        self._quarantine_by_canonical_id = {
+            item.identity.canonical_place_id: item
+            for item in manifest.quarantined_identities
+        }
+        self._quarantine_owner_by_id = {
+            legacy_id: item.identity.canonical_place_id
+            for item in manifest.quarantined_identities
+            for legacy_id in item.identity.legacy_place_ids
+        }
 
     def resolve(self, place_id: str) -> str | None:
         """Return the canonical ID for an active ID or a retired legacy alias."""
@@ -64,6 +78,26 @@ class CanonicalIdentityResolver:
     def is_retired(self, place_id: str) -> bool:
         return place_id in self._retired_ids
 
+    def is_quarantined(self, place_id: str) -> bool:
+        """Return whether an ID belongs to a quarantined canonical identity."""
+
+        return place_id in self._quarantine_owner_by_id
+
+    def quarantine_for(self, place_id: str) -> str | None:
+        """Return the quarantined canonical owner for one historical ID."""
+
+        return self._quarantine_owner_by_id.get(place_id)
+
+    def quarantined_identity_for(
+        self, place_id: str
+    ) -> QuarantinedCanonicalIdentity | None:
+        canonical_id = self.quarantine_for(place_id)
+        return (
+            self._quarantine_by_canonical_id.get(canonical_id)
+            if canonical_id is not None
+            else None
+        )
+
     @classmethod
     def build_manifest(
         cls,
@@ -71,6 +105,7 @@ class CanonicalIdentityResolver:
         *,
         duplicate_decisions: Sequence[DuplicateIdentityDecision] = (),
         replacement_decisions: Sequence[VacancyReplacementDecision] = (),
+        approved_invalidations: Sequence[ApprovedCanonicalInvalidation] = (),
         previous_manifest: CanonicalIdentityManifest | None = None,
         generated_at: datetime | None = None,
     ) -> CanonicalIdentityManifest:
@@ -78,6 +113,7 @@ class CanonicalIdentityResolver:
             slots,
             duplicate_decisions=duplicate_decisions,
             replacement_decisions=replacement_decisions,
+            approved_invalidations=approved_invalidations,
             previous_manifest=previous_manifest,
             generated_at=generated_at,
         )
@@ -88,6 +124,7 @@ def build_canonical_identity_manifest(
     *,
     duplicate_decisions: Sequence[DuplicateIdentityDecision] = (),
     replacement_decisions: Sequence[VacancyReplacementDecision] = (),
+    approved_invalidations: Sequence[ApprovedCanonicalInvalidation] = (),
     previous_manifest: CanonicalIdentityManifest | None = None,
     generated_at: datetime | None = None,
 ) -> CanonicalIdentityManifest:
@@ -120,7 +157,14 @@ def build_canonical_identity_manifest(
     if previous_manifest is not None:
         # Identity is independent of whether an entity is currently publishable.
         # Carry an omitted active identity rather than freeing its ID by accident.
-        for identity in previous_manifest.identities:
+        previous_identity_snapshots = [
+            *previous_manifest.identities,
+            *(
+                item.identity
+                for item in previous_manifest.quarantined_identities
+            ),
+        ]
+        for identity in previous_identity_snapshots:
             active_id = identity.active_legacy_place_id
             if active_id not in slot_by_id:
                 slot_by_id[active_id] = LegacyPlaceSlot(
@@ -223,8 +267,23 @@ def build_canonical_identity_manifest(
             previous_retired=previous_retired,
         )
 
-    identities = [_build_identity(value) for value in identity_parts.values()]
-    identities.sort(key=lambda item: item.canonical_place_id)
+    identity_snapshots = [
+        _build_identity(value) for value in identity_parts.values()
+    ]
+    identity_snapshots.sort(key=lambda item: item.canonical_place_id)
+    quarantined_identities = _resolve_quarantined_identities(
+        identities=identity_snapshots,
+        approved_invalidations=approved_invalidations,
+        previous_manifest=previous_manifest,
+    )
+    quarantined_ids = {
+        item.identity.canonical_place_id for item in quarantined_identities
+    }
+    identities = [
+        item
+        for item in identity_snapshots
+        if item.canonical_place_id not in quarantined_ids
+    ]
 
     retirements = [
         RetiredPlaceId(
@@ -239,36 +298,75 @@ def build_canonical_identity_manifest(
     ]
     retirements.sort(key=lambda item: item.retired_place_id)
 
+    vacancy_sources: dict[str, tuple[str, EntityType]] = {
+        item.retired_place_id: (item.city_id, item.entity_type)
+        for item in retirements
+    }
+    vacancy_sources.update(
+        {
+            item.identity.canonical_place_id: (
+                item.identity.city_id,
+                item.identity.primary_type,
+            )
+            for item in quarantined_identities
+        }
+    )
+    quarantined_legacy_ids = {
+        legacy_id
+        for item in quarantined_identities
+        for legacy_id in item.identity.legacy_place_ids
+    }
     replacement_by_retired = _resolve_replacement_assignments(
         replacement_decisions=replacement_decisions,
         previous_manifest=previous_manifest,
         identities=identities,
-        retirements=retirements,
+        vacancy_sources=vacancy_sources,
+        forbidden_replacement_ids=(
+            {item.retired_place_id for item in retirements}
+            | quarantined_legacy_ids
+        ),
         supplied_slot_ids=supplied_slot_ids,
+    )
+    previous_vacancies = (
+        {
+            item.retired_place_id: item
+            for item in previous_manifest.vacancies
+        }
+        if previous_manifest is not None
+        else {}
     )
 
     vacancies = [
         EntityCityVacancy(
             vacancy_id=stable_identifier(
                 "vacancy",
-                item.city_id,
-                item.entity_type.value,
-                item.retired_place_id,
+                city_id,
+                entity_type.value,
+                source_place_id,
             ),
-            retired_place_id=item.retired_place_id,
-            city_id=item.city_id,
-            entity_type=item.entity_type,
+            retired_place_id=source_place_id,
+            city_id=city_id,
+            entity_type=entity_type,
+            source_subtype=_resolve_vacancy_source_subtype(
+                retired_place_id=source_place_id,
+                entity_type=entity_type,
+                slot_by_id=slot_by_id,
+                previous_vacancies=previous_vacancies,
+            ),
             status=(
                 VacancyStatus.FILLED
-                if item.retired_place_id in replacement_by_retired
+                if source_place_id in replacement_by_retired
                 else VacancyStatus.VACANT
             ),
-            replacement_place_id=replacement_by_retired.get(item.retired_place_id),
+            replacement_place_id=replacement_by_retired.get(source_place_id),
         )
-        for item in retirements
+        for source_place_id, (city_id, entity_type) in vacancy_sources.items()
     ]
     vacancies.sort(key=lambda item: (item.city_id, item.entity_type.value, item.vacancy_id))
 
+    # Quota rows describe the current type distribution, not a frozen target.
+    # A cross-type fill is counted under the replacement identity's type while
+    # an unfilled vacancy remains counted under its retired historical type.
     active_counts = Counter(
         (identity.city_id, identity.primary_type) for identity in identities
     )
@@ -294,9 +392,19 @@ def build_canonical_identity_manifest(
         )
     ]
 
+    schema_version = (
+        "1.1.0"
+        if quarantined_identities
+        or (
+            previous_manifest is not None
+            and previous_manifest.schema_version == "1.1.0"
+        )
+        else "1.0.0"
+    )
     payload = canonical_manifest_payload(
-        schema_version="1.0.0",
+        schema_version=schema_version,
         identities=identities,
+        quarantined_identities=quarantined_identities,
         retired_place_ids=retirements,
         vacancies=vacancies,
         quotas=quotas,
@@ -306,11 +414,185 @@ def build_canonical_identity_manifest(
         manifest_id=f"canonical_identity_{manifest_hash[:20]}",
         manifest_hash=manifest_hash,
         generated_at=generated_at,
+        schema_version=schema_version,
         identities=identities,
+        quarantined_identities=quarantined_identities,
         retired_place_ids=retirements,
         vacancies=vacancies,
         quotas=quotas,
     )
+
+
+def _resolve_quarantined_identities(
+    *,
+    identities: Sequence[CanonicalPlaceIdentity],
+    approved_invalidations: Sequence[ApprovedCanonicalInvalidation],
+    previous_manifest: CanonicalIdentityManifest | None,
+) -> list[QuarantinedCanonicalIdentity]:
+    """Apply new approvals and retain every previous quarantine permanently."""
+
+    identity_by_id = {item.canonical_place_id: item for item in identities}
+    previous_by_id = (
+        {
+            item.identity.canonical_place_id: item
+            for item in previous_manifest.quarantined_identities
+        }
+        if previous_manifest is not None
+        else {}
+    )
+    approvals_by_id: dict[str, ApprovedCanonicalInvalidation] = {}
+    for approval in approved_invalidations:
+        previous = approvals_by_id.get(approval.canonical_place_id)
+        if previous is not None and previous != approval:
+            raise CanonicalIdentityError(
+                "one invalidation approval is allowed per canonical identity: "
+                + approval.canonical_place_id
+            )
+        approvals_by_id[approval.canonical_place_id] = approval
+
+    quarantined: list[QuarantinedCanonicalIdentity] = []
+    for canonical_id, previous in sorted(previous_by_id.items()):
+        current = identity_by_id.get(canonical_id)
+        if current is None:
+            raise CanonicalIdentityError(
+                "quarantined canonical identity cannot change keeper or disappear: "
+                + canonical_id
+            )
+        if current != previous.identity:
+            raise CanonicalIdentityError(
+                "quarantined canonical identity metadata cannot be changed: "
+                + canonical_id
+            )
+        supplied = approvals_by_id.get(canonical_id)
+        if supplied is not None and (
+            supplied.approval_id != previous.invalidation_approval_id
+            or supplied.approval_hash != previous.invalidation_approval_hash
+        ):
+            raise CanonicalIdentityError(
+                "quarantined identity cannot receive another invalidation approval: "
+                + canonical_id
+            )
+        quarantined.append(previous)
+
+    previous_filled_replacements = (
+        {
+            item.replacement_place_id
+            for item in previous_manifest.vacancies
+            if item.status is VacancyStatus.FILLED
+            and item.replacement_place_id is not None
+        }
+        if previous_manifest is not None
+        else set()
+    )
+    for canonical_id, approval in sorted(approvals_by_id.items()):
+        if canonical_id in previous_by_id:
+            continue
+        if approval.schema_version == "1.0.0":
+            raise CanonicalIdentityError(
+                "legacy invalidation approval cannot create a new quarantine; "
+                "reissue it with pinned physical-identity corroboration: "
+                + canonical_id
+            )
+        if previous_manifest is None:
+            raise CanonicalIdentityError(
+                "a new invalidation approval requires its source previous manifest"
+            )
+        if (
+            approval.source_manifest_id != previous_manifest.manifest_id
+            or approval.source_manifest_hash != previous_manifest.manifest_hash
+        ):
+            raise CanonicalIdentityError(
+                "invalidation approval belongs to another source manifest: "
+                + canonical_id
+            )
+        source_identity = next(
+            (
+                item
+                for item in previous_manifest.identities
+                if item.canonical_place_id == canonical_id
+            ),
+            None,
+        )
+        if source_identity is None:
+            raise CanonicalIdentityError(
+                "invalidation approval does not target an active identity: "
+                + canonical_id
+            )
+        current = identity_by_id.get(canonical_id)
+        if current is None or current != source_identity:
+            raise CanonicalIdentityError(
+                "invalidation target changed after approval: " + canonical_id
+            )
+        if approval.identity_hash != current.identity_hash:
+            raise CanonicalIdentityError(
+                "invalidation approval identity hash is stale: " + canonical_id
+            )
+        if canonical_id in previous_filled_replacements:
+            raise CanonicalIdentityError(
+                "approved replacement invalidation requires a retraction workflow: "
+                + canonical_id
+            )
+        quarantined.append(
+            QuarantinedCanonicalIdentity(
+                quarantine_id=stable_identifier("quarantine", canonical_id),
+                identity=current,
+                source_manifest_id=approval.source_manifest_id,
+                source_manifest_hash=approval.source_manifest_hash,
+                invalidation_approval_id=approval.approval_id,
+                invalidation_approval_hash=approval.approval_hash,
+                reason=approval.reason.value,
+                reviewer=approval.reviewer,
+                invalidated_at=approval.approved_at,
+                evidence_hashes=sorted(
+                    item.artifact_sha256 for item in approval.evidence
+                ),
+            )
+        )
+    return sorted(
+        quarantined,
+        key=lambda item: item.identity.canonical_place_id,
+    )
+
+
+def _resolve_vacancy_source_subtype(
+    *,
+    retired_place_id: str,
+    entity_type: EntityType,
+    slot_by_id: dict[str, LegacyPlaceSlot],
+    previous_vacancies: dict[str, EntityCityVacancy],
+) -> VacancySourceSubtype | None:
+    if entity_type is not EntityType.NIGHTLIFE:
+        return None
+    slot = slot_by_id.get(retired_place_id)
+    current = _source_subtype_from_tags(slot.tags) if slot is not None else None
+    previous_vacancy = previous_vacancies.get(retired_place_id)
+    previous = (
+        previous_vacancy.source_subtype
+        if previous_vacancy is not None
+        else None
+    )
+    if current is not None and previous is not None and current is not previous:
+        raise CanonicalIdentityError(
+            "retired vacancy source subtype cannot be changed: "
+            f"{retired_place_id}"
+        )
+    return current or previous
+
+
+def _source_subtype_from_tags(
+    tags: Sequence[str],
+) -> VacancySourceSubtype | None:
+    normalized = {tag.casefold() for tag in tags}
+    matches: set[VacancySourceSubtype] = set()
+    if "late_night_cafe" in normalized:
+        matches.add(VacancySourceSubtype.LATE_NIGHT_CAFE)
+    if {"late_night_dining", "late_night_restaurant"} & normalized:
+        matches.add(VacancySourceSubtype.LATE_NIGHT_DINING)
+    if len(matches) > 1:
+        raise CanonicalIdentityError(
+            "retired nightlife slot has conflicting late-night subtype tags"
+        )
+    return next(iter(matches), None)
 
 
 def _resolve_replacement_assignments(
@@ -318,18 +600,23 @@ def _resolve_replacement_assignments(
     replacement_decisions: Sequence[VacancyReplacementDecision],
     previous_manifest: CanonicalIdentityManifest | None,
     identities: Sequence[CanonicalPlaceIdentity],
-    retirements: Sequence[RetiredPlaceId],
+    vacancy_sources: dict[str, tuple[str, EntityType]],
+    forbidden_replacement_ids: set[str],
     supplied_slot_ids: set[str],
 ) -> dict[str, str]:
     """Validate new fills and retain every previously committed assignment."""
 
-    retirement_by_id = {item.retired_place_id: item for item in retirements}
     identity_by_id = {item.canonical_place_id: item for item in identities}
-    retired_ids = set(retirement_by_id)
     previous_identity_ids = (
         {
             legacy_id
-            for identity in previous_manifest.identities
+            for identity in [
+                *previous_manifest.identities,
+                *(
+                    item.identity
+                    for item in previous_manifest.quarantined_identities
+                ),
+            ]
             for legacy_id in identity.legacy_place_ids
         }
         if previous_manifest is not None
@@ -367,7 +654,7 @@ def _resolve_replacement_assignments(
         decision_by_replacement[decision.replacement_place_id] = decision
 
     for retired_id, decision in decision_by_retired.items():
-        if retired_id not in retirement_by_id:
+        if retired_id not in vacancy_sources:
             raise CanonicalIdentityError(
                 "replacement decision references an unknown vacancy: " + retired_id
             )
@@ -402,14 +689,14 @@ def _resolve_replacement_assignments(
         raise CanonicalIdentityError("one replacement place can fill only one vacancy")
 
     for retired_id, replacement_id in assignments.items():
-        retirement = retirement_by_id.get(retired_id)
-        if retirement is None:
+        source_slot = vacancy_sources.get(retired_id)
+        if source_slot is None:
             raise CanonicalIdentityError(
                 "historical filled vacancy no longer exists: " + retired_id
             )
-        if replacement_id in retired_ids:
+        if replacement_id in forbidden_replacement_ids:
             raise CanonicalIdentityError(
-                "retired place ID cannot be reused as a replacement: "
+                "retired or quarantined place ID cannot be reused as a replacement: "
                 + replacement_id
             )
         replacement = identity_by_id.get(replacement_id)
@@ -422,12 +709,10 @@ def _resolve_replacement_assignments(
             raise CanonicalIdentityError(
                 "replacement must remain a distinct singleton: " + replacement_id
             )
-        if (replacement.city_id, replacement.primary_type) != (
-            retirement.city_id,
-            retirement.entity_type,
-        ):
+        source_city_id, _ = source_slot
+        if replacement.city_id != source_city_id:
             raise CanonicalIdentityError(
-                "replacement must preserve the vacancy entity/city slot: "
+                "replacement must preserve the vacancy city slot: "
                 + replacement_id
             )
 
@@ -444,8 +729,24 @@ def _merge_previous_manifest(
 ) -> None:
     # A previously active identity can explicitly be merged into a new keeper.
     # Its aliases and classification metadata follow it to the final owner.
-    for previous in previous_manifest.identities:
+    quarantined_ids = {
+        item.identity.canonical_place_id
+        for item in previous_manifest.quarantined_identities
+    }
+    previous_identity_snapshots = [
+        *previous_manifest.identities,
+        *(item.identity for item in previous_manifest.quarantined_identities),
+    ]
+    for previous in previous_identity_snapshots:
         target = owner_by_id[previous.active_legacy_place_id]
+        if (
+            previous.canonical_place_id in quarantined_ids
+            and target != previous.canonical_place_id
+        ):
+            raise CanonicalIdentityError(
+                "quarantined identity cannot be merged into another keeper: "
+                + previous.canonical_place_id
+            )
         part = identity_parts[target]
         if str(part["city_id"]) != previous.city_id:
             raise CanonicalIdentityError(

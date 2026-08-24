@@ -285,6 +285,8 @@ class HotelStayWindowResult(NexTripModel):
         unknown_reasons = {
             HotelAvailabilityReason.NO_PRICE,
             HotelAvailabilityReason.PROVIDER_NOT_LISTED,
+            HotelAvailabilityReason.CONFIRMED_LISTING_NOT_RETURNED,
+            HotelAvailabilityReason.IDENTITY_REVERIFY,
             HotelAvailabilityReason.CRAWL_ERROR,
             HotelAvailabilityReason.MAPPING_UNRESOLVED,
         }

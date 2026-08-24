@@ -18,7 +18,11 @@ from nextrip_pipeline.canonical.detail import (
     GoogleMapsCandidateDetail,
 )
 from nextrip_pipeline.canonical.discovery import StagedGoogleMapsCandidate
-from nextrip_pipeline.canonical.models import EntityCityVacancy, stable_identifier
+from nextrip_pipeline.canonical.models import (
+    EntityCityVacancy,
+    VacancySourceSubtype,
+    stable_identifier,
+)
 from nextrip_pipeline.crawl.adapters.google_maps import GoogleMapsPlaceAdapter
 from nextrip_pipeline.crawl.browser import BrowserSnapshot
 from nextrip_pipeline.crawl.raw_writer import RawJsonWriter
@@ -75,9 +79,18 @@ def _staged(*, url: str | None = None) -> StagedGoogleMapsCandidate:
 
 
 class FakeDetailBrowser:
-    def __init__(self, final_url: str, *, name: str = "Tên chính thức Google") -> None:
+    def __init__(
+        self,
+        final_url: str,
+        *,
+        name: str = "Tên chính thức Google",
+        category: str = "Coffee shop",
+        aria_labels: list[str] | None = None,
+    ) -> None:
         self.final_url = final_url
         self.name = name
+        self.category = category
+        self.aria_labels = aria_labels or []
         self.requested_urls: list[str] = []
 
     def capture_google_maps_place(
@@ -95,17 +108,28 @@ class FakeDetailBrowser:
             http_status=200,
             structured_data={
                 "name": self.name,
-                "category": "Coffee shop",
+                "category": self.category,
                 "address": "12 Example Street, Da Nang",
                 "phone": "0905 123 456",
                 "website_url": "https://cafe-moi.example/menu",
                 "detail_url": self.final_url,
+                "aria_labels": self.aria_labels,
             },
         )
 
 
-def _service(tmp_path, final_url: str) -> tuple[GoogleMapsCandidateDetail, FakeDetailBrowser]:
-    browser = FakeDetailBrowser(final_url)
+def _service(
+    tmp_path,
+    final_url: str,
+    *,
+    category: str = "Coffee shop",
+    aria_labels: list[str] | None = None,
+) -> tuple[GoogleMapsCandidateDetail, FakeDetailBrowser]:
+    browser = FakeDetailBrowser(
+        final_url,
+        category=category,
+        aria_labels=aria_labels,
+    )
     adapter = GoogleMapsPlaceAdapter(
         browser,  # type: ignore[arg-type]
         clock=lambda: NOW,
@@ -119,6 +143,33 @@ def _service(tmp_path, final_url: str) -> tuple[GoogleMapsCandidateDetail, FakeD
     return service, browser
 
 
+def _nightlife_vacancy() -> EntityCityVacancy:
+    retired_place_id = "night_dn_008"
+    return EntityCityVacancy(
+        vacancy_id=stable_identifier(
+            "vacancy",
+            "city_da_nang",
+            EntityType.NIGHTLIFE.value,
+            retired_place_id,
+        ),
+        retired_place_id=retired_place_id,
+        city_id="city_da_nang",
+        entity_type=EntityType.NIGHTLIFE,
+        source_subtype=VacancySourceSubtype.LATE_NIGHT_CAFE,
+    )
+
+
+def _nightlife_staged() -> StagedGoogleMapsCandidate:
+    staged = _staged()
+    return staged.model_copy(
+        update={
+            "candidate": staged.candidate.model_copy(
+                update={"entity_type": EntityType.NIGHTLIFE}
+            )
+        }
+    )
+
+
 def test_fetches_exact_url_and_projects_full_google_candidate(tmp_path) -> None:
     staged = _staged()
     service, browser = _service(tmp_path, _maps_url())
@@ -130,7 +181,7 @@ def test_fetches_exact_url_and_projects_full_google_candidate(tmp_path) -> None:
         run_id="candidate-detail-run-1",
     )
 
-    assert browser.requested_urls == [str(staged.source_url)]
+    assert browser.requested_urls == [f"{staged.source_url}?hl=vi"]
     assert result.mapping.status.value == "auto_matched"
     assert result.mapping.attributes.get("master_latitude") is None
     candidate = result.detail.candidate
@@ -152,6 +203,61 @@ def test_fetches_exact_url_and_projects_full_google_candidate(tmp_path) -> None:
     )
     assert result.raw_path.is_file()
     assert result.detail_path.is_file()
+
+
+def test_detail_wires_vi_vn_weekly_hours_into_late_night_subtype_gate(
+    tmp_path,
+) -> None:
+    service, _ = _service(
+        tmp_path,
+        _maps_url(),
+        category="Coffee shop",
+        aria_labels=[
+            "Thứ Sáu,06:00 đến 22:00, Sao chép giờ mở cửa",
+        ],
+    )
+
+    result = service.run(
+        _nightlife_staged(),
+        _nightlife_vacancy(),
+        [],
+        run_id="late-night-detail-run",
+    )
+
+    assert result.observation.weekly_opening is not None
+    assert result.detail.validation.status is CandidateDisposition.PASS
+    assert CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_COMPATIBLE in (
+        result.detail.validation.reason_codes
+    )
+
+
+def test_cross_type_cafe_uses_actual_category_without_late_night_gate(
+    tmp_path,
+) -> None:
+    service, _ = _service(
+        tmp_path,
+        _maps_url(),
+        category="Coffee shop",
+    )
+
+    result = service.run(
+        _staged(),
+        _nightlife_vacancy(),
+        [],
+        run_id="cross-type-cafe-detail-run",
+    )
+
+    assert result.mapping.entity_type is EntityType.CAFE
+    assert result.mapping.attributes["target_vacancy_entity_type"] == "nightlife"
+    assert result.detail.vacancy.entity_type is EntityType.NIGHTLIFE
+    assert result.detail.candidate.entity_type is EntityType.CAFE
+    assert result.detail.validation.status is CandidateDisposition.PASS
+    assert CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_COMPATIBLE in (
+        result.detail.validation.reason_codes
+    )
+    assert CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_UNPROVEN not in (
+        result.detail.validation.reason_codes
+    )
 
 
 def test_detail_validation_rejects_existing_google_identity(tmp_path) -> None:

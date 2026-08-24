@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -10,9 +11,14 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
+from nextrip_pipeline.canonical.dataset import read_canonical_active_dataset
 from nextrip_pipeline.crawl import RawJsonWriter
 from nextrip_pipeline.crawl.adapters import TrivagoMcpDiscoveryAdapter
-from nextrip_pipeline.crawl.trivago_registry import TrivagoRegistryBuilder
+from nextrip_pipeline.crawl.trivago_registry import (
+    TrivagoRegistryBuilder,
+    TrivagoRegistryStatus,
+    TrivagoSearchReviewConfig,
+)
 from nextrip_pipeline.decision_gate import (
     HotelPriceDecisionGate,
     HotelPriceDecisionWriter,
@@ -52,8 +58,10 @@ class HotelOfferRefreshError(RuntimeError):
 class TrivagoRefreshPaths:
     """All durable inputs and outputs used by one on-demand refresh."""
 
-    master_file: Path
+    canonical_dataset_file: Path
+    evidence_root: Path
     checked_in_mapping_files: tuple[Path, ...]
+    search_review_file: Path | None
     current_mapping_directory: Path
     raw_directory: Path
     normalized_directory: Path
@@ -65,12 +73,27 @@ class TrivagoRefreshPaths:
     summary_directory: Path
 
     @classmethod
-    def from_kb_root(cls, root: str | Path) -> TrivagoRefreshPaths:
-        kb_root = Path(root)
+    def from_kb_root(
+        cls,
+        root: str | Path,
+        *,
+        canonical_dataset: str | Path | None = None,
+    ) -> TrivagoRefreshPaths:
+        kb_root = Path(root).expanduser().resolve()
+        configured_dataset = canonical_dataset or os.getenv("NEXTRIP_CANONICAL_DATASET")
+        if configured_dataset is None or not str(configured_dataset).strip():
+            raise ValueError(
+                "NEXTRIP_CANONICAL_DATASET is required for Trivago refresh"
+            )
+        canonical_path = Path(configured_dataset).expanduser()
+        if not canonical_path.is_absolute():
+            canonical_path = kb_root / canonical_path
         default_mapping = kb_root / "config" / "trivago-mapping.json"
         return cls(
-            master_file=kb_root / "travel_data_verified" / "hotel_final.json",
+            canonical_dataset_file=canonical_path.resolve(),
+            evidence_root=kb_root,
             checked_in_mapping_files=(default_mapping,),
+            search_review_file=kb_root / "config" / "trivago-search-review.json",
             current_mapping_directory=kb_root / "data" / "current" / "trivago_mappings",
             raw_directory=kb_root / "data" / "raw",
             normalized_directory=kb_root / "data" / "normalized",
@@ -124,7 +147,8 @@ class TrivagoOnDemandPriceRefresher:
                 entry.entity_id for entry in registry.entries
             }:
                 raise HotelOfferRefreshError(
-                    f"hotel {normalized_hotel_id!r} is not in verified master data"
+                    f"hotel {normalized_hotel_id!r} is not in the active canonical "
+                    "dataset"
                 )
 
             try:
@@ -148,6 +172,16 @@ class TrivagoOnDemandPriceRefresher:
             if len(matching_entries) != 1:
                 raise HotelOfferRefreshError(
                     "on-demand refresh could not resolve one registry entry"
+                )
+            entry = matching_entries[0]
+            if entry.status in {
+                TrivagoRegistryStatus.PROVIDER_NOT_LISTED,
+                TrivagoRegistryStatus.IDENTITY_REVERIFY,
+                TrivagoRegistryStatus.REJECTED,
+            }:
+                raise HotelOfferRefreshError(
+                    f"hotel {normalized_hotel_id!r} is not eligible for automatic "
+                    f"Trivago refresh: {entry.status.value}"
                 )
 
             run_id = self._run_id()
@@ -173,7 +207,7 @@ class TrivagoOnDemandPriceRefresher:
                 decision_gate=HotelPriceDecisionGate(clock=self.clock),
                 clock=self.clock,
             ).run(
-                matching_entries[0],
+                entry,
                 context,
                 run_id=run_id,
                 lookahead_days=request.lookahead_days,
@@ -211,9 +245,23 @@ class TrivagoOnDemandPriceRefresher:
         ).all():
             overrides[mapping.entity_id] = mapping
 
-        registry, _ = TrivagoRegistryBuilder(clock=self.clock).build(
-            self.paths.master_file,
+        search_review_overrides = []
+        if (
+            self.paths.search_review_file is not None
+            and self.paths.search_review_file.is_file()
+        ):
+            search_review_overrides = TrivagoSearchReviewConfig.model_validate_json(
+                self.paths.search_review_file.read_bytes()
+            ).overrides
+
+        dataset = read_canonical_active_dataset(self.paths.canonical_dataset_file)
+        registry, _ = TrivagoRegistryBuilder(
+            clock=self.clock
+        ).build_from_canonical_dataset(
+            dataset,
             overrides=list(overrides.values()),
+            search_review_overrides=search_review_overrides,
+            evidence_root=self.paths.evidence_root,
         )
         return registry
 

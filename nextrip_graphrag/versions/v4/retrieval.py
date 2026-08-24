@@ -432,13 +432,11 @@ class V4RetrievalService(V3RetrievalService):
         if query_embedding is not None:
             rows = self.store.run(
                 f"""
-                MATCH (place:Place)
-                SEARCH place IN (
-                  VECTOR INDEX {self.vector_index}
-                  FOR $embedding
-                  LIMIT $candidate_limit
+                CALL db.index.vector.queryNodes(
+                  '{self.vector_index}', $candidate_limit, $embedding
                 )
-                SCORE AS score
+                YIELD node, score
+                WITH node AS place, score
                 WHERE place.kb_version = $kb_version AND place.id IN $candidate_ids
                 RETURN place.id AS place_id, score
                 """,

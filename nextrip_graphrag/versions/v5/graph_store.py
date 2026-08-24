@@ -207,13 +207,10 @@ class V5GraphStore(V4GraphStore):
     ) -> list[dict[str, Any]]:
         return self.run_versioned(
             f"""
-            MATCH (node:Concept)
-            SEARCH node IN (
-              VECTOR INDEX {self.concept_vector_index}
-              FOR $embedding
-              LIMIT $limit
+            CALL db.index.vector.queryNodes(
+              '{self.concept_vector_index}', $limit, $embedding
             )
-            SCORE AS score
+            YIELD node, score
             WHERE node.kb_version = $kb_version
             RETURN node.id AS concept_id,
                    node.name AS name,

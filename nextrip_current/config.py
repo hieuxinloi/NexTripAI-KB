@@ -16,10 +16,10 @@ def _default_kb_root() -> Path:
 
 
 class CurrentDataSettings(NexTripModel):
-    """Shared filesystem, authentication, refresh, and traffic settings."""
+    """Canonical place, operational observation, and service settings."""
 
     kb_root: Path = Field(default_factory=_default_kb_root)
-    current_place_root: Path | None = None
+    canonical_dataset_path: Path | None = None
     current_hotel_price_root: Path | None = None
     current_hotel_availability_root: Path | None = None
     current_trivago_mapping_root: Path | None = None
@@ -33,8 +33,13 @@ class CurrentDataSettings(NexTripModel):
     def resolve_paths(self) -> CurrentDataSettings:
         root = self.kb_root.expanduser().resolve()
         object.__setattr__(self, "kb_root", root)
+        if self.canonical_dataset_path is not None:
+            object.__setattr__(
+                self,
+                "canonical_dataset_path",
+                _resolve_path(root, self.canonical_dataset_path),
+            )
         defaults = {
-            "current_place_root": root / "data/current/place",
             "current_hotel_price_root": root / "data/current/hotel_price",
             "current_hotel_availability_root": (
                 root / "data/current/hotel_availability"
@@ -46,7 +51,7 @@ class CurrentDataSettings(NexTripModel):
             object.__setattr__(
                 self,
                 field_name,
-                default if value is None else value.expanduser().resolve(),
+                default if value is None else _resolve_path(root, value),
             )
         if self.traffic_api_base_url is not None:
             normalized = self.traffic_api_base_url.strip().rstrip("/")
@@ -68,8 +73,12 @@ class CurrentDataSettings(NexTripModel):
 
         api_key = os.getenv("CURRENT_DATA_API_KEY")
         traffic_key = os.getenv("TRAFFIC_API_KEY")
+        canonical_dataset = os.getenv("NEXTRIP_CANONICAL_DATASET")
         return cls(
             kb_root=_default_kb_root(),
+            canonical_dataset_path=(
+                Path(canonical_dataset) if canonical_dataset else None
+            ),
             api_key=SecretStr(api_key) if api_key else None,
             trivago_refresh_enabled=boolean(
                 "CURRENT_DATA_TRIVAGO_REFRESH_ENABLED", False
@@ -80,3 +89,8 @@ class CurrentDataSettings(NexTripModel):
                 os.getenv("CURRENT_DATA_TRAFFIC_TIMEOUT_SECONDS", "20")
             ),
         )
+
+
+def _resolve_path(root: Path, value: Path) -> Path:
+    expanded = value.expanduser()
+    return (expanded if expanded.is_absolute() else root / expanded).resolve()

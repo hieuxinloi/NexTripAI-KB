@@ -101,3 +101,29 @@ def test_from_env_requires_explicit_planner_model(monkeypatch) -> None:
         assert "GEMINI_PLANNER_MODEL" in str(exc)
     else:
         raise AssertionError("Expected missing planner model to fail fast")
+
+
+def test_from_neo4j_env_does_not_require_planner_model(monkeypatch) -> None:
+    _clear_versioned_neo4j_env(monkeypatch)
+    monkeypatch.delenv("GEMINI_PLANNER_MODEL", raising=False)
+    monkeypatch.setenv("NEO4J_V8_URI", "bolt://graph-v8:7687")
+    monkeypatch.setenv("NEO4J_V8_USER", "neo4j")
+    monkeypatch.setenv("NEO4J_V8_PASSWORD", "secret")
+    monkeypatch.setenv("NEO4J_V8_DATABASE", "neo4j")
+
+    settings = Settings.from_neo4j_env("v8")
+
+    assert settings.neo4j_uri == "bolt://graph-v8:7687"
+    assert settings.neo4j_user == "neo4j"
+    assert settings.neo4j_password == "secret"
+    assert settings.neo4j_database == "neo4j"
+    assert settings.gemini_planner_model == ""
+
+
+def test_from_neo4j_env_requires_complete_version_block(monkeypatch) -> None:
+    _clear_versioned_neo4j_env(monkeypatch)
+    monkeypatch.setenv("NEO4J_V8_URI", "bolt://graph-v8:7687")
+    monkeypatch.setenv("NEO4J_V8_USER", "neo4j")
+
+    with pytest.raises(ValueError, match="Unsupported Knowledge Base version: v8"):
+        Settings.from_neo4j_env("v8")

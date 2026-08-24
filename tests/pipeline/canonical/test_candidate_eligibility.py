@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+from datetime import date, datetime, time, timezone
 
 import pytest
 
@@ -15,7 +16,27 @@ from nextrip_pipeline.canonical.eligibility import (
     CandidateEntityEligibilityPolicy,
     CandidateEntityEligibilityValidator,
 )
-from nextrip_pipeline.schemas import BusinessStatus, EntityType, GeoPoint
+from nextrip_pipeline.canonical.models import (
+    EntityCityVacancy,
+    VacancySourceSubtype,
+    stable_identifier,
+)
+from nextrip_pipeline.schemas import (
+    BusinessStatus,
+    DailyOpeningSchedule,
+    DailyOpeningStatus,
+    EntityType,
+    GeoPoint,
+    GoogleMapsPlaceObservation,
+    OpeningInterval,
+    OpeningStatusObservation,
+    VerificationStatus,
+    Weekday,
+    WeeklyOpeningScheduleObservation,
+)
+
+
+NOW = datetime(2026, 8, 21, 9, tzinfo=timezone.utc)
 
 
 def _candidate(
@@ -43,6 +64,89 @@ def _pass() -> CandidateValidationResult:
         candidate_key="candidate-1",
         status=CandidateDisposition.PASS,
         reason_codes=[CandidateReasonCode.NO_DUPLICATE_SIGNAL],
+    )
+
+
+def _nightlife_vacancy(
+    subtype: VacancySourceSubtype | None,
+) -> EntityCityVacancy:
+    retired_place_id = "night_dn_008"
+    return EntityCityVacancy(
+        vacancy_id=stable_identifier(
+            "vacancy",
+            "city_da_nang",
+            EntityType.NIGHTLIFE.value,
+            retired_place_id,
+        ),
+        retired_place_id=retired_place_id,
+        city_id="city_da_nang",
+        entity_type=EntityType.NIGHTLIFE,
+        source_subtype=subtype,
+    )
+
+
+def _google_observation(
+    days: list[DailyOpeningSchedule] | None,
+    *,
+    current_is_24_hours: bool = False,
+) -> GoogleMapsPlaceObservation:
+    weekly = (
+        WeeklyOpeningScheduleObservation(
+            observation_id="weekly-1",
+            run_id="run-1",
+            place_id="candidate-1",
+            source_record_ids=["source-1"],
+            days=days,
+            observed_at=NOW,
+            verification_status=VerificationStatus.PENDING_REVIEW,
+        )
+        if days is not None
+        else None
+    )
+    return GoogleMapsPlaceObservation(
+        observation_id="observation-1",
+        run_id="run-1",
+        place_id="candidate-1",
+        source_record_id="source-1",
+        source_id="google-maps-web",
+        source_url="https://www.google.com/maps/place/example",
+        name="Candidate place",
+        opening=OpeningStatusObservation(
+            observation_id="opening-1",
+            run_id="run-1",
+            place_id="candidate-1",
+            source_record_ids=["source-1"],
+            local_date=date(2026, 8, 21),
+            status=(
+                DailyOpeningStatus.OPEN_TODAY
+                if current_is_24_hours
+                else DailyOpeningStatus.UNKNOWN
+            ),
+            is_24_hours=current_is_24_hours,
+            observed_at=NOW,
+        ),
+        weekly_opening=weekly,
+        observed_at=NOW,
+    )
+
+
+def _schedule(
+    *,
+    closes_at: time = time(22),
+    closes_next_day: bool = False,
+    open_24_hours: bool = False,
+) -> DailyOpeningSchedule:
+    if open_24_hours:
+        return DailyOpeningSchedule(day=Weekday.FRIDAY, open_24_hours=True)
+    return DailyOpeningSchedule(
+        day=Weekday.FRIDAY,
+        intervals=[
+            OpeningInterval(
+                opens_at=time(18),
+                closes_at=closes_at,
+                closes_next_day=closes_next_day,
+            )
+        ],
     )
 
 
@@ -230,6 +334,112 @@ def test_valid_nightlife_names_are_not_affected(
     assert CandidateReasonCode.ENTITY_NAME_INCOMPATIBLE_KEYWORD not in (
         result.reason_codes
     )
+
+
+@pytest.mark.parametrize(
+    ("category", "subtype", "schedule"),
+    [
+        (
+            "Coffee shop",
+            VacancySourceSubtype.LATE_NIGHT_CAFE,
+            _schedule(closes_at=time(22)),
+        ),
+        (
+            "Restaurant",
+            VacancySourceSubtype.LATE_NIGHT_DINING,
+            _schedule(closes_at=time(1), closes_next_day=True),
+        ),
+        (
+            "Restaurant",
+            VacancySourceSubtype.LATE_NIGHT_DINING,
+            _schedule(open_24_hours=True),
+        ),
+    ],
+)
+def test_matching_late_night_subtype_and_google_weekly_hours_can_pass(
+    category: str,
+    subtype: VacancySourceSubtype,
+    schedule: DailyOpeningSchedule,
+) -> None:
+    result = CandidateEntityEligibilityValidator().validate(
+        _candidate(EntityType.NIGHTLIFE, category),
+        _pass(),
+        vacancy=_nightlife_vacancy(subtype),
+        google_observation=_google_observation([schedule]),
+    )
+
+    assert result.status is CandidateDisposition.PASS
+    assert CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_COMPATIBLE in (
+        result.reason_codes
+    )
+    assert CandidateReasonCode.GOOGLE_LATE_NIGHT_SUBTYPE_COMPATIBLE in (
+        result.reason_codes
+    )
+    assert CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_COMPATIBLE in (
+        result.reason_codes
+    )
+
+
+def test_late_night_cross_category_requires_matching_retired_subtype() -> None:
+    result = CandidateEntityEligibilityValidator().validate(
+        _candidate(EntityType.NIGHTLIFE, "Coffee shop"),
+        _pass(),
+        vacancy=_nightlife_vacancy(VacancySourceSubtype.LATE_NIGHT_DINING),
+        google_observation=_google_observation([_schedule()]),
+    )
+
+    assert result.status is CandidateDisposition.REVIEW
+    assert CandidateReasonCode.GOOGLE_LATE_NIGHT_SUBTYPE_MISMATCH in (
+        result.reason_codes
+    )
+    assert CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_INCOMPATIBLE in (
+        result.reason_codes
+    )
+
+
+@pytest.mark.parametrize(
+    "observation",
+    [
+        _google_observation([_schedule(closes_at=time(21, 59))]),
+        _google_observation(None),
+        # A current-day 24-hour flag alone is not the required parsed weekly proof.
+        _google_observation(None, current_is_24_hours=True),
+    ],
+)
+def test_missing_or_insufficient_weekly_hours_remains_review(
+    observation: GoogleMapsPlaceObservation,
+) -> None:
+    result = CandidateEntityEligibilityValidator().validate(
+        _candidate(EntityType.NIGHTLIFE, "Coffee shop"),
+        _pass(),
+        vacancy=_nightlife_vacancy(VacancySourceSubtype.LATE_NIGHT_CAFE),
+        google_observation=observation,
+    )
+
+    assert result.status is CandidateDisposition.REVIEW
+    assert CandidateReasonCode.GOOGLE_LATE_NIGHT_SUBTYPE_COMPATIBLE in (
+        result.reason_codes
+    )
+    assert CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_UNPROVEN in (
+        result.reason_codes
+    )
+    assert CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_INCOMPATIBLE in (
+        result.reason_codes
+    )
+
+
+def test_existing_nightlife_category_does_not_require_subtype_or_hours() -> None:
+    result = CandidateEntityEligibilityValidator().validate(
+        _candidate(EntityType.NIGHTLIFE, "Cocktail bar"),
+        _pass(),
+        vacancy=_nightlife_vacancy(VacancySourceSubtype.LATE_NIGHT_CAFE),
+    )
+
+    assert result.status is CandidateDisposition.PASS
+    assert not {
+        CandidateReasonCode.GOOGLE_LATE_NIGHT_SUBTYPE_COMPATIBLE,
+        CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_COMPATIBLE,
+    } & set(result.reason_codes)
 
 
 def test_incompatible_name_keywords_are_configurable_per_entity() -> None:

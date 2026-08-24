@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from nextrip_pipeline.canonical.dataset import read_canonical_active_dataset
 from nextrip_pipeline.decision_gate.google_maps import (
     GoogleMapsDecision,
     GoogleMapsDecisionStatus,
@@ -27,6 +28,10 @@ from nextrip_pipeline.schemas import (
     MappingStatus,
     OpeningStatusObservation,
     VerificationStatus,
+)
+from tests.canonical_dataset_support import (
+    ACTIVE_CANONICAL_DATASET,
+    write_legacy_projection_from_canonical,
 )
 
 
@@ -255,17 +260,20 @@ def test_missing_master_file_stops_before_any_seed(tmp_path: Path) -> None:
     assert not bootstrapper.current_writer.root_directory.exists()
 
 
-def test_real_verified_master_dataset_is_fully_convertible(tmp_path: Path) -> None:
-    repository_root = Path(__file__).resolve().parents[2]
+def test_canonical_dataset_can_supply_temporary_legacy_bootstrap_fixture(
+    tmp_path: Path,
+) -> None:
+    dataset = read_canonical_active_dataset(ACTIVE_CANONICAL_DATASET)
+    source = write_legacy_projection_from_canonical(tmp_path / "legacy-master-fixture")
     bootstrapper = _bootstrapper(tmp_path)
 
     summary, _ = bootstrapper.run(
-        repository_root / "travel_data_verified",
-        run_id="real-master-coverage",
+        source,
+        run_id="canonical-derived-master-coverage",
     )
 
     assert summary.source_file_count == 5
-    assert summary.source_record_count == 692
-    assert summary.seeded_count == 692
+    assert summary.source_record_count == len(dataset.records)
+    assert summary.seeded_count == len(dataset.records)
     assert summary.failed_count == 0
     assert {item.entity_type for item in summary.entity_coverage} == set(EntityType)

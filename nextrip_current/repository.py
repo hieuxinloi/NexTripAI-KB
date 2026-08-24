@@ -7,6 +7,10 @@ from urllib.parse import quote
 
 from pydantic import ValidationError
 
+from nextrip_pipeline.canonical.dataset import read_canonical_active_dataset
+from nextrip_pipeline.canonical.place_projection import (
+    project_canonical_dataset_places,
+)
 from nextrip_pipeline.publishing.current_availability import (
     CurrentHotelAvailabilitySnapshot,
 )
@@ -27,17 +31,25 @@ def _normalized_text(value: str | None) -> str:
 
 
 class CurrentDataRepository:
-    """Read-only adapter over atomically published Current Data JSON files."""
+    """Read canonical places and append-only operational observation stores."""
 
     def __init__(
         self,
         *,
-        place_root: str | Path,
+        canonical_dataset_path: str | Path,
         hotel_price_root: str | Path,
         trivago_mapping_root: str | Path,
         hotel_availability_root: str | Path | None = None,
     ) -> None:
-        self.place_root = Path(place_root)
+        self.canonical_dataset_path = Path(canonical_dataset_path)
+        try:
+            dataset = read_canonical_active_dataset(self.canonical_dataset_path)
+            self._canonical_places = project_canonical_dataset_places(dataset)
+        except (OSError, UnicodeError, ValidationError, ValueError) as error:
+            raise CurrentDataCorruptError(
+                "invalid canonical place dataset at "
+                f"{self.canonical_dataset_path}: {error}"
+            ) from error
         self.hotel_price_root = Path(hotel_price_root)
         self.trivago_mapping_root = Path(trivago_mapping_root)
         self.hotel_availability_root = (
@@ -47,17 +59,8 @@ class CurrentDataRepository:
         )
 
     def get_place(self, place_id: str) -> CurrentPlaceSnapshot | None:
-        path = self.place_root / f"{quote(place_id, safe='-_.')}.json"
-        if not path.is_file():
-            return None
-        try:
-            return CurrentPlaceSnapshot.model_validate_json(
-                path.read_text(encoding="utf-8")
-            )
-        except (OSError, UnicodeError, ValidationError, ValueError) as error:
-            raise CurrentDataCorruptError(
-                f"invalid current place projection for {place_id}: {error}"
-            ) from error
+        place = self._canonical_places.get(place_id)
+        return place.model_copy(deep=True) if place is not None else None
 
     def get_places(
         self, place_ids: Iterable[str]
@@ -212,13 +215,15 @@ class CurrentDataRepository:
         return results
 
     def readiness(self) -> RepositoryReadiness:
-        roots = {
-            "current_place_root": self.place_root,
+        roots: dict[str, Path] = {
             "current_hotel_price_root": self.hotel_price_root,
             "current_trivago_mapping_root": self.trivago_mapping_root,
         }
         issues = []
-        counts = {}
+        counts: dict[str, int] = {}
+        counts["canonical_dataset"] = len(self._canonical_places)
+        if not self.canonical_dataset_path.is_file():
+            issues.append("canonical_dataset is not available")
         for label, root in roots.items():
             if not root.is_dir():
                 issues.append(f"{label} is not available")
@@ -231,11 +236,12 @@ class CurrentDataRepository:
             except OSError as error:
                 issues.append(f"{label} is unreadable ({type(error).__name__})")
                 counts[label] = 0
-        if counts.get("current_place_root", 0) == 0:
-            issues.append("current place store contains no projections")
+        place_count = counts["canonical_dataset"]
+        if place_count == 0:
+            issues.append("canonical dataset contains no places")
         return RepositoryReadiness(
             ready=not issues,
-            place_count=counts.get("current_place_root", 0),
+            place_count=place_count,
             hotel_offer_count=counts.get("current_hotel_price_root", 0),
             trivago_mapping_count=counts.get("current_trivago_mapping_root", 0),
             issues=issues,

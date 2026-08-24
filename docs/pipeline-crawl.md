@@ -4,10 +4,16 @@ The pipeline captures live hotel prices from the official Trivago remote MCP
 and immutable HTML evidence from Google Maps. It does not require Agoda,
 Booking.com, Trivago, or Google API keys.
 
+For `Place` identity and static facts, the sole production source is the
+publish-ready immutable canonical active dataset selected through
+`NEXTRIP_CANONICAL_DATASET`. Raw, normalized, validation, decision, review and
+compatibility projections are evidence; none of them is a serving `Place`
+source by itself.
+
 The canonical Trivago website is `https://www.trivago.vn/`. Automated price
 search uses the official endpoint `https://mcp.trivago.com/mcp` (documentation:
 `https://mcp.trivago.com/docs`); `/vi/srl` is not treated as a public API
-endpoint. The master coordinates select Trivago's radius-search tool, with text
+endpoint. Canonical coordinates select Trivago's radius-search tool, with text
 search reserved for records that have no coordinates.
 
 ## Install runtimes
@@ -82,25 +88,9 @@ coexist. Any valid price change for the same context passes immediately.
 Invalid, stale, or unconfirmed data is quarantined and never removes the last
 good current price.
 
-For all verified master hotels, use the registry and batch commands documented
+For all active canonical hotels, use the registry and batch commands documented
 in `docs/airflow-hotel-prices.md`. The batch uses MCP discovery, not fabricated
 Trivago IDs, and can be bounded with `--max-requests`.
-
-## Seed verified master places before Google crawling
-
-The five verified master files can become the initial current-place read model
-without a Google mapping, crawl, LLM, or human-review step:
-
-```powershell
-python -m nextrip_pipeline.cli bootstrap-master-places
-```
-
-The command reads attraction, cafe, hotel, nightlife, and restaurant master
-files. Known fields are copied with `verified-master-data` provenance; fields
-not present in master remain `null`. General master opening hours are retained
-separately and are not presented as a date-specific `open_now` observation.
-This is a seed-only operation: an existing accepted Google snapshot is never
-overwritten.
 
 ## Capture Google Maps place evidence
 
@@ -137,11 +127,15 @@ be parsed from that linked HTML/PDF/image and stored as `MenuObservation` and
 
 Confirmed mappings with valid identity, coordinates, provenance, and freshness
 produce a `PASS` decision. Auto-matched mappings stop at `REVIEW`. A `PASS`
-observation can replace the corresponding verified-master baseline in
-`data/current/place`; missing crawl fields retain explicit master fallbacks.
-The configured cadences are daily status, weekly details, menu every 14 days,
-and media every 30 days. Google crawling remains disabled while the verified
-master baseline is used directly.
+observation is applied only by the canonical refresh step, which consumes the
+selected batch `run_id`, preserves prior values for missing/review/quarantined
+evidence, and materializes a new immutable canonical dataset version.
+Production promotion and Neo4j publication happen only after its readiness
+gate passes.
+
+The scheduled Google Maps DAG refreshes `attraction`, `cafe`, `nightlife`, and
+`restaurant` place evidence daily. It does not schedule menu discovery or OCR;
+see `docs/airflow-google-maps.md` for the canonical-only orchestration.
 
 Before enabling scheduled production crawls, review each site's current terms,
 robots policy, and the acceptable request rate.
@@ -209,7 +203,7 @@ python -m nextrip_pipeline.cli export-menu-review `
   --output reviewed-menu.json
 ```
 
-After correcting names, sections, and prices, approve and publish the current menu:
+After correcting names, sections, and prices, approve the reviewed menu evidence:
 
 ```powershell
 python -m nextrip_pipeline.cli approve-menu `
@@ -228,6 +222,7 @@ python -m nextrip_pipeline.cli reject-menu `
 ```
 
 Pending tasks remain immutable for audit. Approvals and rejections are written as
-separate resolution files. Only an approved menu can update
-`data/current/menu/{place_id}.json`; this current projection is the input for the
-future Neo4j publisher.
+separate resolution files. A compatibility current-menu projection may still be
+written by the legacy command, but it is not a `Place` source and must not be read
+directly by Neo4j. Only approved menu evidence may enter the canonical/observation
+publisher.

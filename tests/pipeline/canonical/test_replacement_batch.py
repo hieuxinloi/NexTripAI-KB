@@ -100,14 +100,16 @@ def _discovery_run(
     *,
     run_id: str,
     root: Path,
+    candidate_entity_type: EntityType | None = None,
 ) -> GoogleMapsDiscoveryRun:
+    effective_entity_type = candidate_entity_type or vacancy.entity_type
     source_record_id = f"source-{vacancy.vacancy_id}"
     payload = {"search": vacancy.vacancy_id}
     source = SourceRecord(
         source_record_id=source_record_id,
         run_id=run_id,
         source_id="google-maps-web",
-        entity_type=vacancy.entity_type,
+        entity_type=effective_entity_type,
         subject_type=RecordSubjectType.PLACE,
         subject_id=vacancy.vacancy_id,
         crawled_at=NOW,
@@ -126,6 +128,11 @@ def _discovery_run(
         "query": f"{vacancy.entity_type.value} in {vacancy.city_id}",
         "result_limit": 10,
         "candidates": candidates,
+        "candidate_entity_type": (
+            effective_entity_type
+            if effective_entity_type is not vacancy.entity_type
+            else None
+        ),
     }
     stage = GoogleMapsCandidateStage(
         stage_hash=stable_sha256(
@@ -161,6 +168,8 @@ class FakeDiscoveryService:
         *,
         run_id: str,
         result_limit: int,
+        search_term: str | None = None,
+        candidate_entity_type: EntityType | None = None,
     ) -> GoogleMapsDiscoveryRun:
         self.calls.append(vacancy)
         if vacancy.entity_type in self.fail_types:
@@ -170,7 +179,9 @@ class FakeDiscoveryService:
                 update={
                     "candidate": item.candidate.model_copy(
                         update={
-                            "entity_type": vacancy.entity_type,
+                            "entity_type": (
+                                candidate_entity_type or vacancy.entity_type
+                            ),
                             "city_id": vacancy.city_id,
                         },
                         deep=True,
@@ -185,6 +196,7 @@ class FakeDiscoveryService:
             candidates,
             run_id=run_id,
             root=self.root,
+            candidate_entity_type=candidate_entity_type,
         )
 
 
@@ -335,6 +347,81 @@ def test_one_search_per_slot_reuses_pool_and_prevents_candidate_reuse(
     )
 
 
+def test_quarantined_vacancy_proposes_fresh_monotonic_place_id(
+    tmp_path: Path,
+) -> None:
+    vacancy = _vacancy("cafe_dn_017")
+    discovery = FakeDiscoveryService(
+        tmp_path,
+        [_staged(1, "0x314219:0x17", "IKIGAI garden cafe")],
+    )
+    runner = CanonicalReplacementProposalBatchRunner(
+        discovery,
+        FakeDetailService(),  # type: ignore[arg-type]
+        MonotonicPlaceIdAllocator(
+            existing_ids=["cafe_dn_016"],
+            quarantined_ids=["cafe_dn_017"],
+        ),
+        CanonicalReplacementProposalBatchWriter(tmp_path / "summaries"),
+        result_limit=10,
+        max_detail_candidates=5,
+        clock=lambda: NOW,
+    )
+
+    summary, _ = runner.run(
+        [vacancy],
+        [],
+        run_id="quarantined-vacancy-run",
+    )
+
+    assert summary.proposed_count == 1
+    assert summary.failed_count == 0
+    proposal = summary.results[0].proposal
+    assert proposal is not None
+    assert proposal.target_vacancy.retired_place_id == "cafe_dn_017"
+    assert proposal.proposed_place_id == "cafe_dn_018"
+
+
+def test_cross_type_pool_allocates_actual_type_and_preserves_vacancy_link(
+    tmp_path: Path,
+) -> None:
+    vacancy = _vacancy(
+        "night_qn_001",
+        entity_type=EntityType.NIGHTLIFE,
+        city_id="city_quy_nhon",
+    )
+    discovery = FakeDiscoveryService(
+        tmp_path,
+        [_staged(1, "0xcafe:0x101", "New Quy Nhon Cafe")],
+    )
+    detail = FakeDetailService()
+    runner = CanonicalReplacementProposalBatchRunner(
+        discovery,
+        detail,  # type: ignore[arg-type]
+        MonotonicPlaceIdAllocator(
+            existing_ids=["cafe_qn_099", "night_qn_100"],
+            retired_ids=[vacancy.retired_place_id],
+        ),
+        CanonicalReplacementProposalBatchWriter(tmp_path / "summaries"),
+        result_limit=10,
+        max_detail_candidates=5,
+        candidate_entity_type=EntityType.CAFE,
+        clock=lambda: NOW,
+    )
+
+    summary, _ = runner.run([vacancy], [], run_id="cross-type-batch-run")
+
+    assert summary.candidate_entity_type is EntityType.CAFE
+    assert summary.search_plan == {
+        "city_quy_nhon/nightlife->cafe": ["<adapter-default>"]
+    }
+    proposal = summary.results[0].proposal
+    assert proposal is not None
+    assert proposal.target_vacancy.retired_place_id == "night_qn_001"
+    assert proposal.candidate.entity_type is EntityType.CAFE
+    assert proposal.proposed_place_id == "cafe_qn_100"
+
+
 def test_detail_bound_retains_review_and_error_without_reaching_later_pass(
     tmp_path: Path,
 ) -> None:
@@ -368,6 +455,131 @@ def test_detail_bound_retains_review_and_error_without_reaching_later_pass(
         ReplacementCandidateFailureStatus.ERROR,
     ]
     assert all(call[1] != candidates[0].candidate.candidate_key for call in detail.calls)
+
+
+def test_multi_query_detail_bound_can_cover_five_ten_result_pools(
+    tmp_path: Path,
+) -> None:
+    vacancy = _vacancy("cafe_dn_008")
+    terms = tuple(f"query-{index}" for index in range(1, 6))
+    candidates_by_term = {
+        term: [
+            _staged(
+                position,
+                f"0x{query_index:x}:0x{position:x}",
+                f"Cafe {query_index}-{position}",
+            )
+            for position in range(1, 11)
+        ]
+        for query_index, term in enumerate(terms, start=1)
+    }
+
+    class MultiQueryDiscovery(FakeDiscoveryService):
+        def __init__(self) -> None:
+            super().__init__(tmp_path, [])
+            self.search_calls: list[str] = []
+
+        def run(
+            self,
+            vacancy: EntityCityVacancy,
+            *,
+            run_id: str,
+            result_limit: int,
+            search_term: str | None = None,
+        ) -> GoogleMapsDiscoveryRun:
+            assert search_term is not None
+            self.calls.append(vacancy)
+            self.search_calls.append(search_term)
+            return _discovery_run(
+                vacancy,
+                candidates_by_term[search_term][:result_limit],
+                run_id=run_id,
+                root=tmp_path,
+            )
+
+    discovery = MultiQueryDiscovery()
+    last_candidate = candidates_by_term[terms[-1]][-1]
+    review_behavior = {
+        candidate.candidate.candidate_key: "review"
+        for term in terms
+        for candidate in candidates_by_term[term]
+        if candidate.candidate.candidate_key
+        != last_candidate.candidate.candidate_key
+    }
+    detail = FakeDetailService(review_behavior)
+    runner = CanonicalReplacementProposalBatchRunner(
+        discovery,
+        detail,  # type: ignore[arg-type]
+        MonotonicPlaceIdAllocator(
+            existing_ids=["cafe_dn_099"],
+            retired_ids=[vacancy.retired_place_id],
+        ),
+        CanonicalReplacementProposalBatchWriter(tmp_path / "summaries"),
+        result_limit=10,
+        max_detail_candidates=50,
+        search_terms={(vacancy.city_id, vacancy.entity_type): terms},
+        clock=lambda: NOW,
+    )
+
+    summary, _ = runner.run([vacancy], [], run_id="five-query-run")
+
+    assert summary.unique_search_count == 5
+    assert summary.search_plan == {"city_da_nang/cafe": list(terms)}
+    assert discovery.search_calls == list(terms)
+    assert len(detail.calls) == 50
+    assert summary.proposed_count == 1
+    assert summary.results[0].inspected_count == 50
+    assert summary.results[0].detail_request_count == 50
+    assert summary.results[0].proposal is not None
+    assert (
+        summary.results[0].proposal.candidate.candidate_key
+        == last_candidate.candidate.candidate_key
+    )
+
+
+def test_multi_query_detail_bound_counts_normalized_unique_terms(
+    tmp_path: Path,
+) -> None:
+    vacancy = _vacancy("cafe_dn_008")
+    discovery = FakeDiscoveryService(tmp_path, [])
+    detail = FakeDetailService()
+    common = {
+        "discovery_service": discovery,
+        "detail_service": detail,
+        "allocator": MonotonicPlaceIdAllocator(
+            existing_ids=[],
+            retired_ids=[vacancy.retired_place_id],
+        ),
+        "summary_writer": CanonicalReplacementProposalBatchWriter(
+            tmp_path / "summaries"
+        ),
+        "result_limit": 10,
+        "search_terms": {
+            (vacancy.city_id, vacancy.entity_type): (
+                " first ",
+                "first",
+                "",
+                "second",
+            )
+        },
+    }
+
+    runner = CanonicalReplacementProposalBatchRunner(
+        **common,  # type: ignore[arg-type]
+        max_detail_candidates=20,
+    )
+
+    assert runner.search_terms == {
+        (vacancy.city_id, vacancy.entity_type): ("first", "second")
+    }
+    with pytest.raises(
+        ValueError,
+        match="maximum search-term count",
+    ):
+        CanonicalReplacementProposalBatchRunner(
+            **common,  # type: ignore[arg-type]
+            max_detail_candidates=21,
+        )
 
 
 def test_discovery_error_is_isolated_and_cached_per_slot(tmp_path: Path) -> None:
@@ -404,6 +616,39 @@ def test_discovery_error_is_isolated_and_cached_per_slot(tmp_path: Path) -> None
         for item in summary.results
         if item.status is ReplacementVacancyStatus.FAILED
     ] == ["discovery", "discovery"]
+
+
+def test_multiline_discovery_error_is_normalized_before_batch_hash(
+    tmp_path: Path,
+) -> None:
+    vacancy = _vacancy("cafe_dn_008")
+
+    class MultilineFailureDiscovery(FakeDiscoveryService):
+        def run(
+            self,
+            vacancy: EntityCityVacancy,
+            *,
+            run_id: str,
+            result_limit: int,
+        ) -> GoogleMapsDiscoveryRun:
+            self.calls.append(vacancy)
+            raise RuntimeError("page timeout\n\n")
+
+    discovery = MultilineFailureDiscovery(tmp_path, [])
+    detail = FakeDetailService()
+
+    summary, path = _runner(
+        tmp_path,
+        discovery,
+        detail,
+        [vacancy],
+    ).run([vacancy], [], run_id="multiline-error-run")
+
+    assert path.is_file()
+    assert summary.search_failures == [
+        "city_da_nang/cafe | <adapter-default> | RuntimeError: page timeout"
+    ]
+    assert summary.failed_count == 1
 
 
 def test_max_vacancies_bounds_only_open_work_and_skips_filled_slots(

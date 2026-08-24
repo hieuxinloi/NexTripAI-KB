@@ -61,6 +61,7 @@ class GoogleMapsValidatorOrchestrator:
             ),
             self._identity(observation, mapping, now, mapping_resolution),
             self._coordinates(observation, mapping, now),
+            self._business_status(observation, now),
             self._detail_integrity(observation, now),
             self._freshness(observation, now),
         ]
@@ -289,6 +290,29 @@ class GoogleMapsValidatorOrchestrator:
             now,
             reason_code=None if passed else "STALE_OR_FUTURE_PLACE_STATUS",
             score=1.0 if passed else 0.0,
+        )
+
+    def _business_status(self, observation, now):
+        status = observation.business_status
+        verified = status.value != "unknown"
+        return self._result(
+            observation,
+            "GoogleMapsBusinessStatusValidator",
+            ValidationStatus.PASS if verified else ValidationStatus.WARN,
+            now,
+            reason_code=None if verified else "BUSINESS_STATUS_UNVERIFIED",
+            score=1.0 if verified else 0.5,
+            evidence=[
+                ValidationEvidence(
+                    code="BUSINESS_STATUS",
+                    source_record_id=observation.source_record_id,
+                    observed_value={
+                        "business_status": status.value,
+                        "raw_status_text": observation.opening.raw_status_text,
+                    },
+                    expected_value={"status_is_explicit": True},
+                )
+            ],
         )
 
     def _detail_integrity(self, observation, now):

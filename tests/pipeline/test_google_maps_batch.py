@@ -169,16 +169,83 @@ def test_manifest_uses_paths_relative_to_manifest_and_summary_is_written(
     assert json.loads(path.read_text(encoding="utf-8"))["succeeded_count"] == 1
 
 
-def test_airflow_dag_module_is_safe_without_airflow_installed() -> None:
+def _load_google_maps_dag_module():
     dag_path = Path(__file__).parents[2] / "dags" / "nextrip_google_maps.py"
     spec = importlib.util.spec_from_file_location("nextrip_google_maps_dag", dag_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
 
-    assert "batch-google-maps" in module._batch_command("place", 32)
-    assert "--mode menu" in module._batch_command("menu", 16)
-    assert "build-google-maps-registry" in module._registry_command()
+
+def test_airflow_dag_module_is_safe_and_canonical_only_without_airflow() -> None:
+    module = _load_google_maps_dag_module()
+
+    registry_command = module._registry_command()
+    batch_commands = {
+        entity_type: module._place_batch_command(entity_type)
+        for entity_type in ("attraction", "cafe", "nightlife", "restaurant")
+    }
+    apply_command = module._apply_canonical_refresh_command()
+
+    assert "build-google-maps-registry" in registry_command
+    assert '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET"' in registry_command
+    assert "canonical-google-maps-batch-manifest.json" in registry_command
+    assert "--base-manifest" not in registry_command
+    assert "--master-dir" not in registry_command
+    assert "travel_data_verified" not in registry_command
+
+    for entity_type, batch_command in batch_commands.items():
+        assert "batch-google-maps" in batch_command
+        assert "--mode place" in batch_command
+        assert "canonical-google-maps-batch-manifest.json" in batch_command
+        assert "--current-place-dir" not in batch_command
+        assert "data/current/place" not in batch_command
+        assert "$MAPS_SCRATCH/current-place" not in batch_command
+        assert f"--entity-type {entity_type}" in batch_command
+        assert batch_command.count("--entity-type") == 1
+        assert '--run-id "$SOURCE_RUN_ID"' in batch_command
+        assert f"-{{{{ run_id }}}}-{entity_type}-try{{{{ ti.try_number }}}}" in (
+            batch_command
+        )
+        assert 'MAPS_SCRATCH="${NEXTRIP_MAPS_SCRATCH_ROOT' in batch_command
+        assert '/$SOURCE_RUN_ID"' in batch_command
+        assert 'test "$RETURNED_RUN_ID" = "$SOURCE_RUN_ID"' in batch_command
+        assert batch_command.endswith('printf "%s\\n" "$RETURNED_RUN_ID"')
+
+    assert "apply-google-maps-canonical-refresh" in apply_command
+    assert '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET"' in apply_command
+    assert "--skip-menu-backlog" not in apply_command
+    assert apply_command.count("--run-id") == 4
+    assert 'test "$UNIQUE_SOURCE_RUN_ID_COUNT" -eq 4' in apply_command
+    for entity_type in ("attraction", "cafe", "nightlife", "restaurant"):
+        shell_name = entity_type.upper()
+        assert (
+            f"ti.xcom_pull(task_ids='refresh_google_maps_{entity_type}')"
+            in apply_command
+        )
+        assert f'--run-id "$SOURCE_RUN_ID_{shell_name}"' in apply_command
+        assert f'test -n "$SOURCE_RUN_ID_{shell_name}"' in apply_command
+    assert apply_command.endswith('printf "%s\\n" "$DATASET_PATH"')
+
+
+def test_airflow_google_maps_source_has_no_scheduled_menu_or_legacy_sink() -> None:
+    dag_path = Path(__file__).parents[2] / "dags" / "nextrip_google_maps.py"
+    source = dag_path.read_text(encoding="utf-8")
+
+    assert 'dag_id="nextrip_google_maps_daily"' in source
+    assert "apply_google_maps_canonical_refresh" in source
+    assert 'task_id="refresh_google_maps_places"' not in source
+    assert "for entity_type in CANONICAL_GOOGLE_MAPS_ENTITY_TYPES" in source
+    assert "nextrip_google_maps_menu" not in source
+    assert "refresh_google_maps_menus" not in source
+    assert "--mode menu" not in source
+    assert "schedule=None" not in source
+    assert "travel_data_verified" not in source
+    assert "data/current/place" not in source
+    assert "--current-place-dir" not in source
+    assert "--base-manifest" not in source
+    assert "--skip-menu-backlog" not in source
 
 
 def test_batch_cli_accepts_entity_filters_and_exclusions() -> None:

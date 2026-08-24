@@ -6,9 +6,17 @@ import os
 import re
 from datetime import datetime, time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
+from nextrip_pipeline.google_maps_price import (
+    google_maps_price_evidence_text,
+    google_maps_price_level,
+)
+from nextrip_pipeline.google_maps_plus_code import (
+    google_maps_plus_code_center,
+    google_maps_plus_code_from_scoped_labels,
+)
 from nextrip_pipeline.schemas import (
     BusinessStatus,
     DailyOpeningStatus,
@@ -68,18 +76,24 @@ class GoogleMapsPlaceNormalizer:
             )
         location = self._location(
             decoded_html,
-            " ".join(
-                filter(
-                    None,
-                    [final_url, self._text(structured.get("detail_url"))],
+            [final_url, self._text(structured.get("detail_url"))],
+            mapping,
+            plus_code=(
+                self._text(structured.get("plus_code"))
+                or google_maps_plus_code_from_scoped_labels(
+                    structured.get("aria_labels")
                 )
             ),
-            mapping,
-            use_url_coordinates=not bool(
+            suppress_search_viewport_coordinates=bool(
                 page.get("used_master_coordinates_for_viewport")
             ),
         )
-        business_status, daily_status, open_now, raw_status = self._status(decoded_html)
+        scoped_status = bool(structured.get("status_evidence_scoped"))
+        business_status, daily_status, open_now, raw_status = self._status(
+            decoded_html,
+            scoped_status_text=self._text(structured.get("business_status_text")),
+            scoped=scoped_status,
+        )
         verification = (
             VerificationStatus.AUTO_VERIFIED
             if mapping.status is MappingStatus.CONFIRMED
@@ -89,8 +103,19 @@ class GoogleMapsPlaceNormalizer:
         weekly = self._weekly_schedule(
             structured.get("aria_labels"), record, mapping, verification
         )
+        if business_status is BusinessStatus.UNKNOWN and weekly is not None:
+            # A provider-owned weekly schedule is positive evidence that the
+            # listing is active even when the page has no open-now badge.
+            business_status = BusinessStatus.ACTIVE
         today_schedule = self._today_schedule(weekly, observed_local.weekday())
-        if business_status is BusinessStatus.ACTIVE and today_schedule is not None:
+        if (
+            business_status
+            not in {
+                BusinessStatus.PERMANENTLY_CLOSED,
+                BusinessStatus.TEMPORARILY_CLOSED,
+            }
+            and today_schedule is not None
+        ):
             daily_status = (
                 DailyOpeningStatus.CLOSED_TODAY
                 if today_schedule.closed
@@ -112,14 +137,22 @@ class GoogleMapsPlaceNormalizer:
             verification_status=verification,
         )
         raw_menu_images = structured.get("menu_image_urls")
-        if not raw_menu_images and mapping.attributes.get("verified_menu_image_url"):
+        if (
+            structured.get("menu_capture_enabled") is not False
+            and not raw_menu_images
+            and mapping.attributes.get("verified_menu_image_url")
+        ):
             raw_menu_images = [mapping.attributes["verified_menu_image_url"]]
-        menu_source = self._menu_source(
-            structured.get("menu_url"),
-            raw_menu_images,
-            record,
-            mapping,
-            verification,
+        menu_source = (
+            None
+            if structured.get("menu_capture_enabled") is False
+            else self._menu_source(
+                structured.get("menu_url"),
+                raw_menu_images,
+                record,
+                mapping,
+                verification,
+            )
         )
         media = self._media(
             structured.get("image_urls"),
@@ -128,7 +161,7 @@ class GoogleMapsPlaceNormalizer:
             verification,
             final_url,
         )
-        raw_price_text = self._text(structured.get("price_text"))
+        raw_price_text = google_maps_price_evidence_text(structured.get("price_text"))
         return GoogleMapsPlaceObservation(
             observation_id=f"{record.source_record_id}:place-status",
             run_id=record.run_id,
@@ -207,16 +240,20 @@ class GoogleMapsPlaceNormalizer:
     def _location(
         self,
         raw_html: str,
-        final_url: str,
+        coordinate_urls: list[str | None],
         mapping: ExternalEntityMapping,
         *,
-        use_url_coordinates: bool = True,
+        plus_code: str | None = None,
+        suppress_search_viewport_coordinates: bool = False,
     ) -> GeoPoint | None:
-        pairs = (
-            self._url_coordinate_pattern.findall(final_url)
-            if use_url_coordinates
-            else []
-        )
+        pairs: list[tuple[str, str]] = []
+        for coordinate_url in coordinate_urls:
+            if not coordinate_url or (
+                suppress_search_viewport_coordinates
+                and self._is_maps_search_url(coordinate_url)
+            ):
+                continue
+            pairs.extend(self._url_coordinate_pattern.findall(coordinate_url))
         pairs.extend(self._coordinate_pattern.findall(raw_html))
         coordinates = list(dict.fromkeys((float(a), float(b)) for a, b in pairs))
         coordinates = [
@@ -226,6 +263,18 @@ class GoogleMapsPlaceNormalizer:
         ]
         expected = self._expected_coordinates(mapping)
         if not coordinates:
+            plus_code_center = google_maps_plus_code_center(
+                plus_code,
+                city_id=mapping.attributes.get("city_id"),
+                city_name=mapping.attributes.get("master_city"),
+            )
+            if plus_code_center is not None:
+                return GeoPoint(
+                    latitude=plus_code_center[0],
+                    longitude=plus_code_center[1],
+                    accuracy="google_maps_plus_code_area_center",
+                    source=self.source_id,
+                )
             if expected is None:
                 return None
             return GeoPoint(
@@ -248,6 +297,14 @@ class GoogleMapsPlaceNormalizer:
             accuracy="google_maps_place_page",
             source=self.source_id,
         )
+
+    @staticmethod
+    def _is_maps_search_url(value: str) -> bool:
+        try:
+            path = urlsplit(value).path.casefold()
+        except ValueError:
+            return False
+        return "/maps/search/" in f"{path.rstrip('/')}/"
 
     @staticmethod
     def _expected_coordinates(
@@ -275,39 +332,55 @@ class GoogleMapsPlaceNormalizer:
     @staticmethod
     def _status(
         raw_html: str,
+        *,
+        scoped_status_text: str | None = None,
+        scoped: bool = False,
     ) -> tuple[BusinessStatus, DailyOpeningStatus, bool | None, str | None]:
+        sample = scoped_status_text or ("" if scoped else raw_html)
         permanent = ("Đã đóng cửa vĩnh viễn", "Permanently closed")
         temporary = ("Tạm thời đóng cửa", "Temporarily closed")
         open_terms = ("Đang mở cửa", "Open now")
         closed_now_terms = ("Đã đóng cửa", "Closed now")
-        if term := next((item for item in permanent if item in raw_html), None):
+        if term := next((item for item in permanent if item in sample), None):
             return (
                 BusinessStatus.PERMANENTLY_CLOSED,
                 DailyOpeningStatus.PERMANENTLY_CLOSED,
                 False,
                 term,
             )
-        if term := next((item for item in temporary if item in raw_html), None):
+        if term := next((item for item in temporary if item in sample), None):
             return (
                 BusinessStatus.TEMPORARILY_CLOSED,
                 DailyOpeningStatus.TEMPORARILY_CLOSED,
                 False,
                 term,
             )
-        if term := next((item for item in open_terms if item in raw_html), None):
+        if term := next((item for item in open_terms if item in sample), None):
             return BusinessStatus.ACTIVE, DailyOpeningStatus.OPEN_TODAY, True, term
-        if term := next((item for item in closed_now_terms if item in raw_html), None):
+        if term := next((item for item in closed_now_terms if item in sample), None):
             next_open = re.search(
                 rf"{re.escape(term)}.{{0,80}}?("
                 r"Mở cửa lúc\s+\d{1,2}:\d{2}(?:\s+Thứ\s+\d)?|"
                 r"Opens?\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)",
-                raw_html,
+                sample,
                 flags=re.IGNORECASE,
             )
             raw_status = f"{term} · {next_open.group(1)}" if next_open else term
             # Closed now does not prove that the place is closed for the whole day.
             return BusinessStatus.ACTIVE, DailyOpeningStatus.UNKNOWN, False, raw_status
-        return BusinessStatus.ACTIVE, DailyOpeningStatus.UNKNOWN, None, None
+        # Reaching this branch with ``scoped=True`` means Playwright resolved
+        # an exact place detail (visible h1) and searched only that panel for
+        # Google closure badges.  The listing itself is therefore current
+        # evidence that the place is not marked permanently/temporarily
+        # closed, even when Google does not expose an open-now label (common
+        # for beaches, landmarks, and other attractions without business
+        # hours).  Daily open/closed remains UNKNOWN until hours are present.
+        return (
+            BusinessStatus.ACTIVE,
+            DailyOpeningStatus.UNKNOWN,
+            None,
+            None,
+        )
 
     def _weekly_schedule(
         self,
@@ -318,26 +391,44 @@ class GoogleMapsPlaceNormalizer:
     ) -> WeeklyOpeningScheduleObservation | None:
         if not isinstance(raw_labels, list):
             return None
-        day_names = {day.value.capitalize(): day for day in Weekday}
+        day_names = {
+            "monday": Weekday.MONDAY,
+            "tuesday": Weekday.TUESDAY,
+            "wednesday": Weekday.WEDNESDAY,
+            "thursday": Weekday.THURSDAY,
+            "friday": Weekday.FRIDAY,
+            "saturday": Weekday.SATURDAY,
+            "sunday": Weekday.SUNDAY,
+            "thứ hai": Weekday.MONDAY,
+            "thứ ba": Weekday.TUESDAY,
+            "thứ tư": Weekday.WEDNESDAY,
+            "thứ năm": Weekday.THURSDAY,
+            "thứ sáu": Weekday.FRIDAY,
+            "thứ bảy": Weekday.SATURDAY,
+            "chủ nhật": Weekday.SUNDAY,
+        }
         schedules: dict[Weekday, DailyOpeningSchedule] = {}
         for raw_label in raw_labels:
             label = self._text(raw_label)
             if label is None:
                 continue
-            match = re.match(
-                r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s*(.+)$",
-                label,
-                flags=re.IGNORECASE,
-            )
+            match = re.match(r"^([^,]+),\s*(.+)$", label)
             if not match:
                 continue
-            weekday = day_names[match.group(1).capitalize()]
-            details = re.sub(
-                r",?\s*(?:Copy open hours|Hide open hours|Suggest.*)$",
-                "",
+            raw_day = re.sub(r"\s*\([^)]*\)\s*$", "", match.group(1)).casefold()
+            weekday = day_names.get(raw_day)
+            if weekday is None:
+                continue
+            details = re.split(
+                r",?\s*(?:"
+                r"Copy open hours|Hide open hours|Suggest.*|"
+                r"Sao chép giờ mở cửa|Ẩn giờ mở cửa|Đề xuất.*|"
+                r"Giờ làm việc có thể thay đổi"
+                r")",
                 match.group(2),
+                maxsplit=1,
                 flags=re.IGNORECASE,
-            ).strip()
+            )[0].strip(" ,")
             schedule = self._parse_day_schedule(weekday, details)
             if schedule is not None:
                 schedules.setdefault(weekday, schedule)
@@ -360,35 +451,87 @@ class GoogleMapsPlaceNormalizer:
     def _parse_day_schedule(
         self, weekday: Weekday, details: str
     ) -> DailyOpeningSchedule | None:
-        if re.search(r"\bClosed\b", details, flags=re.IGNORECASE):
+        if re.fullmatch(r"(?:Closed|Đóng cửa)", details, flags=re.IGNORECASE):
             return DailyOpeningSchedule(day=weekday, closed=True)
-        if re.search(r"Open 24 hours", details, flags=re.IGNORECASE):
-            return DailyOpeningSchedule(day=weekday, open_24_hours=True)
-        intervals = []
-        for opens, closes in re.findall(
-            r"(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\s*(?:to|–|-)\s*"
-            r"(\d{1,2}(?::\d{2})?\s*(?:AM|PM))",
+        if re.fullmatch(
+            r"(?:Open 24 hours|Mở cửa (?:cả ngày|24 giờ))",
             details,
             flags=re.IGNORECASE,
         ):
-            opens_at = self._parse_clock_time(opens)
-            closes_at = self._parse_clock_time(closes)
-            intervals.append(
-                OpeningInterval(
-                    opens_at=opens_at,
-                    closes_at=closes_at,
-                    closes_next_day=closes_at <= opens_at,
-                )
-            )
-        return (
-            DailyOpeningSchedule(day=weekday, intervals=intervals)
-            if intervals
-            else None
+            return DailyOpeningSchedule(day=weekday, open_24_hours=True)
+        interval_patterns = (
+            (
+                re.compile(
+                    r"(?P<opens>\d{1,2}(?::\d{2})?\s*(?:AM|PM))\s*"
+                    r"(?:to|–|-)\s*"
+                    r"(?P<closes>\d{1,2}(?::\d{2})?\s*(?:AM|PM))",
+                    flags=re.IGNORECASE,
+                ),
+                False,
+            ),
+            (
+                re.compile(
+                    r"(?P<opens>(?:[01]?\d|2[0-3]):[0-5]\d)\s*"
+                    r"(?:đến|to|–|-)\s*"
+                    r"(?P<closes>(?:[01]?\d|2[0-3]):[0-5]\d)",
+                    flags=re.IGNORECASE,
+                ),
+                True,
+            ),
         )
+        captured: list[tuple[int, int, OpeningInterval]] = []
+        for pattern, uses_24_hour_clock in interval_patterns:
+            for match in pattern.finditer(details):
+                try:
+                    opens_at = self._parse_clock_time(
+                        match.group("opens"),
+                        uses_24_hour_clock=uses_24_hour_clock,
+                    )
+                    closes_at = self._parse_clock_time(
+                        match.group("closes"),
+                        uses_24_hour_clock=uses_24_hour_clock,
+                    )
+                except ValueError:
+                    return None
+                captured.append(
+                    (
+                        match.start(),
+                        match.end(),
+                        OpeningInterval(
+                            opens_at=opens_at,
+                            closes_at=closes_at,
+                            closes_next_day=closes_at <= opens_at,
+                        ),
+                    )
+                )
+        if not captured:
+            return None
+        captured.sort(key=lambda item: item[0])
+        if any(
+            previous[1] > current[0]
+            for previous, current in zip(captured, captured[1:], strict=False)
+        ):
+            return None
+        remainder_parts: list[str] = []
+        cursor = 0
+        for start, end, _ in captured:
+            remainder_parts.append(details[cursor:start])
+            cursor = end
+        remainder_parts.append(details[cursor:])
+        if re.sub(r"[\s,;/]+", "", "".join(remainder_parts)):
+            return None
+        intervals = [item[2] for item in captured]
+        return DailyOpeningSchedule(day=weekday, intervals=intervals)
 
     @staticmethod
-    def _parse_clock_time(value: str) -> time:
+    def _parse_clock_time(
+        value: str,
+        *,
+        uses_24_hour_clock: bool = False,
+    ) -> time:
         normalized = re.sub(r"\s+", " ", value.strip().upper())
+        if uses_24_hour_clock:
+            return datetime.strptime(normalized, "%H:%M").time()
         pattern = "%I:%M %p" if ":" in normalized else "%I %p"
         return datetime.strptime(normalized, pattern).time()
 
@@ -494,22 +637,7 @@ class GoogleMapsPlaceNormalizer:
 
     @staticmethod
     def _price_level(raw_text: str | None) -> int | None:
-        if raw_text is None:
-            return None
-        symbol_groups = re.findall(r"[$₫€£]+", raw_text)
-        if symbol_groups:
-            return min(len(max(symbol_groups, key=len)), 4)
-        lowered = raw_text.casefold()
-        labels = {
-            "inexpensive": 1,
-            "affordable": 1,
-            "moderate": 2,
-            "expensive": 3,
-            "very expensive": 4,
-        }
-        return next(
-            (level for label, level in labels.items() if label in lowered), None
-        )
+        return google_maps_price_level(raw_text)
 
 
 class NormalizedGoogleMapsWriter:

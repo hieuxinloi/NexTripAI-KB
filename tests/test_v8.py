@@ -298,6 +298,30 @@ def test_v8_projection_uses_server_side_dynamic_graph_copy() -> None:
     assert "create_fulltext_index(" in source
     assert "defaultdict" not in source
     assert "_primary_label" not in source
+    assert V8GraphStore.place_label == "Place"
+    assert V8GraphStore.entity_label == "Entity"
+    assert V8GraphStore.place_fulltext_index == "place_fulltext"
+    assert V8GraphStore.place_vector_index == "place_embedding"
+    assert V8GraphStore.concept_vector_index == "concept_embedding"
+    assert ":V8" not in source
+
+
+def test_legacy_v8_projection_rejects_canonical_managed_database() -> None:
+    store = V8GraphStore.__new__(V8GraphStore)
+    calls: list[tuple[str, dict[str, Any]]] = []
+    store.run = lambda query, **params: calls.append((query, params)) or [
+        {"releases": 1}
+    ]
+
+    with pytest.raises(RuntimeError, match="canonical-managed"):
+        store.project_from_v5(replace=True)
+
+    assert len(calls) == 1
+    query, params = calls[0]
+    assert "MATCH (release:DatasetRelease" in query
+    assert "kb_version: $kb_version" in query
+    assert params == {"kb_version": "v8"}
+    assert "DETACH DELETE" not in query
 
 
 def test_v8_concept_search_uses_its_own_vector_index() -> None:
@@ -307,8 +331,9 @@ def test_v8_concept_search_uses_its_own_vector_index() -> None:
 
     store.semantic_concept_candidates([0.0], 5)
 
-    assert "VECTOR INDEX v8_concept_embedding" in calls[0]
-    assert "VECTOR INDEX v5_concept_embedding" not in calls[0]
+    assert "db.index.vector.queryNodes" in calls[0]
+    assert "'concept_embedding'" in calls[0]
+    assert "'v5_concept_embedding'" not in calls[0]
 
 
 def test_v8_fallback_uses_official_hybrid_retriever_and_keeps_filters_safe() -> None:
@@ -324,8 +349,8 @@ def test_v8_fallback_uses_official_hybrid_retriever_and_keeps_filters_safe() -> 
     assert "fuse_ranked_ids" not in source
     assert "WHERE node.kb_version = $kb_version" in source
     assert "v5_place_fulltext" not in source
-    assert 'fulltext_index = "v8_place_fulltext"' in source
-    assert 'vector_index = "v8_place_embedding"' in source
+    assert 'fulltext_index = "place_fulltext"' in source
+    assert 'vector_index = "place_embedding"' in source
 
 
 def test_v8_hybrid_retriever_adapts_sdk_results_to_entities() -> None:

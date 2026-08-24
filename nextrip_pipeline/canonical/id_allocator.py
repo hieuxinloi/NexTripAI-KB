@@ -50,13 +50,19 @@ class MonotonicPlaceIdAllocator:
         *,
         existing_ids: Iterable[str],
         retired_ids: Iterable[str] = (),
+        quarantined_ids: Iterable[str] = (),
         reserved_ids: Iterable[str] = (),
     ) -> None:
         self._existing = {_canonical_id(value) for value in existing_ids}
         self._retired = {_canonical_id(value) for value in retired_ids}
+        self._quarantined = {
+            _canonical_id(value) for value in quarantined_ids
+        }
+        self._replacement_sources = self._retired | self._quarantined
         self._blocked = (
             self._existing
             | self._retired
+            | self._quarantined
             | {_canonical_id(value) for value in reserved_ids}
         )
         self._lock = Lock()
@@ -79,9 +85,10 @@ class MonotonicPlaceIdAllocator:
         city_slot = _city_slot(candidate.city_id)
         if replacement_of is not None:
             replacement = _canonical_id(replacement_of)
-            if replacement not in self._retired:
+            if replacement not in self._replacement_sources:
                 raise PlaceIdAllocationError(
-                    "replacement_of must identify a retired canonical ID"
+                    "replacement_of must identify a retired canonical ID or "
+                    "quarantined canonical ID"
                 )
             match = _ID_PATTERN.fullmatch(replacement)
             assert match is not None

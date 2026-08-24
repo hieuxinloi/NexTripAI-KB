@@ -15,6 +15,7 @@ from nextrip_pipeline.canonical import (
     LegacyPlaceSlot,
     UnknownPlaceIdentityError,
     VacancyReplacementDecision,
+    VacancySourceSubtype,
     VacancyStatus,
     build_canonical_identity_manifest,
     read_canonical_identity_manifest,
@@ -134,6 +135,41 @@ def test_duplicate_resolution_produces_one_place_alias_tombstone_and_vacancy() -
     assert quotas[("city_quy_nhon", EntityType.RESTAURANT)] == (1, 1, 0)
 
 
+@pytest.mark.parametrize(
+    ("source_tag", "expected_subtype"),
+    [
+        ("late_night_cafe", VacancySourceSubtype.LATE_NIGHT_CAFE),
+        ("late_night_restaurant", VacancySourceSubtype.LATE_NIGHT_DINING),
+        ("late_night_dining", VacancySourceSubtype.LATE_NIGHT_DINING),
+    ],
+)
+def test_nightlife_vacancy_retains_retired_slot_subtype_across_cleanup(
+    source_tag: str,
+    expected_subtype: VacancySourceSubtype,
+) -> None:
+    slots = _slots()
+    slots[1] = slots[1].model_copy(update={"tags": [source_tag]})
+    initial = build_canonical_identity_manifest(
+        slots,
+        duplicate_decisions=[_decision()],
+        generated_at=GENERATED_AT,
+    )
+
+    assert initial.vacancies[0].source_subtype is expected_subtype
+
+    active_only = [
+        slot for slot in slots if slot.legacy_place_id != "night_qn_032"
+    ]
+    rebuilt = build_canonical_identity_manifest(
+        active_only,
+        previous_manifest=initial,
+        generated_at=GENERATED_AT + timedelta(days=1),
+    )
+
+    assert rebuilt.vacancies[0].source_subtype is expected_subtype
+    assert rebuilt.manifest_hash == initial.manifest_hash
+
+
 def test_resolver_accepts_active_and_retired_ids_but_not_unknown_ids() -> None:
     resolver = CanonicalIdentityResolver(_manifest())
 
@@ -212,30 +248,12 @@ def test_filled_assignment_persists_and_cannot_be_changed_or_reopened() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    ("replacement_slot", "message"),
-    [
-        (
-            _replacement_slot(
-                "night_dn_101",
-                city_id="city_da_nang",
-            ),
-            "preserve the vacancy entity/city slot",
-        ),
-        (
-            _replacement_slot(
-                "rest_qn_107",
-                entity_type=EntityType.RESTAURANT,
-            ),
-            "preserve the vacancy entity/city slot",
-        ),
-    ],
-)
-def test_replacement_must_preserve_city_and_primary_entity_slot(
-    replacement_slot: LegacyPlaceSlot,
-    message: str,
-) -> None:
-    with pytest.raises(CanonicalIdentityError, match=message):
+def test_replacement_must_preserve_city() -> None:
+    replacement_slot = _replacement_slot(
+        "night_dn_101",
+        city_id="city_da_nang",
+    )
+    with pytest.raises(CanonicalIdentityError, match="preserve the vacancy city slot"):
         build_canonical_identity_manifest(
             [*_slots(), replacement_slot],
             duplicate_decisions=[_decision()],
@@ -244,6 +262,57 @@ def test_replacement_must_preserve_city_and_primary_entity_slot(
             ],
             generated_at=GENERATED_AT,
         )
+
+
+@pytest.mark.parametrize(
+    ("replacement_id", "replacement_type"),
+    [
+        ("cafe_qn_002", EntityType.CAFE),
+        ("rest_qn_002", EntityType.RESTAURANT),
+    ],
+)
+def test_cross_type_replacement_rebalances_dynamic_quotas_and_conserves_city_total(
+    replacement_id: str,
+    replacement_type: EntityType,
+) -> None:
+    before = _manifest()
+    replacement_slot = _replacement_slot(
+        replacement_id,
+        entity_type=replacement_type,
+    )
+    after = build_canonical_identity_manifest(
+        [*_slots(), replacement_slot],
+        duplicate_decisions=[_decision()],
+        replacement_decisions=[_replacement_decision(replacement_id)],
+        generated_at=GENERATED_AT,
+    )
+
+    vacancy = after.vacancies[0]
+    assert vacancy.entity_type is EntityType.NIGHTLIFE
+    assert vacancy.status is VacancyStatus.FILLED
+    assert vacancy.replacement_place_id == replacement_id
+    assert after.retired_place_ids == before.retired_place_ids
+
+    quotas = {
+        item.entity_type: (
+            item.target_count,
+            item.active_count,
+            item.vacancy_count,
+        )
+        for item in after.quotas
+    }
+    assert quotas[replacement_type] == (2, 2, 0)
+    assert EntityType.NIGHTLIFE not in quotas
+    assert sum(item.target_count for item in after.quotas) == sum(
+        item.target_count for item in before.quotas
+    )
+    assert sum(item.target_count for item in after.quotas) == (
+        len(after.identities)
+        + sum(
+            vacancy.status is VacancyStatus.VACANT
+            for vacancy in after.vacancies
+        )
+    )
 
 
 def test_replacement_assignments_are_one_to_one() -> None:

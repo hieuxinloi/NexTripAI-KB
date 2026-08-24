@@ -252,6 +252,8 @@ def test_technical_failure_reason_cannot_claim_hotel_is_unavailable():
     for reason in (
         HotelAvailabilityReason.NO_PRICE,
         HotelAvailabilityReason.CRAWL_ERROR,
+        HotelAvailabilityReason.CONFIRMED_LISTING_NOT_RETURNED,
+        HotelAvailabilityReason.IDENTITY_REVERIFY,
     ):
         with pytest.raises(ValidationError, match="reason is incompatible"):
             _window(
@@ -266,6 +268,18 @@ def test_technical_failure_reason_cannot_claim_hotel_is_unavailable():
         reason=HotelAvailabilityReason.NO_PRICE,
     )
     assert no_price.availability is HotelAvailabilityStatus.UNKNOWN
+    listing_not_returned = _window(
+        0,
+        status=HotelAvailabilityStatus.UNKNOWN,
+        reason=HotelAvailabilityReason.CONFIRMED_LISTING_NOT_RETURNED,
+    )
+    assert listing_not_returned.availability is HotelAvailabilityStatus.UNKNOWN
+    identity_reverify = _window(
+        0,
+        status=HotelAvailabilityStatus.UNKNOWN,
+        reason=HotelAvailabilityReason.IDENTITY_REVERIFY,
+    )
+    assert identity_reverify.availability is HotelAvailabilityStatus.UNKNOWN
 
 
 def test_result_must_select_earliest_fresh_available_window():

@@ -31,6 +31,8 @@ class HotelAvailabilityReason(StrEnum):
     NO_PRICE = "no_price"
     NO_BOOKABLE_OFFER_RETURNED = "no_bookable_offer_returned"
     PROVIDER_NOT_LISTED = "provider_not_listed"
+    CONFIRMED_LISTING_NOT_RETURNED = "confirmed_listing_not_returned"
+    IDENTITY_REVERIFY = "identity_reverify"
     CRAWL_ERROR = "crawl_error"
     MAPPING_UNRESOLVED = "mapping_unresolved"
 
@@ -117,6 +119,8 @@ class HotelAvailabilityObservation(NexTripModel):
             HotelAvailabilityReason.MAPPING_UNRESOLVED,
             HotelAvailabilityReason.NO_PRICE,
             HotelAvailabilityReason.PROVIDER_NOT_LISTED,
+            HotelAvailabilityReason.CONFIRMED_LISTING_NOT_RETURNED,
+            HotelAvailabilityReason.IDENTITY_REVERIFY,
         }
         reasons_by_status = {
             HotelAvailabilityStatus.AVAILABLE: available_reasons,

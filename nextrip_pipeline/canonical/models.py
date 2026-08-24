@@ -222,6 +222,46 @@ class CanonicalPlaceIdentity(NexTripModel):
         return [self.primary_type, *self.secondary_types]
 
 
+class QuarantinedCanonicalIdentity(NexTripModel):
+    """Permanent, provenance-backed archive of one ineligible identity."""
+
+    quarantine_id: str = Field(min_length=1, pattern=_IDENTIFIER_PATTERN)
+    identity: CanonicalPlaceIdentity
+    source_manifest_id: str = Field(min_length=1, pattern=_IDENTIFIER_PATTERN)
+    source_manifest_hash: str = Field(pattern=_SHA256_PATTERN)
+    invalidation_approval_id: str = Field(
+        min_length=1,
+        pattern=_IDENTIFIER_PATTERN,
+    )
+    invalidation_approval_hash: str = Field(pattern=_SHA256_PATTERN)
+    reason: str = Field(min_length=1)
+    reviewer: str = Field(min_length=1)
+    invalidated_at: AwareDatetime
+    evidence_hashes: list[str] = Field(min_length=1)
+
+    @field_validator("evidence_hashes")
+    @classmethod
+    def normalize_evidence_hashes(cls, values: list[str]) -> list[str]:
+        ordered = sorted(set(values))
+        if len(ordered) != len(values):
+            raise ValueError("quarantine evidence hashes must be unique")
+        if any(re.fullmatch(_SHA256_PATTERN, value) is None for value in ordered):
+            raise ValueError("quarantine evidence hashes must be SHA-256 values")
+        return ordered
+
+    @model_validator(mode="after")
+    def validate_quarantine(self) -> QuarantinedCanonicalIdentity:
+        expected = stable_identifier(
+            "quarantine",
+            self.identity.canonical_place_id,
+        )
+        if self.quarantine_id != expected:
+            raise ValueError("quarantine_id is not deterministic for its identity")
+        if self.identity.active_legacy_place_id != self.identity.canonical_place_id:
+            raise ValueError("quarantine requires the canonical active identity")
+        return self
+
+
 class RetiredPlaceId(NexTripModel):
     """Permanent tombstone for a duplicate legacy ID."""
 
@@ -247,6 +287,13 @@ class VacancyStatus(StrEnum):
     FILLED = "filled"
 
 
+class VacancySourceSubtype(StrEnum):
+    """Semantic subtype retained from the retired historical quota slot."""
+
+    LATE_NIGHT_CAFE = "late_night_cafe"
+    LATE_NIGHT_DINING = "late_night_dining"
+
+
 class EntityCityVacancy(NexTripModel):
     """Historical quota slot left behind by one retired duplicate ID."""
 
@@ -254,6 +301,7 @@ class EntityCityVacancy(NexTripModel):
     retired_place_id: str = Field(min_length=1, pattern=_IDENTIFIER_PATTERN)
     city_id: str = Field(min_length=1, pattern=_IDENTIFIER_PATTERN)
     entity_type: EntityType
+    source_subtype: VacancySourceSubtype | None = None
     status: VacancyStatus = VacancyStatus.VACANT
     replacement_place_id: str | None = Field(
         default=None,
@@ -277,11 +325,22 @@ class EntityCityVacancy(NexTripModel):
             raise ValueError("a filled slot requires replacement_place_id")
         if self.replacement_place_id == self.retired_place_id:
             raise ValueError("replacement_place_id cannot reuse retired_place_id")
+        if (
+            self.source_subtype is not None
+            and self.entity_type is not EntityType.NIGHTLIFE
+        ):
+            raise ValueError("source_subtype is only supported for nightlife vacancies")
         return self
 
 
 class EntityCityQuota(NexTripModel):
-    """Invariant: target slots equal active places plus open vacancies."""
+    """Dynamic type allocation within one city's conserved total capacity.
+
+    A cross-type replacement moves one slot from the retired entity type to
+    the replacement's current primary type.  Consequently ``target_count`` is
+    intentionally derived from the current active identities and open
+    historical vacancies; it is not a permanently fixed per-type quota.
+    """
 
     city_id: str = Field(min_length=1, pattern=_IDENTIFIER_PATTERN)
     entity_type: EntityType
@@ -300,11 +359,12 @@ def canonical_manifest_payload(
     *,
     schema_version: str,
     identities: list[CanonicalPlaceIdentity],
+    quarantined_identities: list[QuarantinedCanonicalIdentity] | None = None,
     retired_place_ids: list[RetiredPlaceId],
     vacancies: list[EntityCityVacancy],
     quotas: list[EntityCityQuota],
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "schema_version": schema_version,
         "identities": [item.model_dump(mode="json") for item in identities],
         "retired_place_ids": [
@@ -318,6 +378,12 @@ def canonical_manifest_payload(
         ],
         "quotas": [item.model_dump(mode="json") for item in quotas],
     }
+    if schema_version != "1.0.0":
+        payload["quarantined_identities"] = [
+            item.model_dump(mode="json")
+            for item in (quarantined_identities or [])
+        ]
+    return payload
 
 
 class CanonicalIdentityManifest(NexTripModel):
@@ -328,21 +394,54 @@ class CanonicalIdentityManifest(NexTripModel):
     manifest_hash: str = Field(pattern=_SHA256_PATTERN)
     generated_at: AwareDatetime
     identities: list[CanonicalPlaceIdentity]
+    quarantined_identities: list[QuarantinedCanonicalIdentity] = Field(
+        default_factory=list
+    )
     retired_place_ids: list[RetiredPlaceId] = Field(default_factory=list)
     vacancies: list[EntityCityVacancy] = Field(default_factory=list)
     quotas: list[EntityCityQuota] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_manifest(self) -> CanonicalIdentityManifest:
+        if self.schema_version == "1.0.0" and self.quarantined_identities:
+            raise ValueError(
+                "manifest schema 1.0.0 cannot contain quarantined identities"
+            )
+        if self.schema_version not in {"1.0.0", "1.1.0"}:
+            raise ValueError("unsupported canonical manifest schema version")
         canonical_ids = [item.canonical_place_id for item in self.identities]
         if len(canonical_ids) != len(set(canonical_ids)):
             raise ValueError("canonical_place_id values must be unique")
+        quarantined_canonical_ids = [
+            item.identity.canonical_place_id
+            for item in self.quarantined_identities
+        ]
+        if len(quarantined_canonical_ids) != len(set(quarantined_canonical_ids)):
+            raise ValueError("quarantined canonical IDs must be unique")
+        if set(canonical_ids) & set(quarantined_canonical_ids):
+            raise ValueError("active and quarantined canonical IDs must be disjoint")
+        if self.quarantined_identities != sorted(
+            self.quarantined_identities,
+            key=lambda item: item.identity.canonical_place_id,
+        ):
+            raise ValueError("quarantined identities must be sorted")
 
         owners: dict[str, str] = {}
         identities_by_id = {
             item.canonical_place_id: item for item in self.identities
         }
-        for identity in self.identities:
+        quarantined_by_id = {
+            item.identity.canonical_place_id: item
+            for item in self.quarantined_identities
+        }
+        all_identity_snapshots = [
+            *self.identities,
+            *(item.identity for item in self.quarantined_identities),
+        ]
+        all_identities_by_id = {
+            item.canonical_place_id: item for item in all_identity_snapshots
+        }
+        for identity in all_identity_snapshots:
             for legacy_id in identity.legacy_place_ids:
                 if legacy_id in owners:
                     raise ValueError(f"legacy place ID has multiple owners: {legacy_id}")
@@ -354,12 +453,21 @@ class CanonicalIdentityManifest(NexTripModel):
         active_legacy_ids = {
             item.active_legacy_place_id for item in self.identities
         }
-        if (set(canonical_ids) | active_legacy_ids) & set(retired_ids):
+        quarantined_active_ids = {
+            item.identity.active_legacy_place_id
+            for item in self.quarantined_identities
+        }
+        if (
+            set(canonical_ids)
+            | active_legacy_ids
+            | set(quarantined_canonical_ids)
+            | quarantined_active_ids
+        ) & set(retired_ids):
             raise ValueError("a retired place ID can never be reused as active")
 
         expected_retired = {
             legacy_id
-            for identity in self.identities
+            for identity in all_identity_snapshots
             for legacy_id in identity.legacy_place_ids
             if legacy_id != identity.active_legacy_place_id
         }
@@ -371,7 +479,7 @@ class CanonicalIdentityManifest(NexTripModel):
             owner = owners.get(retirement.retired_place_id)
             if owner != retirement.canonical_place_id:
                 raise ValueError("retired place ID must point to its canonical owner")
-            identity = identities_by_id.get(retirement.canonical_place_id)
+            identity = all_identities_by_id.get(retirement.canonical_place_id)
             if identity is None or identity.city_id != retirement.city_id:
                 raise ValueError("retirement city must match its canonical identity")
             if retirement.entity_type not in identity.place_types:
@@ -384,20 +492,33 @@ class CanonicalIdentityManifest(NexTripModel):
             raise ValueError("vacancy_id values must be unique")
         vacancy_retired_ids = [item.retired_place_id for item in self.vacancies]
         if len(vacancy_retired_ids) != len(set(vacancy_retired_ids)):
-            raise ValueError("each retired place ID can have only one vacancy")
+            raise ValueError("each vacancy source ID can have only one vacancy")
         vacancy_by_retired = {item.retired_place_id: item for item in self.vacancies}
-        if set(vacancy_by_retired) != set(retired_ids):
-            raise ValueError("every retired place ID must retain exactly one vacancy")
+        expected_vacancy_sources = set(retired_ids) | set(
+            quarantined_canonical_ids
+        )
+        if set(vacancy_by_retired) != expected_vacancy_sources:
+            raise ValueError(
+                "every retired alias and invalidated canonical ID must retain "
+                "exactly one vacancy"
+            )
         retirement_by_id = {
             item.retired_place_id: item for item in self.retired_place_ids
         }
         for retired_id, vacancy in vacancy_by_retired.items():
-            retirement = retirement_by_id[retired_id]
-            if (vacancy.city_id, vacancy.entity_type) != (
-                retirement.city_id,
-                retirement.entity_type,
-            ):
-                raise ValueError("vacancy must retain the retired entity/city slot")
+            retirement = retirement_by_id.get(retired_id)
+            if retirement is not None:
+                expected_slot = (retirement.city_id, retirement.entity_type)
+            else:
+                quarantine = quarantined_by_id[retired_id]
+                expected_slot = (
+                    quarantine.identity.city_id,
+                    quarantine.identity.primary_type,
+                )
+            if (vacancy.city_id, vacancy.entity_type) != expected_slot:
+                raise ValueError(
+                    "vacancy must retain its retired or invalidated entity/city slot"
+                )
 
         filled_vacancies = [
             vacancy
@@ -409,23 +530,25 @@ class CanonicalIdentityManifest(NexTripModel):
         ]
         if len(replacement_ids) != len(set(replacement_ids)):
             raise ValueError("one replacement place can fill only one vacancy")
+        quarantined_legacy_ids = {
+            legacy_id
+            for item in self.quarantined_identities
+            for legacy_id in item.identity.legacy_place_ids
+        }
         for vacancy in filled_vacancies:
             replacement_id = vacancy.replacement_place_id
             assert replacement_id is not None
-            if replacement_id in retired_ids:
-                raise ValueError("a retired place ID cannot be used as a replacement")
+            if replacement_id in set(retired_ids) | quarantined_legacy_ids:
+                raise ValueError(
+                    "a retired or quarantined place ID cannot be used as a replacement"
+                )
             replacement = identities_by_id.get(replacement_id)
             if replacement is None:
                 raise ValueError("vacancy replacement must be an active identity")
             if replacement.legacy_place_ids != [replacement_id]:
                 raise ValueError("vacancy replacement must be a distinct singleton")
-            if (replacement.city_id, replacement.primary_type) != (
-                vacancy.city_id,
-                vacancy.entity_type,
-            ):
-                raise ValueError(
-                    "vacancy replacement must preserve its entity/city slot"
-                )
+            if replacement.city_id != vacancy.city_id:
+                raise ValueError("vacancy replacement must preserve its city slot")
 
         quota_keys = [(item.city_id, item.entity_type) for item in self.quotas]
         if len(quota_keys) != len(set(quota_keys)):
@@ -448,10 +571,29 @@ class CanonicalIdentityManifest(NexTripModel):
             if quota.vacancy_count != vacancy_counts[key]:
                 raise ValueError("quota vacancy_count does not match vacancies")
 
+        # Per-type targets are allowed to move when a vacancy is filled by a
+        # different entity type, but the aggregate capacity of each city must
+        # still be exactly its active identities plus its open vacancies.
+        quota_targets_by_city = Counter[str]()
+        for quota in self.quotas:
+            quota_targets_by_city[quota.city_id] += quota.target_count
+        active_by_city = Counter(identity.city_id for identity in self.identities)
+        vacant_by_city = Counter(
+            vacancy.city_id
+            for vacancy in self.vacancies
+            if vacancy.status is VacancyStatus.VACANT
+        )
+        expected_city_totals = active_by_city + vacant_by_city
+        if quota_targets_by_city != expected_city_totals:
+            raise ValueError(
+                "city quota totals must equal active identities plus open vacancies"
+            )
+
         expected_hash = stable_sha256(
             canonical_manifest_payload(
                 schema_version=self.schema_version,
                 identities=self.identities,
+                quarantined_identities=self.quarantined_identities,
                 retired_place_ids=self.retired_place_ids,
                 vacancies=self.vacancies,
                 quotas=self.quotas,

@@ -38,6 +38,7 @@ from nextrip_pipeline.publishing import (
 from nextrip_pipeline.quality import (
     CurrentTrivagoMappingWriter,
     TrivagoDiscoveryAuditWriter,
+    TrivagoDiscoveryResolution,
     TrivagoDiscoveryResolver,
     TrivagoDiscoveryStatus,
     apply_trivago_resolution,
@@ -68,6 +69,7 @@ class TrivagoStayCapture(Protocol):
         *,
         run_id: str,
         strategy: TrivagoSearchStrategy = TrivagoSearchStrategy.NAME,
+        query: str | None = None,
     ) -> SourceRecord: ...
 
 
@@ -204,6 +206,7 @@ class TrivagoStayAvailabilityRunner:
     """
 
     max_lookahead_days = 14
+    max_identity_retry_limit = 4
     _NO_ACCOMMODATIONS_TEXT = {
         "no accommodation found",
         "no accommodations found",
@@ -240,6 +243,8 @@ class TrivagoStayAvailabilityRunner:
         normalizer: TrivagoMcpPriceNormalizer | None = None,
         validator: HotelPriceValidatorOrchestrator | None = None,
         decision_gate: HotelPriceDecisionGate | None = None,
+        identity_retry_limit: int = 2,
+        include_radius_identity_retry: bool = False,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         quality_writers = (
@@ -254,6 +259,11 @@ class TrivagoStayAvailabilityRunner:
                 "validation, decision, and current-price writers must be "
                 "configured together"
             )
+        if not 0 <= identity_retry_limit <= self.max_identity_retry_limit:
+            raise ValueError(
+                "identity_retry_limit must be between 0 and "
+                f"{self.max_identity_retry_limit}"
+            )
         self.adapter = adapter
         self.raw_writer = raw_writer
         self.normalized_writer = normalized_writer
@@ -263,6 +273,8 @@ class TrivagoStayAvailabilityRunner:
         self.validation_writer = validation_writer
         self.decision_writer = decision_writer
         self.current_price_writer = current_price_writer
+        self.identity_retry_limit = identity_retry_limit
+        self.include_radius_identity_retry = include_radius_identity_retry
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.resolver = resolver or TrivagoDiscoveryResolver(clock=self.clock)
         self.normalizer = normalizer or TrivagoMcpPriceNormalizer()
@@ -341,13 +353,11 @@ class TrivagoStayAvailabilityRunner:
         fallback_offset_days: int,
         attempt_run_id: str,
     ) -> TrivagoStayWindowAttempt:
-        request = context.request_for(entry)
         try:
-            record = self.adapter.search(
+            record, resolution, artifacts = self._resolve_identity(
                 entry,
-                request,
-                run_id=attempt_run_id,
-                strategy=TrivagoSearchStrategy.NAME,
+                context,
+                attempt_run_id=attempt_run_id,
             )
         except Exception as error:
             return self._technical_failure_attempt(
@@ -359,25 +369,6 @@ class TrivagoStayAvailabilityRunner:
                 stage="capture",
                 error=error,
             )
-
-        artifacts = [str(self.raw_writer.write(record))]
-        try:
-            resolution = self.resolver.resolve(entry, record)
-        except Exception as error:
-            return self._technical_failure_attempt(
-                entry,
-                context,
-                requested_check_in=requested_check_in,
-                fallback_offset_days=fallback_offset_days,
-                attempt_run_id=attempt_run_id,
-                stage="resolve",
-                error=error,
-                record=record,
-                artifact_paths=artifacts,
-            )
-        artifacts.append(
-            str(self.audit_writer.write(resolution, run_id=attempt_run_id))
-        )
 
         mapping = self._confirmed_mapping(entry, resolution)
         if (
@@ -428,26 +419,11 @@ class TrivagoStayAvailabilityRunner:
             if self._text(candidate.get("accommodation_id")) == mapping.external_id
         ]
         if not exact_candidates:
-            if (
-                not accommodations
-                and self._is_name_search(record)
-                and provider_text is not None
-                and self._normalized_text(provider_text) in self._NO_ACCOMMODATIONS_TEXT
-            ):
-                return self._publish_attempt(
-                    entry,
-                    context,
-                    requested_check_in=requested_check_in,
-                    fallback_offset_days=fallback_offset_days,
-                    attempt_run_id=attempt_run_id,
-                    record=record,
-                    mapping=mapping,
-                    status=HotelAvailabilityStatus.UNAVAILABLE,
-                    reason=(HotelAvailabilityReason.NO_BOOKABLE_OFFER_RETURNED),
-                    raw_status_text=provider_text,
-                    resolution_status=resolution.status,
-                    artifact_paths=artifacts,
-                )
+            identity_reverify = (
+                entry.status is TrivagoRegistryStatus.CONFIRMED
+                and resolution.status is TrivagoDiscoveryStatus.REVIEW
+                and "external_id_change_requires_review" in resolution.reason_codes
+            )
             return self._publish_attempt(
                 entry,
                 context,
@@ -457,8 +433,17 @@ class TrivagoStayAvailabilityRunner:
                 record=record,
                 mapping=mapping,
                 status=HotelAvailabilityStatus.UNKNOWN,
-                reason=HotelAvailabilityReason.PROVIDER_NOT_LISTED,
-                raw_status_text="confirmed provider hotel was not returned",
+                reason=(
+                    HotelAvailabilityReason.IDENTITY_REVERIFY
+                    if identity_reverify
+                    else HotelAvailabilityReason.CONFIRMED_LISTING_NOT_RETURNED
+                ),
+                raw_status_text=(
+                    "stable property identity indicates an external-ID change; "
+                    "human approval is required"
+                    if identity_reverify
+                    else provider_text or "confirmed provider hotel was not returned"
+                ),
                 resolution_status=resolution.status,
                 artifact_paths=artifacts,
             )
@@ -580,6 +565,78 @@ class TrivagoStayAvailabilityRunner:
             artifact_paths=artifacts,
             prices=usable_prices,
         )
+
+    def _resolve_identity(
+        self,
+        entry: TrivagoHotelRegistryEntry,
+        context: TrivagoPriceBatchContext,
+        *,
+        attempt_run_id: str,
+    ) -> tuple[SourceRecord, TrivagoDiscoveryResolution, list[str]]:
+        """Try a bounded set of registry-pinned identity searches.
+
+        Alias text only influences provider retrieval.  Every response is
+        resolved against the trusted master identity, and radius-only evidence
+        therefore remains REVIEW under ``TrivagoDiscoveryResolver``.
+        """
+
+        request = context.request_for(entry)
+        artifacts: list[str] = []
+        best: tuple[SourceRecord, TrivagoDiscoveryResolution] | None = None
+        status_rank = {
+            TrivagoDiscoveryStatus.REJECTED: 0,
+            TrivagoDiscoveryStatus.MISSING: 1,
+            TrivagoDiscoveryStatus.REVIEW: 2,
+            TrivagoDiscoveryStatus.CONFIRMED: 3,
+        }
+        for index, (strategy, query) in enumerate(self._identity_search_plans(entry)):
+            child_run_id = f"{attempt_run_id}-identity-{index}"
+            search_arguments: dict[str, object] = {
+                "run_id": child_run_id,
+                "strategy": strategy,
+            }
+            if strategy is TrivagoSearchStrategy.NAME and query != entry.search_query:
+                search_arguments["query"] = query
+            record = self.adapter.search(entry, request, **search_arguments)
+            artifacts.append(str(self.raw_writer.write(record)))
+            resolution = self.resolver.resolve(entry, record)
+            artifacts.append(
+                str(self.audit_writer.write(resolution, run_id=child_run_id))
+            )
+            if best is None or (
+                status_rank[resolution.status],
+                resolution.confidence,
+            ) > (status_rank[best[1].status], best[1].confidence):
+                best = (record, resolution)
+            if resolution.status is TrivagoDiscoveryStatus.CONFIRMED:
+                break
+
+        assert best is not None
+        return best[0], best[1], artifacts
+
+    def _identity_search_plans(
+        self,
+        entry: TrivagoHotelRegistryEntry,
+    ) -> list[tuple[TrivagoSearchStrategy, str | None]]:
+        retry_slots = self.identity_retry_limit
+        use_radius = (
+            self.include_radius_identity_retry
+            and retry_slots > 0
+            and entry.latitude is not None
+            and entry.longitude is not None
+        )
+        alias_slots = retry_slots - int(use_radius)
+        queries = list(entry.identity_search_queries)
+        plans: list[tuple[TrivagoSearchStrategy, str | None]] = [
+            (TrivagoSearchStrategy.NAME, queries[0])
+        ]
+        plans.extend(
+            (TrivagoSearchStrategy.NAME, query)
+            for query in queries[1 : 1 + alias_slots]
+        )
+        if use_radius:
+            plans.append((TrivagoSearchStrategy.RADIUS, None))
+        return plans
 
     def _write_and_validate_prices(
         self,

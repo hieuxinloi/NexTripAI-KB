@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from nextrip_pipeline.canonical.dataset import read_canonical_active_dataset
 from nextrip_pipeline.canonical.manifest import CanonicalIdentityManifestWriter
 from nextrip_pipeline.canonical.master import (
     MASTER_FILES,
@@ -26,6 +27,7 @@ from nextrip_pipeline.canonical.projection import (
 )
 from nextrip_pipeline.canonical.resolver import CanonicalIdentityError
 from nextrip_pipeline.schemas import EntityType, VerificationStatus
+from tests.canonical_dataset_support import ACTIVE_CANONICAL_DATASET
 
 
 UTC = timezone.utc
@@ -673,33 +675,19 @@ def test_decision_document_requires_supported_schema_version(tmp_path: Path) -> 
         load_duplicate_identity_decisions(path)
 
 
-def test_real_verified_master_has_expected_unicode_quotas_and_explicit_tags() -> None:
-    repository_root = Path(__file__).resolve().parents[3]
+def test_repository_active_canonical_dataset_is_valid_and_complete() -> None:
+    dataset = read_canonical_active_dataset(ACTIVE_CANONICAL_DATASET)
 
-    loaded = load_verified_master(repository_root / "travel_data_verified")
-
-    assert len(loaded.slots) == 692
-    assert {
-        (item.entity_type.value, item.city_id): item.count
-        for item in loaded.quota_counts
-    } == {
-        ("attraction", "city_da_nang"): 67,
-        ("attraction", "city_quy_nhon"): 51,
-        ("cafe", "city_da_nang"): 71,
-        ("cafe", "city_quy_nhon"): 35,
-        ("hotel", "city_da_nang"): 43,
-        ("hotel", "city_quy_nhon"): 30,
-        ("nightlife", "city_da_nang"): 99,
-        ("nightlife", "city_quy_nhon"): 96,
-        ("restaurant", "city_da_nang"): 106,
-        ("restaurant", "city_quy_nhon"): 94,
+    assert dataset.dataset_id == ACTIVE_CANONICAL_DATASET.parent.name.removeprefix(
+        "dataset="
+    )
+    assert len(dataset.records) == dataset.report.canonical_record_count
+    assert [item.place_id for item in dataset.records] == sorted(
+        item.place_id for item in dataset.records
+    )
+    assert {item.primary_type for item in dataset.records} == set(EntityType)
+    assert {item.city_id for item in dataset.records} == {
+        "city_da_nang",
+        "city_quy_nhon",
     }
-    assert [
-        (item.keeper_legacy_place_id, item.duplicate_legacy_place_ids)
-        for item in loaded.explicit_duplicate_decisions
-    ] == [
-        ("attr_dn_001", ["attr_dn_037"]),
-        ("attr_dn_008", ["attr_dn_040"]),
-        ("attr_dn_025", ["attr_dn_051"]),
-        ("attr_dn_011", ["attr_dn_053"]),
-    ]
+    assert dataset.report.open_vacancy_count == 0

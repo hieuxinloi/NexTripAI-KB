@@ -1,7 +1,7 @@
 # Current Data HTTP and MCP facade
 
 `nextrip_current` is the runtime boundary for data that should not be read
-directly from Neo4j: current place projections, contextual hotel offers, and
+directly from Neo4j: canonical place projections, contextual hotel offers, and
 short-lived traffic results. The HTTP API and MCP tools share one
 `CurrentDataService`, so they cannot apply different freshness or identity
 rules.
@@ -13,12 +13,19 @@ a port separate from the traffic API:
 
 ```powershell
 $env:NEXTRIP_KB_ROOT = (Get-Location).Path
+$env:NEXTRIP_CANONICAL_DATASET = "data/canonical/datasets/dataset=<dataset-id>/canonical-active-dataset.json"
 $env:CURRENT_DATA_API_KEY = "replace-with-a-long-random-secret"
 $env:CURRENT_DATA_TRAFFIC_API_URL = "http://127.0.0.1:8010"
 $env:TRAFFIC_API_KEY = "the-key-used-by-the-traffic-service"
 $env:CURRENT_DATA_TRIVAGO_REFRESH_ENABLED = "true"
 python -m uvicorn nextrip_current.api:app --host 127.0.0.1 --port 8020
 ```
+
+`NEXTRIP_CANONICAL_DATASET` is mandatory and is the sole authority for place
+identity and static facts. The HTTP/MCP service does not accept a legacy place
+root and fails closed when canonical loading fails. Hotel price and
+availability directories remain append-only operational observation stores
+keyed to canonical `place_id` values.
 
 Public data endpoints require `X-NexTrip-Current-Key`; `/health` and `/ready`
 remain unauthenticated for local health checks. The available operations are:
@@ -90,7 +97,7 @@ to `false` for a cache-only read. Runtime crawling remains fail-closed until
 `CURRENT_DATA_TRIVAGO_REFRESH_ENABLED=true` is configured. The older exact
 offer lookup keeps its cache-only default for backward compatibility.
 
-The stable master `hotel_id` never changes. A confirmed Trivago mapping can
+The stable canonical `hotel_id` never changes. A confirmed Trivago mapping can
 change only the exposed `display_name`; the response keeps `master_name`,
 aliases, mapping ID, Trivago external ID/URL, and provenance. A REVIEW or
 REJECTED candidate cannot rename a hotel.

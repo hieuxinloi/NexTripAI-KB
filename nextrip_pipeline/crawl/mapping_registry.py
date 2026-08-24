@@ -8,16 +8,93 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator
 
+from nextrip_pipeline.google_maps_identity import (
+    google_maps_search_placeholder,
+    google_maps_stable_external_id,
+    google_maps_stable_external_ids,
+)
 from nextrip_pipeline.schemas import (
     EntityType,
     ExternalEntityMapping,
     MappingStatus,
     NexTripModel,
 )
+
+if TYPE_CHECKING:
+    from nextrip_pipeline.canonical.dataset import CanonicalActiveDataset
+
+
+_STABLE_ID_ATTRIBUTE_KEYS = (
+    "canonical_google_maps_url",
+    "google_external_id",
+    "google_place_id",
+    "stable_external_id",
+)
+
+
+def _mapping_stable_external_ids(
+    mapping: ExternalEntityMapping,
+) -> tuple[str, ...]:
+    return google_maps_stable_external_ids(
+        mapping.external_id,
+        mapping.external_url,
+        *(mapping.attributes.get(key) for key in _STABLE_ID_ATTRIBUTE_KEYS),
+    )
+
+
+def _mapping_registry_identity_errors(
+    mappings: Sequence[ExternalEntityMapping],
+) -> list[str]:
+    """Return every identity collision that makes a registry unsafe to run."""
+
+    errors: list[str] = []
+    mapping_ids = [mapping.mapping_id for mapping in mappings]
+    duplicate_mapping_ids = sorted(
+        value for value, count in Counter(mapping_ids).items() if count > 1
+    )
+    if duplicate_mapping_ids:
+        errors.append(
+            "duplicate Google mapping_id values: "
+            + ", ".join(duplicate_mapping_ids)
+        )
+
+    entity_ids = [mapping.entity_id for mapping in mappings]
+    duplicate_entity_ids = sorted(
+        value for value, count in Counter(entity_ids).items() if count > 1
+    )
+    if duplicate_entity_ids:
+        errors.append(
+            "duplicate Google mapping entity_id values: "
+            + ", ".join(duplicate_entity_ids)
+        )
+
+    owners_by_token: defaultdict[str, list[str]] = defaultdict(list)
+    for mapping in mappings:
+        if mapping.status is MappingStatus.REJECTED:
+            continue
+        tokens = _mapping_stable_external_ids(mapping)
+        if len(tokens) > 1:
+            errors.append(
+                "conflicting stable Google external IDs for "
+                f"{mapping.entity_id}: {', '.join(tokens)}"
+            )
+            continue
+        if tokens:
+            owners_by_token[tokens[0]].append(mapping.entity_id)
+
+    for token, owners in sorted(owners_by_token.items()):
+        unique_owners = sorted(set(owners))
+        if len(unique_owners) > 1:
+            errors.append(
+                f"duplicate active Google stable external_id {token!r}: "
+                + ", ".join(unique_owners)
+            )
+    return errors
 
 
 class MasterDataValidationError(ValueError):
@@ -30,6 +107,13 @@ class GoogleMapsMappingRegistry(NexTripModel):
     source_files: list[str] = Field(min_length=1)
     mappings: list[ExternalEntityMapping] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def validate_registry(self) -> GoogleMapsMappingRegistry:
+        errors = _mapping_registry_identity_errors(self.mappings)
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
+
 
 class GoogleMapsRegistryReport(NexTripModel):
     generated_at: AwareDatetime
@@ -38,7 +122,14 @@ class GoogleMapsRegistryReport(NexTripModel):
     entity_counts: dict[str, int]
     city_counts: dict[str, int]
     overrides_applied: int = Field(ge=0)
+    reused_mapping_count: int = Field(default=0, ge=0)
     duplicate_identity_candidates: list[list[str]] = Field(default_factory=list)
+
+
+class GoogleMapsBatchManifestDocument(NexTripModel):
+    """Minimal immutable input document consumed by the existing batch loader."""
+
+    registry_file: str = Field(min_length=1)
 
 
 class GoogleMapsRegistryBuilder:
@@ -127,6 +218,7 @@ class GoogleMapsRegistryBuilder:
                 generated = generated.model_copy(
                     update={
                         "mapping_id": override.mapping_id,
+                        "external_id": override.external_id,
                         "external_url": override.external_url,
                         "status": override.status,
                         "confidence": override.confidence,
@@ -140,6 +232,7 @@ class GoogleMapsRegistryBuilder:
                         },
                     }
                 )
+            generated = self._safe_external_identity(generated)
             mappings.append(generated)
             entity_counts[entity_type.value] += 1
             city_counts[item["city"]] += 1
@@ -151,6 +244,9 @@ class GoogleMapsRegistryBuilder:
             (sorted(group) for group in identity_groups.values() if len(group) > 1),
             key=lambda group: group[0],
         )
+        identity_errors = _mapping_registry_identity_errors(mappings)
+        if identity_errors:
+            raise MasterDataValidationError("\n".join(identity_errors))
         registry = GoogleMapsMappingRegistry(
             generated_at=generated_at,
             source_files=source_files,
@@ -163,9 +259,204 @@ class GoogleMapsRegistryBuilder:
             entity_counts=dict(sorted(entity_counts.items())),
             city_counts=dict(sorted(city_counts.items())),
             overrides_applied=len(override_by_entity),
+            reused_mapping_count=0,
             duplicate_identity_candidates=duplicate_candidates,
         )
         return registry, report
+
+    def build_from_canonical_dataset(
+        self,
+        dataset: CanonicalActiveDataset,
+        *,
+        base_mappings: Sequence[ExternalEntityMapping] = (),
+        overrides: Sequence[ExternalEntityMapping] = (),
+        entity_types: Sequence[EntityType] = (
+            EntityType.ATTRACTION,
+            EntityType.CAFE,
+            EntityType.NIGHTLIFE,
+            EntityType.RESTAURANT,
+        ),
+    ) -> tuple[GoogleMapsMappingRegistry, GoogleMapsRegistryReport]:
+        """Build an active-only registry from the canonical dataset snapshot."""
+
+        from nextrip_pipeline.canonical.dataset import CanonicalActiveDataset
+
+        canonical = CanonicalActiveDataset.model_validate_json(
+            dataset.model_dump_json()
+        )
+        selected_types = set(entity_types)
+        if not selected_types:
+            raise MasterDataValidationError(
+                "canonical Google Maps registry requires at least one entity type"
+            )
+        if EntityType.HOTEL in selected_types:
+            raise MasterDataValidationError(
+                "hotel refresh is owned by Trivago, not the daily Maps registry"
+            )
+        base_by_id = self._canonical_mapping_index(base_mappings, "base")
+        override_by_id = self._canonical_mapping_index(overrides, "override")
+        active_records = [
+            item for item in canonical.records if item.primary_type in selected_types
+        ]
+        active_ids = {item.place_id for item in active_records}
+        unknown_overrides = sorted(set(override_by_id) - active_ids)
+        if unknown_overrides:
+            raise MasterDataValidationError(
+                "canonical overrides reference inactive IDs: "
+                + ", ".join(unknown_overrides)
+            )
+        generated_at = self.clock()
+        mappings: list[ExternalEntityMapping] = []
+        identity_groups: defaultdict[str, list[str]] = defaultdict(list)
+        entity_counts: Counter[str] = Counter()
+        city_counts: Counter[str] = Counter()
+        reused_count = 0
+        for record in sorted(active_records, key=lambda item: item.place_id):
+            source_mapping = override_by_id.get(record.place_id) or base_by_id.get(
+                record.place_id
+            )
+            mapping = self._canonical_mapping(
+                record,
+                source_mapping=source_mapping,
+                generated_at=generated_at,
+                dataset_id=canonical.dataset_id,
+            )
+            if source_mapping is not None:
+                reused_count += 1
+            mappings.append(mapping)
+            entity_counts[record.primary_type.value] += 1
+            city_counts[record.city] += 1
+            identity_groups[
+                f"{self._key(record.name)}|{self._key(record.city)}"
+            ].append(record.place_id)
+        duplicate_candidates = sorted(
+            (sorted(group) for group in identity_groups.values() if len(group) > 1),
+            key=lambda group: group[0],
+        )
+        identity_errors = _mapping_registry_identity_errors(mappings)
+        if identity_errors:
+            raise MasterDataValidationError("\n".join(identity_errors))
+        registry = GoogleMapsMappingRegistry(
+            generated_at=generated_at,
+            source_files=[f"canonical-dataset:{canonical.dataset_id}"],
+            mappings=mappings,
+        )
+        report = GoogleMapsRegistryReport(
+            generated_at=generated_at,
+            total_records=len(active_records),
+            mapping_count=len(mappings),
+            entity_counts=dict(sorted(entity_counts.items())),
+            city_counts=dict(sorted(city_counts.items())),
+            overrides_applied=len(override_by_id),
+            reused_mapping_count=reused_count,
+            duplicate_identity_candidates=duplicate_candidates,
+        )
+        return registry, report
+
+    @staticmethod
+    def _canonical_mapping_index(
+        mappings: Sequence[ExternalEntityMapping],
+        label: str,
+    ) -> dict[str, ExternalEntityMapping]:
+        result: dict[str, ExternalEntityMapping] = {}
+        for mapping in mappings:
+            if mapping.source_id != "google-maps-web":
+                raise MasterDataValidationError(
+                    f"canonical {label} mapping is not from google-maps-web: "
+                    f"{mapping.mapping_id}"
+                )
+            if mapping.entity_id in result:
+                raise MasterDataValidationError(
+                    f"duplicate canonical {label} mapping: {mapping.entity_id}"
+                )
+            result[mapping.entity_id] = mapping
+        return result
+
+    def _canonical_mapping(
+        self,
+        record,
+        *,
+        source_mapping: ExternalEntityMapping | None,
+        generated_at: datetime,
+        dataset_id: str,
+    ) -> ExternalEntityMapping:
+        google_identity = next(
+            (
+                item
+                for item in record.external_identities
+                if item.get("source_id") == "google-maps-web"
+            ),
+            None,
+        )
+        attributes = {
+            "search_query": ", ".join(
+                value
+                for value in (record.name, record.address, record.city, "Việt Nam")
+                if value
+            ),
+            "master_name": record.name,
+            "google_place_name": record.name,
+            "master_address": record.address,
+            "master_latitude": record.coordinates.lat,
+            "master_longitude": record.coordinates.lng,
+            "city_id": record.city_id,
+            "master_city": record.city,
+            "canonical_dataset_id": dataset_id,
+        }
+        if source_mapping is not None:
+            merged = source_mapping.model_copy(
+                update={
+                    "entity_type": record.primary_type,
+                    "attributes": {**source_mapping.attributes, **attributes},
+                }
+            )
+            return self._safe_external_identity(
+                merged,
+                canonical_identity=google_identity,
+                generated_at=generated_at,
+            )
+        if google_identity is not None:
+            external_id = google_identity.get("external_id")
+            external_url = google_identity.get("external_url")
+            if not isinstance(external_id, str) or not external_id.strip():
+                raise MasterDataValidationError(
+                    f"canonical Google identity has no external ID: {record.place_id}"
+                )
+            if not isinstance(external_url, str) or not external_url.strip():
+                raise MasterDataValidationError(
+                    f"canonical Google identity has no URL: {record.place_id}"
+                )
+            mapping = ExternalEntityMapping(
+                mapping_id=f"google-maps-{record.place_id}",
+                entity_id=record.place_id,
+                entity_type=record.primary_type,
+                source_id="google-maps-web",
+                external_id=external_id,
+                external_url=external_url,
+                status=MappingStatus.CONFIRMED,
+                confidence=1.0,
+                matched_at=generated_at,
+                verified_at=generated_at,
+                last_checked_at=generated_at,
+                source_record_ids=record.provenance.source_record_ids,
+                attributes=attributes,
+            )
+            return self._safe_external_identity(
+                mapping,
+                canonical_identity=google_identity,
+                generated_at=generated_at,
+            )
+        return ExternalEntityMapping(
+            mapping_id=f"google-maps-{record.place_id}",
+            entity_id=record.place_id,
+            entity_type=record.primary_type,
+            source_id="google-maps-web",
+            external_id=google_maps_search_placeholder(record.place_id),
+            status=MappingStatus.AUTO_MATCHED,
+            confidence=0.7,
+            matched_at=generated_at,
+            attributes=attributes,
+        )
 
     def _mapping(
         self,
@@ -184,7 +475,7 @@ class GoogleMapsRegistryBuilder:
             entity_id=str(item["id"]),
             entity_type=entity_type,
             source_id="google-maps-web",
-            external_id=name,
+            external_id=google_maps_search_placeholder(str(item["id"])),
             status=MappingStatus.AUTO_MATCHED,
             confidence=0.7,
             matched_at=generated_at,
@@ -199,6 +490,83 @@ class GoogleMapsRegistryBuilder:
                 "master_city": city,
                 "master_source_file": filename,
             },
+        )
+
+    @staticmethod
+    def _safe_external_identity(
+        mapping: ExternalEntityMapping,
+        *,
+        canonical_identity: dict[str, object] | None = None,
+        generated_at: datetime | None = None,
+    ) -> ExternalEntityMapping:
+        """Normalize provider identity without confusing a name for a place ID."""
+
+        canonical_values: list[object] = []
+        canonical_url: object = None
+        if canonical_identity is not None:
+            canonical_url = canonical_identity.get("external_url")
+            canonical_values.extend(
+                (canonical_identity.get("external_id"), canonical_url)
+            )
+        canonical_tokens = google_maps_stable_external_ids(*canonical_values)
+        attribute_values = [
+            mapping.attributes.get(key) for key in _STABLE_ID_ATTRIBUTE_KEYS
+        ]
+        mapping_tokens = google_maps_stable_external_ids(
+            mapping.external_id,
+            mapping.external_url,
+            *attribute_values,
+        )
+        tokens = canonical_tokens or mapping_tokens
+        if mapping.status is MappingStatus.REJECTED:
+            tokens = ()
+
+        if len(tokens) == 1:
+            token = tokens[0]
+            url_candidates = (
+                canonical_url,
+                mapping.external_url,
+                mapping.attributes.get("canonical_google_maps_url"),
+            )
+            stable_url = next(
+                (
+                    value
+                    for value in url_candidates
+                    if google_maps_stable_external_id(value) == token
+                ),
+                None,
+            )
+            update: dict[str, object] = {
+                "external_id": token,
+                "external_url": stable_url,
+            }
+            if canonical_tokens:
+                update.update(
+                    status=MappingStatus.CONFIRMED,
+                    confidence=1.0,
+                    verified_at=generated_at or mapping.verified_at,
+                    last_checked_at=generated_at or mapping.last_checked_at,
+                )
+            return ExternalEntityMapping.model_validate(
+                {
+                    **mapping.model_dump(mode="python"),
+                    **update,
+                }
+            )
+
+        status = mapping.status
+        verified_at = mapping.verified_at
+        if status is MappingStatus.CONFIRMED:
+            status = MappingStatus.PENDING_REVIEW
+            verified_at = None
+        return ExternalEntityMapping.model_validate(
+            {
+                **mapping.model_dump(mode="python"),
+                "external_id": google_maps_search_placeholder(mapping.entity_id),
+                "external_url": None,
+                "status": status,
+                "verified_at": verified_at,
+            }
         )
 
     def _validate_item(self, item: object, expected_type: EntityType) -> list[str]:

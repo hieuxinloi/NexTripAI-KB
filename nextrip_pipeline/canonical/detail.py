@@ -22,6 +22,7 @@ from nextrip_pipeline.canonical.candidate import (
 from nextrip_pipeline.canonical.discovery import (
     StagedGoogleMapsCandidate,
     _google_maps_identity,
+    _validate_candidate_vacancy_type,
 )
 from nextrip_pipeline.canonical.distinct import DistinctCandidateValidator
 from nextrip_pipeline.canonical.eligibility import (
@@ -103,8 +104,10 @@ class CandidateDetailStage(NexTripModel):
     def validate_detail(self) -> CandidateDetailStage:
         if self.candidate.candidate_key != self.validation.candidate_key:
             raise ValueError("validation belongs to another candidate")
-        if self.candidate.entity_type is not self.vacancy.entity_type:
-            raise ValueError("candidate entity type does not match vacancy")
+        _validate_candidate_vacancy_type(
+            self.candidate.entity_type,
+            self.vacancy,
+        )
         if self.candidate.city_id != self.vacancy.city_id:
             raise ValueError("candidate city does not match vacancy")
         expected_hash = stable_sha256(
@@ -226,7 +229,12 @@ class GoogleMapsCandidateDetail:
         candidate = project_detailed_candidate(staged, vacancy, observation)
         validation = self.validator.validate(candidate, existing)
         validation = enforce_detail_eligibility(candidate, validation)
-        validation = self.eligibility_validator.validate(candidate, validation)
+        validation = self.eligibility_validator.validate(
+            candidate,
+            validation,
+            vacancy=vacancy,
+            google_observation=observation,
+        )
         detail_id = stable_identifier(
             "candidate-detail",
             source_record.source_record_id,
@@ -279,7 +287,7 @@ def build_candidate_detail_mapping(
             staged.candidate.candidate_key,
         ),
         entity_id=staged.candidate.candidate_key,
-        entity_type=vacancy.entity_type,
+        entity_type=staged.candidate.entity_type,
         source_id="google-maps-web",
         external_id=stable_external_id or staged.candidate.candidate_key,
         external_url=staged.source_url,
@@ -288,6 +296,8 @@ def build_candidate_detail_mapping(
         attributes={
             "candidate_detail_capture": True,
             "canonical_vacancy_id": vacancy.vacancy_id,
+            "candidate_entity_type": staged.candidate.entity_type.value,
+            "target_vacancy_entity_type": vacancy.entity_type.value,
             "search_query": staged.candidate.name,
         },
     )
@@ -310,7 +320,7 @@ def project_detailed_candidate(
         raise CandidateDetailError("Google Maps detail did not resolve a place name")
     return CanonicalReplacementCandidate(
         candidate_key=staged.candidate.candidate_key,
-        entity_type=vacancy.entity_type,
+        entity_type=staged.candidate.entity_type,
         city_id=vacancy.city_id,
         name=observation.name,
         resolved_address=observation.address,
@@ -364,8 +374,10 @@ def _validate_staged_vacancy(
     staged: StagedGoogleMapsCandidate,
     vacancy: EntityCityVacancy,
 ) -> None:
-    if staged.candidate.entity_type is not vacancy.entity_type:
-        raise CandidateDetailError("staged candidate entity type does not match vacancy")
+    try:
+        _validate_candidate_vacancy_type(staged.candidate.entity_type, vacancy)
+    except ValueError as error:
+        raise CandidateDetailError(str(error)) from error
     if staged.candidate.city_id != vacancy.city_id:
         raise CandidateDetailError("staged candidate city does not match vacancy")
     identities = staged.candidate.external_identities

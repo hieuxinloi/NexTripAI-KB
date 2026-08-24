@@ -7,6 +7,78 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
+from nextrip_pipeline.google_maps_identity import (
+    google_maps_official_share_url,
+    google_maps_stable_place_url,
+)
+from nextrip_pipeline.google_maps_price import google_maps_price_evidence_text
+from nextrip_pipeline.google_maps_plus_code import google_maps_plus_code_from_text
+
+
+_GOOGLE_MAPS_WEEKDAYS = (
+    "thứ hai",
+    "thứ ba",
+    "thứ tư",
+    "thứ năm",
+    "thứ sáu",
+    "thứ bảy",
+    "chủ nhật",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+
+def _google_maps_weekday_aria_label_count(values: object) -> int:
+    """Count distinct weekdays represented by Maps aria-label evidence."""
+
+    if not isinstance(values, (list, tuple)):
+        return 0
+    weekdays: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        label = " ".join(value.strip().casefold().split())
+        for weekday in _GOOGLE_MAPS_WEEKDAYS:
+            if label == weekday or label.startswith(f"{weekday},"):
+                weekdays.add(weekday)
+                break
+    return len(weekdays)
+
+
+def _first_official_google_maps_share_url(values: object) -> str | None:
+    """Select the first Google-owned share URL from rendered dialog values."""
+
+    if not isinstance(values, (list, tuple)):
+        return None
+    for value in values:
+        if share_url := google_maps_official_share_url(value):
+            return share_url
+    return None
+
+
+def _google_maps_price_text_from_scoped_labels(values: object) -> str | None:
+    """Return explicit price evidence from the place header/range panel only.
+
+    Callers must pass labels already scoped to the selected place. Requiring a
+    currency symbol or a provider price-level word keeps nearby hotel cards,
+    sponsored tours, and labels such as ``Giá phòng cho ...`` out of the
+    observation.
+    """
+
+    if not isinstance(values, (list, tuple)):
+        return None
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        if evidence := google_maps_price_evidence_text(value):
+            return evidence
+    return None
+
 
 class BrowserDependencyError(RuntimeError):
     """Raised when Playwright or its Chromium browser is unavailable."""
@@ -130,13 +202,95 @@ class PlaywrightBrowserClient:
                 f"Playwright capture failed for {url}: {error}"
             ) from error
 
+    @staticmethod
+    def _resolve_google_maps_share_place_url(
+        context,  # type: ignore[no-untyped-def]
+        page,  # type: ignore[no-untyped-def]
+        *,
+        timeout_ms: int,
+    ) -> tuple[str | None, str | None]:
+        """Resolve the rendered Share link without navigating the detail page."""
+
+        try:
+            from playwright.sync_api import Error as PlaywrightError
+        except ImportError:
+            return None, None
+
+        share_url: str | None = None
+        share_dialog_opened = False
+        resolver_page = None
+        try:
+            share_button = page.locator(
+                "[role='button'][jsaction*='share' i]:visible, "
+                "button[jsaction*='share' i]:visible, "
+                "button[data-value='Share']:visible, "
+                "[role='button'][aria-label*='Share' i]:visible, "
+                "[role='button'][aria-label*='Chia sẻ' i]:visible, "
+                "button[aria-label*='Share' i]:visible, "
+                "button[aria-label*='Chia sẻ' i]:visible"
+            ).first
+            if not share_button.count():
+                return None, None
+            share_button.scroll_into_view_if_needed(timeout=2000)
+            share_button.click(timeout=3000, no_wait_after=True)
+            share_dialog_opened = True
+            dialog = page.locator("[role='dialog']").last
+            try:
+                dialog.wait_for(state="visible", timeout=min(timeout_ms, 5000))
+            except PlaywrightError:
+                # Some Maps builds ignore a synthetic pointer event on the
+                # action-row button. Keyboard activation is a public-UI retry.
+                share_button.press("Enter", timeout=2000)
+                dialog.wait_for(state="visible", timeout=min(timeout_ms, 5000))
+            page.wait_for_timeout(500)
+            candidates = dialog.locator("input, a[href]").evaluate_all(
+                "els => els.flatMap(el => [el.value, el.href]).filter(Boolean)"
+            )
+            share_url = _first_official_google_maps_share_url(candidates)
+            if share_url is None:
+                return None, None
+            if stable_url := google_maps_stable_place_url(share_url):
+                return share_url, stable_url
+
+            # A Maps share dialog normally exposes maps.app.goo.gl. Resolve it
+            # in a separate page so the already-captured detail DOM and menu
+            # state are never replaced by the redirect navigation.
+            resolver_page = context.new_page()
+            resolver_page.goto(
+                share_url,
+                wait_until="domcontentloaded",
+                timeout=timeout_ms,
+            )
+            resolver_page.wait_for_timeout(500)
+            return share_url, google_maps_stable_place_url(resolver_page.url)
+        except PlaywrightError:
+            return share_url, None
+        finally:
+            if resolver_page is not None:
+                try:
+                    resolver_page.close()
+                except PlaywrightError:
+                    pass
+            if share_dialog_opened:
+                try:
+                    page.keyboard.press("Escape")
+                    page.wait_for_timeout(250)
+                except PlaywrightError:
+                    pass
+
     def capture_google_maps_place(
         self,
         url: str,
         *,
         timeout_seconds: float = 45,
+        include_menu: bool = False,
     ) -> BrowserSnapshot:
-        """Capture a Maps page after expanding its weekly-hours panel."""
+        """Capture one Maps place and optionally inspect its Menu tab.
+
+        Daily place refreshes intentionally leave ``include_menu`` disabled.
+        Menu evidence has a separate human-reviewed workflow and must not make
+        an otherwise valid place/status crawl slower or less reliable.
+        """
         try:
             from playwright.sync_api import Error as PlaywrightError
             from playwright.sync_api import sync_playwright
@@ -177,14 +331,117 @@ class PlaywrightBrowserClient:
                         else:
                             first_result.click(timeout=5000, no_wait_after=True)
                         page.wait_for_timeout(1200)
-                hours_toggle = page.locator(
-                    "[data-item-id='oh'], [aria-label='Show open hours for the week']"
+
+                def pre_expansion_text(selector: str) -> str | None:
+                    locator = page.locator(selector).first
+                    if not locator.count():
+                        return None
+                    value = locator.inner_text(timeout=2000).strip()
+                    return value or None
+
+                def pre_expansion_attribute(selector: str, name: str) -> str | None:
+                    locator = page.locator(selector).first
+                    if not locator.count():
+                        return None
+                    value = locator.get_attribute(name, timeout=2000)
+                    return value.strip() if value and value.strip() else None
+
+                try:
+                    page.locator("h1.DUwDvf, h1").first.wait_for(
+                        state="visible", timeout=min(timeout_ms, 5000)
+                    )
+                except PlaywrightError:
+                    pass
+                pre_expansion_detail = {
+                    "name": pre_expansion_text("h1.DUwDvf") or pre_expansion_text("h1"),
+                    "category": pre_expansion_text("button.DkEaL"),
+                    "address": pre_expansion_text(
+                        "button[data-item-id='address'] .Io6YTe"
+                    )
+                    or pre_expansion_attribute(
+                        "button[data-item-id='address']", "aria-label"
+                    ),
+                    "phone": pre_expansion_text(
+                        "button[data-item-id^='phone'] .Io6YTe"
+                    ),
+                    "website_url": pre_expansion_attribute(
+                        "a[data-item-id='authority']", "href"
+                    ),
+                    # ``oloc`` is scoped to the selected place panel. Capture
+                    # it before expanding hours because Maps can replace parts
+                    # of the detail DOM during that interaction.
+                    "plus_code": google_maps_plus_code_from_text(
+                        pre_expansion_text("button[data-item-id='oloc'] .Io6YTe")
+                        or pre_expansion_attribute(
+                            "button[data-item-id='oloc']", "aria-label"
+                        )
+                    ),
+                }
+                pre_expansion_title = page.title().strip()
+                # Prefer the focusable open-hours control. The localized
+                # aria-label is commonly attached to a child icon; clicking
+                # that icon does not consistently expand the seven-day table.
+                hours_expander = page.locator(
+                    "[aria-label*='giờ mở cửa trong tuần' i]:visible, "
+                    "[aria-label*='open hours for the week' i]:visible"
                 ).first
+                hours_control = page.locator(
+                    "[role='button'][jsaction*='openhours']:visible"
+                ).first
+                hours_toggle = (
+                    hours_control
+                    if hours_control.count()
+                    else hours_expander
+                    if hours_expander.count()
+                    else page.locator("[data-item-id='oh']:visible").first
+                )
+
+                def expanded_weekday_count() -> int:
+                    labels = page.locator("[aria-label]").evaluate_all(
+                        "els => els.map(el => el.getAttribute('aria-label'))"
+                        ".filter(Boolean)"
+                    )
+                    rows = page.locator("table.eK4R0e tr.y0skZc:visible").count()
+                    return max(rows, _google_maps_weekday_aria_label_count(labels))
+
+                def wait_for_expanded_weekdays() -> int:
+                    try:
+                        page.wait_for_function(
+                            "() => document.querySelectorAll("
+                            "'table.eK4R0e tr.y0skZc').length > 1",
+                            timeout=min(timeout_ms, 3500),
+                        )
+                    except PlaywrightError:
+                        pass
+                    return expanded_weekday_count()
+
                 if hours_toggle.count():
                     try:
+                        hours_toggle.scroll_into_view_if_needed(timeout=2000)
                         hours_toggle.click(timeout=3000)
-                        page.wait_for_timeout(500)
+                        if wait_for_expanded_weekdays() <= 1:
+                            # Retry on the fresh focusable container. A child
+                            # icon can consume the first pointer event without
+                            # toggling the delegated open-hours action.
+                            retry_control = page.locator(
+                                "[role='button'][jsaction*='openhours']:visible"
+                            ).first
+                            if retry_control.count():
+                                retry_control.evaluate("element => element.click()")
+                                wait_for_expanded_weekdays()
+                        if expanded_weekday_count() <= 1:
+                            # Some Maps builds attach the delegated action to a
+                            # focusable div and ignore a synthetic pointer click.
+                            # Keyboard activation exercises the same public UI.
+                            retry_control = page.locator(
+                                "[role='button'][jsaction*='openhours']:visible"
+                            ).first
+                            retry_control.press("Enter", timeout=2000)
+                            wait_for_expanded_weekdays()
                     except PlaywrightError:
+                        # A place can legitimately publish only today's hours.
+                        # Preserve that evidence and let completeness mark the
+                        # weekly schedule as not listed/incomplete.
                         pass
 
                 def text_of(selector: str) -> str | None:
@@ -201,15 +458,86 @@ class PlaywrightBrowserClient:
                     value = locator.get_attribute(name, timeout=2000)
                     return value.strip() if value and value.strip() else None
 
+                def scoped_status_text() -> str | None:
+                    selectors = (
+                        "[role='main'] [aria-label*='Permanently closed'], "
+                        "[role='main'] [aria-label*='Đã đóng cửa vĩnh viễn'], "
+                        "[role='main'] [aria-label*='Temporarily closed'], "
+                        "[role='main'] [aria-label*='Tạm thời đóng cửa'], "
+                        "[role='main'] [aria-label*='Open now'], "
+                        "[role='main'] [aria-label*='Đang mở cửa'], "
+                        "[role='main'] [aria-label*='Closed now'], "
+                        "[role='main'] [aria-label*='Đã đóng cửa']"
+                    )
+                    locator = page.locator(selectors).first
+                    if not locator.count():
+                        return None
+                    aria_label = locator.get_attribute("aria-label", timeout=2000)
+                    if aria_label and aria_label.strip():
+                        return aria_label.strip()
+                    value = locator.inner_text(timeout=2000).strip()
+                    return value or None
+
+                def scoped_price_text() -> str | None:
+                    """Read only the selected place's header/range evidence."""
+
+                    try:
+                        heading = page.locator("h1.DUwDvf, h1").first
+                        if not heading.count():
+                            return None
+                        candidates: list[str] = []
+                        # The first sibling after the h1 wrapper is Maps' place
+                        # summary (rating, review count, price level/range, and
+                        # category). This deliberately excludes hotel cards,
+                        # ads, reviews, and menu text farther down the panel.
+                        summary = heading.locator(
+                            "xpath=parent::*/following-sibling::*[1]"
+                        )
+                        if summary.count():
+                            candidates.extend(
+                                summary.locator(
+                                    "[role='img'][aria-label]"
+                                ).evaluate_all(
+                                    "els => els.map(el => el.getAttribute('aria-label'))"
+                                    ".filter(Boolean)"
+                                )
+                            )
+                        # Some Maps layouts omit the compact header price but
+                        # expose an explicit price-range control in the same
+                        # place-information region.
+                        region = heading.locator("xpath=ancestor::*[@role='region'][1]")
+                        if region.count():
+                            candidates.extend(
+                                region.locator(
+                                    "[role='button'][aria-label^='Price range' i], "
+                                    "[role='button'][aria-label^='Khoảng giá' i], "
+                                    "[role='button'][aria-label^='Mức giá' i]"
+                                ).evaluate_all(
+                                    "els => els.map(el => el.getAttribute('aria-label'))"
+                                    ".filter(Boolean)"
+                                )
+                            )
+                        return _google_maps_price_text_from_scoped_labels(candidates)
+                    except PlaywrightError:
+                        return None
+
                 try:
                     page.locator("h1").first.wait_for(
                         state="visible", timeout=min(timeout_ms, 5000)
                     )
                 except PlaywrightError:
                     pass
-                resolved_name = text_of("h1")
-                resolved_title = page.title().strip()
-                if not resolved_name or resolved_title.casefold() == "google maps":
+                resolved_name = (
+                    pre_expansion_detail["name"]
+                    or text_of("h1.DUwDvf")
+                    or text_of("h1")
+                )
+                resolved_title = pre_expansion_title or page.title().strip()
+                if (
+                    not resolved_name
+                    or resolved_name.casefold() == "google maps"
+                    or resolved_title.casefold() == "google maps"
+                ):
                     unresolved_snapshot = BrowserSnapshot(
                         requested_url=url,
                         final_url=page.url,
@@ -231,26 +559,47 @@ class PlaywrightBrowserClient:
                 )
                 detail_data: dict[str, object] = {
                     "name": resolved_name,
-                    "category": text_of("button.DkEaL"),
-                    "address": text_of("button[data-item-id='address'] .Io6YTe")
+                    "category": pre_expansion_detail["category"]
+                    or text_of("button.DkEaL"),
+                    "address": pre_expansion_detail["address"]
+                    or text_of("button[data-item-id='address'] .Io6YTe")
                     or attribute_of("button[data-item-id='address']", "aria-label"),
-                    "phone": text_of("button[data-item-id^='phone'] .Io6YTe"),
-                    "website_url": attribute_of("a[data-item-id='authority']", "href"),
-                    "menu_url": attribute_of("a[data-item-id='menu']", "href"),
-                    "price_text": attribute_of(
-                        "span[aria-label^='Price'], span[aria-label^='Mức giá'], "
-                        "span[aria-label^='Giá']",
-                        "aria-label",
+                    "phone": pre_expansion_detail["phone"]
+                    or text_of("button[data-item-id^='phone'] .Io6YTe"),
+                    "website_url": pre_expansion_detail["website_url"]
+                    or attribute_of("a[data-item-id='authority']", "href"),
+                    "plus_code": pre_expansion_detail["plus_code"]
+                    or google_maps_plus_code_from_text(
+                        text_of("button[data-item-id='oloc'] .Io6YTe")
+                        or attribute_of("button[data-item-id='oloc']", "aria-label")
                     ),
+                    "menu_url": (
+                        attribute_of("a[data-item-id='menu']", "href")
+                        if include_menu
+                        else None
+                    ),
+                    "price_text": scoped_price_text(),
                 }
-                canonical_url = selected_detail_url or page.url
+                business_status_text = scoped_status_text()
+                captured_detail_url = selected_detail_url or page.url
+                stable_detail_url = google_maps_stable_place_url(captured_detail_url)
                 detail_title = page.title()
                 detail_html = page.content()
+                official_share_url: str | None = None
+                if stable_detail_url is None:
+                    official_share_url, stable_detail_url = (
+                        self._resolve_google_maps_share_place_url(
+                            context,
+                            page,
+                            timeout_ms=timeout_ms,
+                        )
+                    )
+                canonical_url = stable_detail_url or captured_detail_url
                 menu_image_urls: list[str] = []
                 menu_tabs = page.locator("[role='tab']").filter(
                     has_text=re.compile(r"^Menu$", re.IGNORECASE)
                 )
-                if menu_tabs.count():
+                if include_menu and menu_tabs.count():
                     try:
                         menu_tabs.first.click(timeout=3000, no_wait_after=True)
                         page.wait_for_timeout(1500)
@@ -270,7 +619,7 @@ class PlaywrightBrowserClient:
                         )
                     except PlaywrightError:
                         pass
-                if not detail_data["menu_url"] and not menu_image_urls:
+                if include_menu and not detail_data["menu_url"] and not menu_image_urls:
                     photo_button = page.locator(
                         "button[aria-label^='Photo of'], "
                         "button[aria-label^='Photos of']"
@@ -298,7 +647,11 @@ class PlaywrightBrowserClient:
                             pass
                 structured_data: dict[str, object] = {
                     **detail_data,
-                    "detail_url": selected_detail_url,
+                    "detail_url": stable_detail_url or selected_detail_url,
+                    "official_share_url": official_share_url,
+                    "business_status_text": business_status_text,
+                    "status_evidence_scoped": True,
+                    "menu_capture_enabled": include_menu,
                     "aria_labels": aria_labels,
                     "image_urls": image_urls[:20],
                     "menu_image_urls": menu_image_urls[:20],
@@ -396,7 +749,9 @@ class PlaywrightBrowserClient:
                     previous_count = count
                     if not feed.count():
                         break
-                    feed.evaluate("element => element.scrollTo(0, element.scrollHeight)")
+                    feed.evaluate(
+                        "element => element.scrollTo(0, element.scrollHeight)"
+                    )
                     page.wait_for_timeout(750)
 
                 rendered = page.locator(

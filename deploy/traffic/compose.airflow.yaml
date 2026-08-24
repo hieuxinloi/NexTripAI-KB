@@ -17,6 +17,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     NEXTRIP_KB_ROOT: /opt/airflow/nextrip
+    NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"
     NEXTRIP_TRAFFIC_AIRFLOW_ENABLED: "${NEXTRIP_TRAFFIC_AIRFLOW_ENABLED:-false}"
     NEXTRIP_TRAFFIC_PREWARM_ENABLED: "${NEXTRIP_TRAFFIC_PREWARM_ENABLED:-false}"
     NEXTRIP_TRAFFIC_MAINTENANCE_SCHEDULE: "${NEXTRIP_TRAFFIC_MAINTENANCE_SCHEDULE:-17 * * * *}"
@@ -38,8 +39,8 @@ x-airflow-common: &airflow-common
     TRAFFIC_CIRCUIT_COOLDOWN_SECONDS: "${TRAFFIC_CIRCUIT_COOLDOWN_SECONDS:-60}"
   volumes:
     - type: bind
-      source: ../../data/current/place
-      target: /opt/airflow/nextrip/data/current/place
+      source: ../../data/canonical
+      target: /opt/airflow/nextrip/data/canonical
       read_only: true
     - traffic_cache:/opt/airflow/nextrip/data/current/traffic
     - airflow_logs:/opt/airflow/logs

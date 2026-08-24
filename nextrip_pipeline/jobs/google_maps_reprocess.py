@@ -151,7 +151,7 @@ class GoogleMapsQualityReprocessor:
         validation_writer: GoogleMapsValidationWriter,
         decision_writer: GoogleMapsDecisionWriter,
         current_mapping_writer: CurrentGoogleMapsMappingWriter,
-        current_place_writer: CurrentPlaceWriter,
+        current_place_writer: CurrentPlaceWriter | None,
         summary_writer: GoogleMapsReprocessSummaryWriter,
         *,
         resolver: GoogleMapsMappingResolver | None = None,
@@ -169,12 +169,8 @@ class GoogleMapsQualityReprocessor:
         self.summary_writer = summary_writer
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.resolver = resolver or GoogleMapsMappingResolver(clock=self.clock)
-        self.validator = validator or GoogleMapsValidatorOrchestrator(
-            clock=self.clock
-        )
-        self.decision_gate = decision_gate or GoogleMapsDecisionGate(
-            clock=self.clock
-        )
+        self.validator = validator or GoogleMapsValidatorOrchestrator(clock=self.clock)
+        self.decision_gate = decision_gate or GoogleMapsDecisionGate(clock=self.clock)
         self.llm_review_writer = llm_review_writer
 
     def run(
@@ -283,9 +279,7 @@ class GoogleMapsQualityReprocessor:
                 item.current_mapping_path is not None for item in items
             ),
             published_place_count=sum(item.current_place_published for item in items),
-            llm_queued_count=llm_counts.get(
-                LLMReviewQueueDisposition.QUEUED.value, 0
-            ),
+            llm_queued_count=llm_counts.get(LLMReviewQueueDisposition.QUEUED.value, 0),
             resolution_status_counts=dict(sorted(resolution_counts.items())),
             decision_status_counts=dict(sorted(decision_counts.items())),
             llm_queue_status_counts=dict(sorted(llm_counts.items())),
@@ -336,9 +330,7 @@ class GoogleMapsQualityReprocessor:
                 and self.llm_review_writer is not None
             ):
                 stage = "queue_llm_review"
-                llm_receipt = self.llm_review_writer.enqueue(
-                    resolution, run_id=run_id
-                )
+                llm_receipt = self.llm_review_writer.enqueue(resolution, run_id=run_id)
 
             if resolution.status is MappingResolutionStatus.AUTO_CONFIRM:
                 stage = "publish_current_mapping"
@@ -365,8 +357,7 @@ class GoogleMapsQualityReprocessor:
             )
             stage = "write_validations"
             paths["validation_paths"] = [
-                self.validation_writer.write(validation)
-                for validation in validations
+                self.validation_writer.write(validation) for validation in validations
             ]
             stage = "decide"
             decision = self.decision_gate.decide(observation, validations)
@@ -376,17 +367,20 @@ class GoogleMapsQualityReprocessor:
 
             current_place_published = False
             if (
-                decision.status is GoogleMapsDecisionStatus.PASS
+                self.current_place_writer is not None
+                and decision.status is GoogleMapsDecisionStatus.PASS
                 and effective_mapping.status is MappingStatus.CONFIRMED
             ):
                 stage = "publish_current_place"
                 current = self.current_place_writer.get(observation.place_id)
-                if current is None or (
-                    current.provenance.observed_at < observation.observed_at
-                ) or (
-                    current.provenance.observed_at == observation.observed_at
-                    and current.provenance.source_record_id
-                    == observation.source_record_id
+                if (
+                    current is None
+                    or (current.provenance.observed_at < observation.observed_at)
+                    or (
+                        current.provenance.observed_at == observation.observed_at
+                        and current.provenance.source_record_id
+                        == observation.source_record_id
+                    )
                 ):
                     paths["current_place_path"] = self.current_place_writer.publish(
                         observation, decision, effective_mapping
@@ -588,9 +582,7 @@ class GoogleMapsQualityReprocessor:
         # `menu_source`. It is neither a menu image nor a valid current
         # MenuSourceObservation. Menu/OCR is paused, so ignore only this legacy
         # value while preserving the immutable source file on disk.
-        if isinstance(document, dict) and isinstance(
-            document.get("menu_source"), str
-        ):
+        if isinstance(document, dict) and isinstance(document.get("menu_source"), str):
             document = {**document, "menu_source": None}
         return GoogleMapsPlaceObservation.model_validate(document)
 

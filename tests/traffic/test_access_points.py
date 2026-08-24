@@ -15,66 +15,27 @@ from nextrip_traffic.access_points import (
     AccessPointNotFoundError,
     AccessPointRegistry,
 )
+from tests.canonical_dataset_support import (
+    CanonicalTestPlace,
+    write_canonical_dataset,
+)
 
 
 NOW = "2026-08-19T12:00:00Z"
 
 
-def _write_place(
-    directory: Path,
-    filename: str,
-    *,
-    place_id: str,
-    latitude: float | None,
-    longitude: float | None,
-    city_id: str | None = "city_da_nang",
-    status: str = "legacy_verified",
-) -> None:
-    location = None
-    if latitude is not None and longitude is not None:
-        location = {
-            "latitude": latitude,
-            "longitude": longitude,
-            "accuracy": "verified_master",
-            "source": "verified-master-data",
-            "verified_at": NOW,
-        }
-    payload = {
-        "place_id": place_id,
-        "entity_type": "cafe",
-        "city": "Da Nang",
-        "city_id": city_id,
-        "name": f"Place {place_id}",
-        "location": location,
-        "field_sources": {},
-        "provenance": {
-            "run_id": "run-1",
-            "source_record_id": f"source-{place_id}",
-            "source_id": "verified-master-data",
-            "verification_status": status,
-        },
-        "updated_at": NOW,
-    }
-    (directory / filename).write_text(
-        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
-    )
-
-
 def test_loads_places_and_derives_city_center_from_verified_median(
     tmp_path: Path,
 ) -> None:
-    _write_place(tmp_path, "one.json", place_id="one", latitude=16.0, longitude=108.0)
-    _write_place(tmp_path, "two.json", place_id="two", latitude=18.0, longitude=110.0)
-    _write_place(
-        tmp_path,
-        "pending.json",
-        place_id="pending",
-        latitude=50.0,
-        longitude=50.0,
-        status="pending_review",
+    dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [
+            CanonicalTestPlace("one", "Place one", 16.0, 108.0),
+            CanonicalTestPlace("two", "Place two", 18.0, 110.0),
+        ],
     )
 
-    registry = AccessPointRegistry(tmp_path)
+    registry = AccessPointRegistry(canonical_dataset_path=dataset)
 
     assert registry.resolve("one").access_point_id == "place:one:main"
     assert registry.resolve("place:two:main").owner_entity_id == "two"
@@ -85,36 +46,39 @@ def test_loads_places_and_derives_city_center_from_verified_median(
     assert center.location.longitude == 109.0
     assert center.verification_status == VerificationStatus.AUTO_VERIFIED
     assert center.source_record_ids == [
-        "derived:median:current-place:city_da_nang:count=2"
+        "derived:median:canonical-place:city_da_nang:count=2"
     ]
     assert TransportMode.TRANSIT not in center.supported_modes
-    assert len(registry) == 4
+    assert len(registry) == 3
 
 
-def test_reports_bad_missing_and_duplicate_records_without_failing(
+def test_invalid_canonical_is_reported(
     tmp_path: Path,
 ) -> None:
-    _write_place(tmp_path, "a.json", place_id="same", latitude=16.0, longitude=108.0)
-    _write_place(tmp_path, "b.json", place_id="same", latitude=16.1, longitude=108.1)
-    _write_place(tmp_path, "missing.json", place_id="missing", latitude=None, longitude=None)
-    (tmp_path / "broken.json").write_text("{broken", encoding="utf-8")
+    invalid_dataset = tmp_path / "invalid-canonical.json"
+    invalid_dataset.write_text("{broken", encoding="utf-8")
 
-    registry = AccessPointRegistry(tmp_path)
+    registry = AccessPointRegistry(canonical_dataset_path=invalid_dataset)
 
     codes = {issue.code for issue in registry.last_report.issues}
-    assert codes == {
-        "duplicate_place_id",
-        "invalid_current_place",
-        "missing_location",
-    }
-    assert registry.last_report.skipped_records == 3
-    assert registry.resolve("same").owner_entity_id == "same"
-    assert registry.resolve("city_da_nang").access_type == AccessPointType.CITY_CENTER
+    assert codes == {"invalid_canonical_dataset"}
+    assert registry.last_report.skipped_records == 1
+    assert len(registry) == 0
+    with pytest.raises(AccessPointNotFoundError):
+        registry.resolve("one")
+
+
+def test_registry_requires_canonical_dataset_argument() -> None:
+    with pytest.raises(TypeError, match="canonical_dataset_path"):
+        AccessPointRegistry()  # type: ignore[call-arg]
 
 
 def test_get_list_stats_and_reload_return_isolated_snapshots(tmp_path: Path) -> None:
-    _write_place(tmp_path, "one.json", place_id="one", latitude=16.0, longitude=108.0)
-    registry = AccessPointRegistry(tmp_path)
+    first_dataset = write_canonical_dataset(
+        tmp_path / "canonical-first",
+        [CanonicalTestPlace("one", "Place one", 16.0, 108.0)],
+    )
+    registry = AccessPointRegistry(canonical_dataset_path=first_dataset)
 
     fetched = registry.get("place:one:main")
     fetched.name = "mutated by caller"
@@ -128,7 +92,14 @@ def test_get_list_stats_and_reload_return_isolated_snapshots(tmp_path: Path) -> 
     assert "one" in registry
     assert "unknown" not in registry
 
-    _write_place(tmp_path, "two.json", place_id="two", latitude=16.2, longitude=108.2)
+    second_dataset = write_canonical_dataset(
+        tmp_path / "canonical-second",
+        [
+            CanonicalTestPlace("one", "Place one", 16.0, 108.0),
+            CanonicalTestPlace("two", "Place two", 16.2, 108.2),
+        ],
+    )
+    registry.canonical_dataset_path = second_dataset
     report = registry.reload()
     assert report.place_access_points_loaded == 2
     assert registry.resolve("two").owner_entity_id == "two"
@@ -140,9 +111,10 @@ def test_get_list_stats_and_reload_return_isolated_snapshots(tmp_path: Path) -> 
 def test_curated_overrides_add_hubs_replace_generated_records_and_add_aliases(
     tmp_path: Path,
 ) -> None:
-    current = tmp_path / "current"
-    current.mkdir()
-    _write_place(current, "one.json", place_id="one", latitude=16.0, longitude=108.0)
+    dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [CanonicalTestPlace("one", "Place one", 16.0, 108.0)],
+    )
     overrides = tmp_path / "access-points.json"
     overrides.write_text(
         json.dumps(
@@ -178,7 +150,10 @@ def test_curated_overrides_add_hubs_replace_generated_records_and_add_aliases(
         encoding="utf-8",
     )
 
-    registry = AccessPointRegistry(current, overrides_path=overrides)
+    registry = AccessPointRegistry(
+        canonical_dataset_path=dataset,
+        overrides_path=overrides,
+    )
 
     assert registry.resolve("one").access_type == AccessPointType.PARKING
     assert registry.resolve("one-parking").access_type == AccessPointType.PARKING
@@ -194,8 +169,10 @@ def test_curated_overrides_add_hubs_replace_generated_records_and_add_aliases(
 
 
 def test_duplicate_override_and_unknown_alias_are_reported(tmp_path: Path) -> None:
-    current = tmp_path / "current"
-    current.mkdir()
+    dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [CanonicalTestPlace("one", "Place one", 16.0, 108.0)],
+    )
     overrides = tmp_path / "access-points.json"
     base = {
         "access_point_id": "hub:station",
@@ -217,7 +194,10 @@ def test_duplicate_override_and_unknown_alias_are_reported(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    registry = AccessPointRegistry(current, overrides_path=overrides)
+    registry = AccessPointRegistry(
+        canonical_dataset_path=dataset,
+        overrides_path=overrides,
+    )
 
     codes = {issue.code for issue in registry.last_report.issues}
     assert "duplicate_override_access_point_id" in codes

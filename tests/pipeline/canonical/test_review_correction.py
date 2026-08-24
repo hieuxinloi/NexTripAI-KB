@@ -3,12 +3,22 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from nextrip_pipeline.canonical.dataset import materialize_canonical_active_dataset
 from nextrip_pipeline.canonical.master import CanonicalMasterLoad, MasterRawRecord
-from nextrip_pipeline.canonical.models import LegacyPlaceSlot
-from nextrip_pipeline.canonical.resolver import build_canonical_identity_manifest
+from nextrip_pipeline.canonical.models import DuplicateIdentityDecision, LegacyPlaceSlot
+from nextrip_pipeline.canonical.projection import (
+    apply_review_corrections_to_identity_projection,
+    build_existing_identity_projection,
+)
+from nextrip_pipeline.canonical.resolver import (
+    CanonicalIdentityResolver,
+    build_canonical_identity_manifest,
+)
 from nextrip_pipeline.canonical.review_correction import (
     CanonicalReviewCorrectionWriter,
+    ReviewCorrectionInputError,
     ReviewCorrectionSkipReason,
     apply_review_corrections,
     build_canonical_review_correction_overlay,
@@ -34,6 +44,8 @@ def _observation(
     name: str = "Google Name",
     location: GeoPoint | None = None,
     observed_at: datetime = NOW,
+    phone: str | None = "+84 900 000 001",
+    website_url: str | None = "https://example.com/place",
 ) -> GoogleMapsPlaceObservation:
     observation_id = f"obs-{place_id}-{observed_at.hour}"
     return GoogleMapsPlaceObservation(
@@ -46,8 +58,8 @@ def _observation(
         name=name,
         address="12 Google Street, Da Nang",
         category="Coffee shop",
-        phone="+84 900 000 001",
-        website_url="https://example.com/place",
+        phone=phone,
+        website_url=website_url,
         location=location,
         business_status=BusinessStatus.ACTIVE,
         opening=OpeningStatusObservation(
@@ -63,7 +75,7 @@ def _observation(
     )
 
 
-def _dataset():
+def _master_and_manifest():
     place_ids = ["cafe_dn_001", "night_dn_001"]
     slots = [
         LegacyPlaceSlot(
@@ -102,6 +114,11 @@ def _dataset():
         explicit_duplicate_decisions=[],
     )
     manifest = build_canonical_identity_manifest(slots, generated_at=NOW)
+    return master, manifest
+
+
+def _dataset():
+    master, manifest = _master_and_manifest()
     return materialize_canonical_active_dataset(master, manifest)
 
 
@@ -193,6 +210,98 @@ def test_apply_returns_new_hashed_dataset_and_preserves_review_identity() -> Non
         "identity_status"
     ] == "review"
     assert corrected_by_id["cafe_dn_001"] == original_by_id["cafe_dn_001"]
+
+
+def test_apply_resolves_merged_legacy_corrections_and_selects_richest() -> None:
+    master, _ = _master_and_manifest()
+    manifest = build_canonical_identity_manifest(
+        master.slots,
+        duplicate_decisions=[
+            DuplicateIdentityDecision(
+                keeper_legacy_place_id="cafe_dn_001",
+                duplicate_legacy_place_ids=["night_dn_001"],
+            )
+        ],
+        generated_at=NOW,
+    )
+    dataset = materialize_canonical_active_dataset(master, manifest)
+    overlay = build_canonical_review_correction_overlay(
+        {"group-1": ["night_dn_001", "cafe_dn_001"]},
+        [
+            _observation(
+                "cafe_dn_001",
+                phone=None,
+                website_url=None,
+                observed_at=datetime(2026, 8, 21, 12, tzinfo=UTC),
+            ),
+            _observation("night_dn_001"),
+        ],
+    )
+
+    corrected = apply_review_corrections(
+        dataset,
+        overlay,
+        resolver=CanonicalIdentityResolver(manifest),
+    )
+
+    assert len(corrected.records) == 1
+    correction = corrected.records[0].data["review_correction"]
+    assert correction["source_legacy_place_id"] == "night_dn_001"
+    assert corrected.records[0].phone == "+84 900 000 001"
+
+
+def test_apply_rejects_conflicting_corrections_for_merged_identity() -> None:
+    master, _ = _master_and_manifest()
+    manifest = build_canonical_identity_manifest(
+        master.slots,
+        duplicate_decisions=[
+            DuplicateIdentityDecision(
+                keeper_legacy_place_id="cafe_dn_001",
+                duplicate_legacy_place_ids=["night_dn_001"],
+            )
+        ],
+        generated_at=NOW,
+    )
+    dataset = materialize_canonical_active_dataset(master, manifest)
+    overlay = build_canonical_review_correction_overlay(
+        {"group-1": ["night_dn_001", "cafe_dn_001"]},
+        [
+            _observation("cafe_dn_001", name="One physical place"),
+            _observation("night_dn_001", name="Another physical place"),
+        ],
+    )
+
+    with pytest.raises(ReviewCorrectionInputError, match="conflict on name"):
+        apply_review_corrections(
+            dataset,
+            overlay,
+            resolver=CanonicalIdentityResolver(manifest),
+        )
+
+
+def test_apply_to_identity_projection_rehashes_and_pins_overlay() -> None:
+    master, manifest = _master_and_manifest()
+    projection = build_existing_identity_projection(master, manifest)
+    overlay = build_canonical_review_correction_overlay(
+        {"group-1": ["night_dn_001", "cafe_dn_001"]},
+        [
+            _observation("night_dn_001", name="Corrected Night Name"),
+            _observation("cafe_dn_001", name="Corrected Cafe Name"),
+        ],
+    )
+
+    corrected = apply_review_corrections_to_identity_projection(
+        projection,
+        overlay,
+    )
+
+    assert corrected.projection_hash != projection.projection_hash
+    assert corrected.review_correction_overlay_id == overlay.overlay_id
+    assert corrected.review_correction_overlay_hash == overlay.overlay_hash
+    assert {item.place_id: item.name for item in corrected.identities} == {
+        "cafe_dn_001": "Corrected Cafe Name",
+        "night_dn_001": "Corrected Night Name",
+    }
 
 
 def test_writer_is_idempotent_and_readable(tmp_path: Path) -> None:

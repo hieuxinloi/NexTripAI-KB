@@ -81,9 +81,15 @@ def test_valhalla_deployment_uses_official_immutable_image_and_local_data() -> N
     assert "VALHALLA_DATASET_VERSION" in compose
     assert "http://127.0.0.1:8002/status" in compose
     assert "traffic_cache:/app/data/current/traffic" in compose
+    assert 'NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?' in compose
+    assert "source: ../../data/canonical" in compose
+    assert "target: /app/data/canonical" in compose
+    assert "data/current/place" not in compose
     assert "TRAFFIC_API_KEY:?set TRAFFIC_API_KEY" in compose
     dockerfile = (ROOT / "deploy" / "traffic" / "Dockerfile").read_text("utf-8")
     assert "http://127.0.0.1:8010/ready" in dockerfile
+    assert "/app/data/canonical" in dockerfile
+    assert "data/current/place" not in dockerfile
 
 
 def test_airflow_overlay_is_pinned_and_disabled_by_default() -> None:
@@ -108,6 +114,12 @@ def test_airflow_overlay_is_pinned_and_disabled_by_default() -> None:
     assert "command: scheduler" in compose
     assert "command: dag-processor" in compose
     assert "traffic_cache:/opt/airflow/nextrip/data/current/traffic" in compose
+    assert 'NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?' in compose
+    assert "source: ../../data/canonical" in compose
+    assert "target: /opt/airflow/nextrip/data/canonical" in compose
+    assert "data/current/place" not in compose
+    assert "/opt/airflow/nextrip/data/canonical" in dockerfile
+    assert "data/current/place" not in dockerfile
 
 
 def test_valhalla_preparation_requires_version_and_checksum() -> None:
@@ -130,6 +142,7 @@ def test_environment_template_uses_the_documented_dotenv_name() -> None:
     ignores = (ROOT / "deploy" / "traffic" / ".gitignore").read_text("utf-8")
 
     assert "deploy/traffic/.env" in template
+    assert "NEXTRIP_CANONICAL_DATASET=data/canonical/datasets/" in template
     assert "TRAFFIC_API_KEY=replace-with-a-long-random-secret" in template
     assert ".env" in ignores.splitlines()
     assert "traffic.env" not in template

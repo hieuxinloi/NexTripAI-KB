@@ -25,8 +25,9 @@ def _registry_command() -> str:
     return (
         'set -euo pipefail; KB_ROOT="${NEXTRIP_KB_ROOT:-/opt/airflow/nextrip}"; '
         'cd "$KB_ROOT"; '
+        ': "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"; '
         "python -m nextrip_pipeline.cli build-trivago-registry "
-        "--master-file travel_data_verified/hotel_final.json "
+        '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET" '
         "--override config/trivago-mapping.json "
         "--current-mapping-dir data/current/trivago_mappings "
         "--output config/generated/trivago-hotel-registry.json "

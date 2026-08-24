@@ -74,7 +74,7 @@ def kb_version_manifests() -> dict[str, KBVersionManifest]:
         "v8": KBVersionManifest(
             kb_version="v8",
             status="experimental",
-            dataset="travel_data_verified:692",
+            dataset="canonical-active:NEXTRIP_CANONICAL_DATASET",
             ontology_version="typed-target-geo-provenance-v5-with-evidence-chunks",
             embedding_version="place-concept-evidence-v5",
             retrieval_version="semantic-tolerant-stateful-hybrid-evidence-v8",

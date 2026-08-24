@@ -26,6 +26,7 @@ from .detail import CandidateDetailStage, candidate_detail_payload
 from .discovery import (
     GoogleMapsDiscoveryRun,
     StagedGoogleMapsCandidate,
+    _validate_candidate_vacancy_type,
 )
 from .distinct import DistinctCandidateValidator
 from .id_allocator import MonotonicPlaceIdAllocator
@@ -161,11 +162,12 @@ class CanonicalReplacementProposal(NexTripModel):
             raise ValueError("a proposal must not mutate replacement_place_id")
         if self.proposed_place_id == vacancy.retired_place_id:
             raise ValueError("a proposal cannot reuse the retired place ID")
-        if (self.candidate.city_id, self.candidate.entity_type) != (
-            vacancy.city_id,
-            vacancy.entity_type,
-        ):
-            raise ValueError("proposal candidate does not match the vacancy slot")
+        if self.candidate.city_id != vacancy.city_id:
+            raise ValueError("proposal candidate does not match the vacancy city")
+        _validate_candidate_vacancy_type(
+            self.candidate.entity_type,
+            vacancy,
+        )
         if self.validation.candidate_key != self.candidate.candidate_key:
             raise ValueError("proposal validation belongs to another candidate")
         if self.validation.status is not CandidateDisposition.PASS:
@@ -279,6 +281,7 @@ def canonical_replacement_batch_payload(
     result_limit: int,
     max_detail_candidates: int,
     max_vacancies: int,
+    candidate_entity_type: EntityType | None,
     identity_projection_hash: str | None,
     review_correction_overlay_id: str | None,
     review_correction_overlay_hash: str | None,
@@ -293,7 +296,7 @@ def canonical_replacement_batch_payload(
     failed_count: int,
     results: list[ReplacementVacancyResult],
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "schema_version": schema_version,
         "run_id": run_id,
         "started_at": started_at.isoformat(),
@@ -315,6 +318,9 @@ def canonical_replacement_batch_payload(
         "failed_count": failed_count,
         "results": [item.model_dump(mode="json") for item in results],
     }
+    if candidate_entity_type is not None:
+        payload["candidate_entity_type"] = candidate_entity_type.value
+    return payload
 
 
 class CanonicalReplacementProposalBatch(NexTripModel):
@@ -332,6 +338,7 @@ class CanonicalReplacementProposalBatch(NexTripModel):
         le=MAX_REPLACEMENT_DETAIL_CANDIDATES,
     )
     max_vacancies: int = Field(ge=1, le=MAX_REPLACEMENT_BATCH_VACANCIES)
+    candidate_entity_type: EntityType | None = None
     identity_projection_hash: str | None = Field(
         default=None,
         pattern=r"^[0-9a-f]{64}$",
@@ -354,6 +361,20 @@ class CanonicalReplacementProposalBatch(NexTripModel):
 
     @model_validator(mode="after")
     def validate_batch(self) -> CanonicalReplacementProposalBatch:
+        if self.candidate_entity_type is not None:
+            for result in self.results:
+                _validate_candidate_vacancy_type(
+                    self.candidate_entity_type,
+                    result.vacancy,
+                )
+                if (
+                    result.proposal is not None
+                    and result.proposal.candidate.entity_type
+                    is not self.candidate_entity_type
+                ):
+                    raise ValueError(
+                        "proposal candidate type does not match batch candidate pool"
+                    )
         if (self.review_correction_overlay_id is None) != (
             self.review_correction_overlay_hash is None
         ):
@@ -399,6 +420,7 @@ class CanonicalReplacementProposalBatch(NexTripModel):
                 result_limit=self.result_limit,
                 max_detail_candidates=self.max_detail_candidates,
                 max_vacancies=self.max_vacancies,
+                candidate_entity_type=self.candidate_entity_type,
                 identity_projection_hash=self.identity_projection_hash,
                 review_correction_overlay_id=self.review_correction_overlay_id,
                 review_correction_overlay_hash=self.review_correction_overlay_hash,
@@ -475,9 +497,16 @@ class CanonicalReplacementProposalBatchRunner:
         max_detail_candidates: int = 5,
         max_vacancies: int = 100,
         search_terms: Mapping[tuple[str, EntityType], Sequence[str]] | None = None,
+        candidate_entity_type: EntityType | None = None,
         pre_detail_validator: DistinctCandidateValidator | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        normalized_search_terms = _normalize_search_terms(search_terms or {})
+        if candidate_entity_type is not None and not isinstance(
+            candidate_entity_type,
+            EntityType,
+        ):
+            raise ValueError("candidate_entity_type must be an EntityType")
         _validate_bound(
             "result_limit",
             result_limit,
@@ -493,8 +522,20 @@ class CanonicalReplacementProposalBatchRunner:
             max_vacancies,
             maximum=MAX_REPLACEMENT_BATCH_VACANCIES,
         )
-        if max_detail_candidates > result_limit:
-            raise ValueError("max_detail_candidates cannot exceed result_limit")
+        maximum_term_count = max(
+            (len(terms) for terms in normalized_search_terms.values()),
+            default=1,
+        )
+        available_candidate_count = result_limit * maximum_term_count
+        if max_detail_candidates > available_candidate_count:
+            if maximum_term_count == 1:
+                raise ValueError(
+                    "max_detail_candidates cannot exceed result_limit"
+                )
+            raise ValueError(
+                "max_detail_candidates cannot exceed result_limit multiplied "
+                "by the maximum search-term count"
+            )
         self.discovery_service = discovery_service
         self.detail_service = detail_service
         self.allocator = allocator
@@ -502,7 +543,8 @@ class CanonicalReplacementProposalBatchRunner:
         self.result_limit = result_limit
         self.max_detail_candidates = max_detail_candidates
         self.max_vacancies = max_vacancies
-        self.search_terms = _normalize_search_terms(search_terms or {})
+        self.search_terms = normalized_search_terms
+        self.candidate_entity_type = candidate_entity_type
         self.pre_detail_validator = pre_detail_validator or DistinctCandidateValidator()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
@@ -532,6 +574,11 @@ class CanonicalReplacementProposalBatchRunner:
                 "open vacancy count exceeds "
                 f"max_vacancies={self.max_vacancies}"
             )
+        for vacancy in vacant:
+            _validate_candidate_vacancy_type(
+                self.candidate_entity_type or vacancy.entity_type,
+                vacancy,
+            )
         working_existing = list(existing)
         if len({item.place_id for item in working_existing}) != len(working_existing):
             raise ValueError("existing identities contain duplicate place IDs")
@@ -550,7 +597,8 @@ class CanonicalReplacementProposalBatchRunner:
             ).append(vacancy)
 
         search_plan = {
-            _slot_key(slot): list(self._terms_for_slot(slot))
+            _search_plan_key(slot, self._candidate_type_for_slot(slot)):
+            list(self._terms_for_slot(slot))
             for slot in sorted(by_slot, key=_slot_sort_key)
         }
         unique_search_count = 0
@@ -576,6 +624,10 @@ class CanonicalReplacementProposalBatchRunner:
                     }
                     if term != DEFAULT_SEARCH_TERM_SENTINEL:
                         discovery_kwargs["search_term"] = term
+                    if self.candidate_entity_type is not None:
+                        discovery_kwargs["candidate_entity_type"] = (
+                            self.candidate_entity_type
+                        )
                     discovery = self.discovery_service.run(
                         representative,
                         **discovery_kwargs,
@@ -647,6 +699,7 @@ class CanonicalReplacementProposalBatchRunner:
             "result_limit": self.result_limit,
             "max_detail_candidates": self.max_detail_candidates,
             "max_vacancies": self.max_vacancies,
+            "candidate_entity_type": self.candidate_entity_type,
             "identity_projection_hash": identity_projection_hash,
             "review_correction_overlay_id": review_correction_overlay_id,
             "review_correction_overlay_hash": review_correction_overlay_hash,
@@ -682,6 +735,7 @@ class CanonicalReplacementProposalBatchRunner:
         batch_run_id: str,
     ) -> tuple[list[ReplacementVacancyResult], str | None]:
         slot = (vacancies[0].city_id, vacancies[0].entity_type)
+        expected_candidate_type = self._candidate_type_for_slot(slot)
         for discovery in discoveries:
             discovered_slot = (
                 discovery.stage.vacancy.city_id,
@@ -695,6 +749,19 @@ class CanonicalReplacementProposalBatchRunner:
                         error=(
                             "discovery stage belongs to another entity/city slot"
                         ),
+                    ),
+                    None,
+                )
+            discovered_candidate_type = (
+                discovery.stage.candidate_entity_type
+                or discovery.stage.vacancy.entity_type
+            )
+            if discovered_candidate_type is not expected_candidate_type:
+                return (
+                    _failed_results(
+                        vacancies,
+                        error_stage="discovery_rebind",
+                        error="discovery stage belongs to another candidate pool",
                     ),
                     None,
                 )
@@ -715,6 +782,7 @@ class CanonicalReplacementProposalBatchRunner:
                     pooled.staged,
                     discovery_vacancy=discovery_vacancy,
                     target_vacancy=vacancy,
+                    candidate_entity_type=expected_candidate_type,
                 )
                 pre_validation = self.pre_detail_validator.validate(
                     rebound.candidate,
@@ -803,7 +871,12 @@ class CanonicalReplacementProposalBatchRunner:
                     proposed_place_id = self.allocator.allocate(
                         detail_run.detail.candidate,
                         validation,
-                        replacement_of=vacancy.retired_place_id,
+                        replacement_of=(
+                            vacancy.retired_place_id
+                            if detail_run.detail.candidate.entity_type
+                            is vacancy.entity_type
+                            else None
+                        ),
                     )
                     if any(
                         item.place_id == proposed_place_id
@@ -871,12 +944,19 @@ class CanonicalReplacementProposalBatchRunner:
     def _terms_for_slot(self, slot: tuple[str, EntityType]) -> tuple[str, ...]:
         return self.search_terms.get(slot, (DEFAULT_SEARCH_TERM_SENTINEL,))
 
+    def _candidate_type_for_slot(
+        self,
+        slot: tuple[str, EntityType],
+    ) -> EntityType:
+        return self.candidate_entity_type or slot[1]
+
 
 def _rebind_staged_candidate(
     staged: StagedGoogleMapsCandidate,
     *,
     discovery_vacancy: EntityCityVacancy,
     target_vacancy: EntityCityVacancy,
+    candidate_entity_type: EntityType,
 ) -> StagedGoogleMapsCandidate:
     """Clone only candidate context; shared discovery evidence stays unchanged."""
 
@@ -885,10 +965,13 @@ def _rebind_staged_candidate(
         target_vacancy.entity_type,
     ):
         raise ValueError("a discovery candidate cannot cross entity/city slots")
+    if staged.candidate.entity_type is not candidate_entity_type:
+        raise ValueError("discovery candidate belongs to another candidate pool")
+    _validate_candidate_vacancy_type(candidate_entity_type, target_vacancy)
     candidate = staged.candidate.model_copy(
         update={
             "city_id": target_vacancy.city_id,
-            "entity_type": target_vacancy.entity_type,
+            "entity_type": candidate_entity_type,
         },
         deep=True,
     )
@@ -1041,7 +1124,11 @@ def _validate_bound(name: str, value: int, *, maximum: int) -> None:
 
 
 def _error_text(error: Exception) -> str:
-    return f"{type(error).__name__}: {error}"
+    # Pydantic's shared model config strips leading/trailing whitespace from
+    # strings. Normalize the error before computing the content hash so a
+    # multiline Playwright/HTTP error cannot make the persisted batch differ
+    # from the payload that was hashed.
+    return f"{type(error).__name__}: {error}".strip()
 
 
 def _normalize_search_terms(
@@ -1067,6 +1154,16 @@ def _normalize_search_terms(
 
 def _slot_key(slot: tuple[str, EntityType]) -> str:
     return f"{slot[0]}/{slot[1].value}"
+
+
+def _search_plan_key(
+    target_slot: tuple[str, EntityType],
+    candidate_entity_type: EntityType,
+) -> str:
+    target = _slot_key(target_slot)
+    if candidate_entity_type is target_slot[1]:
+        return target
+    return f"{target}->{candidate_entity_type.value}"
 
 
 def _slot_sort_key(slot: tuple[str, EntityType]) -> tuple[str, str]:

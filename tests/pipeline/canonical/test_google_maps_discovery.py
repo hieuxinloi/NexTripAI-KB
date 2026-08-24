@@ -40,6 +40,21 @@ def _vacancy() -> EntityCityVacancy:
     )
 
 
+def _nightlife_vacancy() -> EntityCityVacancy:
+    retired_place_id = "night_dn_008"
+    return EntityCityVacancy(
+        vacancy_id=stable_identifier(
+            "vacancy",
+            "city_da_nang",
+            EntityType.NIGHTLIFE.value,
+            retired_place_id,
+        ),
+        retired_place_id=retired_place_id,
+        city_id="city_da_nang",
+        entity_type=EntityType.NIGHTLIFE,
+    )
+
+
 class FakeSearchBrowser:
     def __init__(self, results: object) -> None:
         self.results = results
@@ -154,6 +169,39 @@ def test_service_writes_immutable_raw_evidence_then_candidate_stage(tmp_path) ->
     assert persisted["candidates"][0]["status"] == "discovered"
     with pytest.raises(CandidateStageAlreadyExistsError, match="immutable"):
         GoogleMapsCandidateStageWriter(tmp_path / "staging").write(result.stage)
+
+
+def test_cross_type_discovery_preserves_target_vacancy_and_actual_type(
+    tmp_path,
+) -> None:
+    browser = FakeSearchBrowser(_valid_results())
+    service = GoogleMapsCandidateDiscovery(
+        GoogleMapsCandidateDiscoveryAdapter(
+            browser,  # type: ignore[arg-type]
+            clock=lambda: NOW,
+        ),
+        RawJsonWriter(tmp_path / "raw"),
+        GoogleMapsCandidateStageWriter(tmp_path / "staging"),
+    )
+
+    result = service.run(
+        _nightlife_vacancy(),
+        run_id="cross-type-discovery-run",
+        result_limit=5,
+        candidate_entity_type=EntityType.CAFE,
+    )
+
+    request = result.source_record.raw_payload["request"]
+    assert result.source_record.entity_type is EntityType.CAFE
+    assert request["entity_type"] == EntityType.NIGHTLIFE.value
+    assert request["candidate_entity_type"] == EntityType.CAFE.value
+    assert result.stage.vacancy.retired_place_id == "night_dn_008"
+    assert result.stage.candidate_entity_type is EntityType.CAFE
+    assert all(
+        item.candidate.entity_type is EntityType.CAFE
+        for item in result.stage.candidates
+    )
+    assert "qu%C3%A1n%20c%C3%A0%20ph%C3%AA" in browser.calls[0][0]
 
 
 def test_malformed_result_keeps_raw_audit_but_creates_no_stage(tmp_path) -> None:

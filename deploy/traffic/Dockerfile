@@ -17,7 +17,7 @@ COPY nextrip_pipeline ./nextrip_pipeline
 COPY nextrip_traffic ./nextrip_traffic
 COPY config ./config
 
-RUN mkdir -p /app/data/current/place /app/data/current/traffic \
+RUN mkdir -p /app/data/canonical /app/data/current/traffic \
     && chown -R 50000:0 /app \
     && chmod -R g=u /app
 

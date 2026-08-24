@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import unicodedata
+from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from enum import StrEnum
@@ -25,6 +27,7 @@ from .dataset import (
     CanonicalCoordinates,
 )
 from .models import stable_sha256
+from .resolver import CanonicalIdentityResolver
 
 
 class ReviewCorrectionInputError(ValueError):
@@ -330,6 +333,7 @@ def build_canonical_review_correction_overlay(
 def apply_review_corrections(
     dataset: CanonicalActiveDataset,
     overlay: CanonicalReviewCorrectionOverlay,
+    resolver: CanonicalIdentityResolver | None = None,
 ) -> CanonicalActiveDataset:
     """Return a new canonical dataset with a correction overlay applied.
 
@@ -339,11 +343,15 @@ def apply_review_corrections(
     Record and dataset hashes are recomputed from the resulting content.
     """
 
-    corrections = {
-        correction.place_id: correction
-        for group in overlay.groups
-        for correction in group.corrections
-    }
+    if resolver is None:
+        corrections = {
+            correction.place_id: correction
+            for group in overlay.groups
+            for correction in group.corrections
+        }
+        source_legacy_ids: dict[str, str] = {}
+    else:
+        corrections, source_legacy_ids = _resolve_corrections(overlay, resolver)
     record_ids = {record.place_id for record in dataset.records}
     missing = sorted(set(corrections) - record_ids)
     if missing:
@@ -353,7 +361,11 @@ def apply_review_corrections(
         )
 
     records = [
-        _apply_place_correction(record, corrections[record.place_id])
+        _apply_place_correction(
+            record,
+            corrections[record.place_id],
+            source_legacy_place_id=source_legacy_ids.get(record.place_id),
+        )
         if record.place_id in corrections
         else CanonicalActivePlaceRecord.model_validate_json(record.model_dump_json())
         for record in dataset.records
@@ -380,6 +392,8 @@ def apply_review_corrections(
 def _apply_place_correction(
     record: CanonicalActivePlaceRecord,
     correction: CanonicalReviewPlaceCorrection,
+    *,
+    source_legacy_place_id: str | None = None,
 ) -> CanonicalActivePlaceRecord:
     data = deepcopy(record.data)
     name = correction.name or record.name
@@ -430,6 +444,8 @@ def _apply_place_correction(
         "observed_at": correction.provenance.observed_at.isoformat(),
         "source_observation_hash": correction.provenance.source_observation_hash,
     }
+    if source_legacy_place_id is not None:
+        data["review_correction"]["source_legacy_place_id"] = source_legacy_place_id
 
     values = record.model_dump(mode="json")
     values.update(
@@ -450,6 +466,113 @@ def _apply_place_correction(
         record_hash=stable_sha256(values),
         **values,
     )
+
+
+def _resolve_corrections(
+    overlay: CanonicalReviewCorrectionOverlay,
+    resolver: CanonicalIdentityResolver,
+) -> tuple[dict[str, CanonicalReviewPlaceCorrection], dict[str, str]]:
+    by_canonical_id: dict[str, list[CanonicalReviewPlaceCorrection]] = defaultdict(list)
+    unknown_ids: list[str] = []
+    for group in overlay.groups:
+        for correction in group.corrections:
+            canonical_id = resolver.resolve(correction.place_id)
+            if canonical_id is None:
+                if resolver.is_quarantined(correction.place_id):
+                    # The immutable correction remains valid evidence for the
+                    # archived duplicate corpus, but it must not be applied to
+                    # an active-only dataset.
+                    continue
+                unknown_ids.append(correction.place_id)
+                continue
+            by_canonical_id[canonical_id].append(correction)
+    if unknown_ids:
+        raise ReviewCorrectionInputError(
+            "correction overlay references identities missing from the resolver: "
+            + ", ".join(sorted(unknown_ids))
+        )
+
+    selected: dict[str, CanonicalReviewPlaceCorrection] = {}
+    source_legacy_ids: dict[str, str] = {}
+    for canonical_id in sorted(by_canonical_id):
+        candidates = by_canonical_id[canonical_id]
+        _reject_conflicting_corrections(canonical_id, candidates)
+        correction = min(
+            candidates,
+            key=lambda item: (
+                -len(item.corrected_fields),
+                item.place_id != canonical_id,
+                -item.provenance.observed_at.timestamp(),
+                item.correction_hash,
+            ),
+        )
+        selected[canonical_id] = correction
+        source_legacy_ids[canonical_id] = correction.place_id
+    return selected, source_legacy_ids
+
+
+def _reject_conflicting_corrections(
+    canonical_id: str,
+    corrections: Sequence[CanonicalReviewPlaceCorrection],
+) -> None:
+    conflicts: set[str] = set()
+    for index, left in enumerate(corrections):
+        for right in corrections[index + 1 :]:
+            common_fields = set(left.corrected_fields) & set(right.corrected_fields)
+            conflicts.update(
+                field
+                for field in common_fields
+                if not _materially_equal(
+                    field,
+                    getattr(left, field),
+                    getattr(right, field),
+                )
+            )
+    if conflicts:
+        source_ids = ", ".join(sorted(item.place_id for item in corrections))
+        raise ReviewCorrectionInputError(
+            f"corrections resolving to {canonical_id} conflict on "
+            f"{', '.join(sorted(conflicts))}: {source_ids}"
+        )
+
+
+def _materially_equal(field: str, left: object, right: object) -> bool:
+    if field in {"name", "address", "category"}:
+        return _comparison_text(str(left)) == _comparison_text(str(right))
+    if field == "phone":
+        return "".join(character for character in str(left) if character.isdigit()) == (
+            "".join(character for character in str(right) if character.isdigit())
+        )
+    if field == "website_url":
+        return str(left).rstrip("/") == str(right).rstrip("/")
+    if field == "location":
+        assert isinstance(left, GeoPoint)
+        assert isinstance(right, GeoPoint)
+        return _location_distance_metres(left, right) <= 25
+    return left == right
+
+
+def _comparison_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character) and character.isalnum()
+    )
+
+
+def _location_distance_metres(left: GeoPoint, right: GeoPoint) -> float:
+    latitude_1 = math.radians(left.latitude)
+    latitude_2 = math.radians(right.latitude)
+    latitude_delta = latitude_2 - latitude_1
+    longitude_delta = math.radians(right.longitude - left.longitude)
+    haversine = (
+        math.sin(latitude_delta / 2) ** 2
+        + math.cos(latitude_1)
+        * math.cos(latitude_2)
+        * math.sin(longitude_delta / 2) ** 2
+    )
+    return 6_371_000 * 2 * math.asin(min(1.0, math.sqrt(haversine)))
 
 
 def _canonical_aliases(values: Sequence[str], name: str) -> list[str]:

@@ -5,7 +5,12 @@ import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from nextrip_pipeline.schemas import BusinessStatus, EntityType
+from nextrip_pipeline.schemas import (
+    BusinessStatus,
+    EntityType,
+    GoogleMapsPlaceObservation,
+    OpeningInterval,
+)
 
 from .candidate import (
     CandidateDisposition,
@@ -13,6 +18,7 @@ from .candidate import (
     CandidateValidationResult,
     CanonicalReplacementCandidate,
 )
+from .models import EntityCityVacancy, VacancySourceSubtype
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +209,19 @@ def _default_keyword_categories() -> dict[EntityType, tuple[str, ...]]:
     }
 
 
+def _default_recognized_ineligible_categories() -> tuple[str, ...]:
+    """Narrow Google categories known to be outside the NexTrip place scope."""
+
+    return (
+        "advertising agency",
+        "marketing agency",
+        "software company",
+        "real estate agency",
+        "interior designer",
+        "corporate office",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateEntityEligibilityPolicy:
     """Conservative Google category vocabulary, replaceable by configuration."""
@@ -223,6 +242,9 @@ class CandidateEntityEligibilityPolicy:
         "c\u1eeda h\u00e0ng",
         "doanh nghi\u1ec7p",
     )
+    recognized_ineligible_categories: tuple[str, ...] = field(
+        default_factory=_default_recognized_ineligible_categories
+    )
     city_bounds: Mapping[str, ConservativeCityBounds] = field(
         default_factory=_default_city_bounds
     )
@@ -239,6 +261,11 @@ class CandidateEntityEligibilityPolicy:
                     raise ValueError("category policy terms must be non-empty")
         if any(not _category_key(value) for value in self.ambiguous_categories):
             raise ValueError("ambiguous category terms must be non-empty")
+        if any(
+            not _category_key(value)
+            for value in self.recognized_ineligible_categories
+        ):
+            raise ValueError("recognized ineligible categories must be non-empty")
         if any(not city_id.strip() for city_id in self.city_bounds):
             raise ValueError("city boundary IDs must be non-empty")
         for entity_type, values in self.incompatible_name_keywords.items():
@@ -270,6 +297,15 @@ class CandidateEntityEligibilityPolicy:
         key = _category_key(category)
         return key in {_category_key(value) for value in self.ambiguous_categories}
 
+    def is_recognized_ineligible(self, category: str) -> bool:
+        """Return true only for an exact, reviewed out-of-scope category."""
+
+        key = _category_key(category)
+        return key in {
+            _category_key(value)
+            for value in self.recognized_ineligible_categories
+        }
+
     def has_incompatible_name_keyword(
         self,
         entity_type: EntityType,
@@ -296,9 +332,13 @@ class CandidateEntityEligibilityValidator:
         self,
         candidate: CanonicalReplacementCandidate,
         validation: CandidateValidationResult,
+        *,
+        vacancy: EntityCityVacancy | None = None,
+        google_observation: GoogleMapsPlaceObservation | None = None,
     ) -> CandidateValidationResult:
         if validation.candidate_key != candidate.candidate_key:
             raise ValueError("validation belongs to another candidate")
+        _validate_evidence_context(candidate, vacancy, google_observation)
 
         # A definite duplicate remains a duplicate regardless of category or
         # business status. Do not replace its stronger evidence classification.
@@ -322,21 +362,39 @@ class CandidateEntityEligibilityValidator:
                 return _result(validation, CandidateDisposition.REJECT, reasons)
 
         category = candidate.provider_category
+        category_matches: set[EntityType] = set()
         if category is None or not _category_key(category):
             category_reason = CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_MISSING
         else:
-            matches = self.policy.matching_entity_types(category)
-            if self.policy.is_explicitly_ambiguous(category) or len(matches) != 1:
+            category_matches = self.policy.matching_entity_types(category)
+            if (
+                self.policy.is_explicitly_ambiguous(category)
+                or len(category_matches) != 1
+            ):
                 category_reason = (
                     CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_AMBIGUOUS
                 )
-            elif candidate.entity_type in matches:
+            elif candidate.entity_type in category_matches:
                 category_reason = (
                     CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_COMPATIBLE
                 )
             else:
                 category_reason = (
                     CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_INCOMPATIBLE
+                )
+
+        late_night_eligibility = _late_night_cross_category_eligibility(
+            candidate,
+            category_matches,
+            vacancy=vacancy,
+            google_observation=google_observation,
+        )
+        if late_night_eligibility is not None:
+            compatible, late_night_reasons = late_night_eligibility
+            reasons.update(late_night_reasons)
+            if compatible:
+                category_reason = (
+                    CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_COMPATIBLE
                 )
 
         reasons.add(category_reason)
@@ -357,6 +415,87 @@ class CandidateEntityEligibilityValidator:
             if status is CandidateDisposition.PASS:
                 status = CandidateDisposition.REVIEW
         return _result(validation, status, reasons)
+
+
+def _validate_evidence_context(
+    candidate: CanonicalReplacementCandidate,
+    vacancy: EntityCityVacancy | None,
+    observation: GoogleMapsPlaceObservation | None,
+) -> None:
+    if vacancy is not None:
+        if vacancy.city_id != candidate.city_id:
+            raise ValueError("vacancy eligibility context does not match candidate")
+        cross_type_total_fill = (
+            vacancy.entity_type is EntityType.NIGHTLIFE
+            and candidate.entity_type
+            in {EntityType.CAFE, EntityType.RESTAURANT}
+        )
+        if (
+            vacancy.entity_type is not candidate.entity_type
+            and not cross_type_total_fill
+        ):
+            raise ValueError("vacancy eligibility context does not match candidate")
+    if observation is not None and observation.place_id != candidate.candidate_key:
+        raise ValueError("Google observation eligibility context does not match candidate")
+
+
+def _late_night_cross_category_eligibility(
+    candidate: CanonicalReplacementCandidate,
+    category_matches: set[EntityType],
+    *,
+    vacancy: EntityCityVacancy | None,
+    google_observation: GoogleMapsPlaceObservation | None,
+) -> tuple[bool, set[CandidateReasonCode]] | None:
+    if candidate.entity_type is not EntityType.NIGHTLIFE:
+        return None
+    if category_matches == {EntityType.CAFE}:
+        expected_subtype = VacancySourceSubtype.LATE_NIGHT_CAFE
+    elif category_matches == {EntityType.RESTAURANT}:
+        expected_subtype = VacancySourceSubtype.LATE_NIGHT_DINING
+    else:
+        # Bar, pub, karaoke, lounge, and nightclub categories continue through
+        # the established exact-category path without a subtype-hours gate.
+        return None
+
+    if vacancy is None or vacancy.source_subtype is not expected_subtype:
+        return (
+            False,
+            {CandidateReasonCode.GOOGLE_LATE_NIGHT_SUBTYPE_MISMATCH},
+        )
+
+    reasons = {CandidateReasonCode.GOOGLE_LATE_NIGHT_SUBTYPE_COMPATIBLE}
+    if not _google_weekly_hours_prove_late_night(
+        candidate,
+        google_observation,
+    ):
+        reasons.add(CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_UNPROVEN)
+        return False, reasons
+    reasons.add(CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_COMPATIBLE)
+    return True, reasons
+
+
+def _google_weekly_hours_prove_late_night(
+    candidate: CanonicalReplacementCandidate,
+    observation: GoogleMapsPlaceObservation | None,
+) -> bool:
+    if observation is None or observation.source_id != "google-maps-web":
+        return False
+    weekly = observation.weekly_opening
+    if weekly is None or weekly.place_id != candidate.candidate_key:
+        return False
+    return any(
+        day.open_24_hours
+        or any(_interval_is_late_night(interval) for interval in day.intervals)
+        for day in weekly.days
+    )
+
+
+def _interval_is_late_night(interval: OpeningInterval) -> bool:
+    return (
+        interval.closes_next_day
+        or interval.closes_at <= interval.opens_at
+        or (interval.closes_at.hour, interval.closes_at.minute) >= (22, 0)
+    )
 
 
 def _result(

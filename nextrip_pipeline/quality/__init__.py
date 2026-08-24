@@ -26,7 +26,12 @@ from .trivago_mapping import (
     TrivagoDiscoveryResolution,
     TrivagoDiscoveryResolver,
     TrivagoDiscoveryStatus,
+    TrivagoMappingApproval,
+    TrivagoMappingApprovalError,
+    TrivagoMappingApprovalWriter,
+    approve_trivago_review,
     apply_trivago_resolution,
+    compute_trivago_resolution_evidence_hash,
 )
 
 __all__ = [
@@ -51,5 +56,10 @@ __all__ = [
     "TrivagoDiscoveryResolution",
     "TrivagoDiscoveryResolver",
     "TrivagoDiscoveryStatus",
+    "TrivagoMappingApproval",
+    "TrivagoMappingApprovalError",
+    "TrivagoMappingApprovalWriter",
+    "approve_trivago_review",
     "apply_trivago_resolution",
+    "compute_trivago_resolution_evidence_hash",
 ]

@@ -14,6 +14,7 @@ from .menu_image import (
     google_image_high_resolution_url,
 )
 from .mapping_registry import (
+    GoogleMapsBatchManifestDocument,
     GoogleMapsMappingRegistry,
     GoogleMapsRegistryBuilder,
     GoogleMapsRegistryReport,
@@ -28,6 +29,9 @@ from .trivago_registry import (
     TrivagoRegistryReport,
     TrivagoRegistryStatus,
     TrivagoRegistryWriter,
+    TrivagoSearchReviewConfig,
+    TrivagoSearchReviewEvidence,
+    TrivagoSearchReviewOverride,
 )
 from .browser import (
     BrowserClient,
@@ -57,6 +61,7 @@ __all__ = [
     "RawMenuImageWriter",
     "build_menu_source_record",
     "google_image_high_resolution_url",
+    "GoogleMapsBatchManifestDocument",
     "GoogleMapsMappingRegistry",
     "GoogleMapsRegistryBuilder",
     "GoogleMapsRegistryReport",
@@ -69,6 +74,9 @@ __all__ = [
     "TrivagoRegistryReport",
     "TrivagoRegistryStatus",
     "TrivagoRegistryWriter",
+    "TrivagoSearchReviewConfig",
+    "TrivagoSearchReviewEvidence",
+    "TrivagoSearchReviewOverride",
     "CachePolicy",
     "BrowserClient",
     "BrowserDependencyError",

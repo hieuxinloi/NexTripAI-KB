@@ -275,9 +275,11 @@ def _report_payload(
     filled_vacancy_count: int,
     entity_city_counts: list[CanonicalEntityCityCount],
     quotas: list[EntityCityQuota],
+    schema_version: str = "1.0.0",
+    quarantined_identity_count: int = 0,
 ) -> dict[str, object]:
-    return {
-        "schema_version": "1.0.0",
+    payload: dict[str, object] = {
+        "schema_version": schema_version,
         "manifest_id": manifest_id,
         "manifest_hash": manifest_hash,
         "master_source_record_count": master_source_record_count,
@@ -293,6 +295,9 @@ def _report_payload(
         ],
         "quotas": [item.model_dump(mode="json") for item in quotas],
     }
+    if schema_version != "1.0.0":
+        payload["quarantined_identity_count"] = quarantined_identity_count
+    return payload
 
 
 class CanonicalActiveDatasetReport(NexTripModel):
@@ -306,6 +311,11 @@ class CanonicalActiveDatasetReport(NexTripModel):
     master_materialized_count: int = Field(ge=0)
     replacement_materialized_count: int = Field(ge=0)
     retired_duplicate_count: int = Field(ge=0)
+    quarantined_identity_count: int = Field(
+        default=0,
+        ge=0,
+        exclude_if=lambda value: value == 0,
+    )
     open_vacancy_count: int = Field(ge=0)
     filled_vacancy_count: int = Field(ge=0)
     entity_city_counts: list[CanonicalEntityCityCount]
@@ -313,6 +323,12 @@ class CanonicalActiveDatasetReport(NexTripModel):
 
     @model_validator(mode="after")
     def validate_report(self) -> CanonicalActiveDatasetReport:
+        if self.schema_version == "1.0.0" and self.quarantined_identity_count:
+            raise ValueError(
+                "dataset report schema 1.0.0 cannot count quarantined identities"
+            )
+        if self.schema_version not in {"1.0.0", "1.1.0"}:
+            raise ValueError("unsupported canonical dataset report schema version")
         if self.canonical_record_count != (
             self.master_materialized_count + self.replacement_materialized_count
         ):
@@ -362,6 +378,8 @@ class CanonicalActiveDatasetReport(NexTripModel):
             filled_vacancy_count=self.filled_vacancy_count,
             entity_city_counts=self.entity_city_counts,
             quotas=self.quotas,
+            schema_version=self.schema_version,
+            quarantined_identity_count=self.quarantined_identity_count,
         )
         if self.report_hash != stable_sha256(payload):
             raise ValueError("report_hash does not match report content")
@@ -374,9 +392,10 @@ def _dataset_payload(
     manifest_hash: str,
     records: list[CanonicalActivePlaceRecord],
     report: CanonicalActiveDatasetReport,
+    schema_version: str = "1.0.0",
 ) -> dict[str, object]:
     return {
-        "schema_version": "1.0.0",
+        "schema_version": schema_version,
         "manifest_id": manifest_id,
         "manifest_hash": manifest_hash,
         "records": [item.model_dump(mode="json") for item in records],
@@ -397,6 +416,10 @@ class CanonicalActiveDataset(NexTripModel):
 
     @model_validator(mode="after")
     def validate_dataset(self) -> CanonicalActiveDataset:
+        if self.schema_version not in {"1.0.0", "1.1.0"}:
+            raise ValueError("unsupported canonical active dataset schema version")
+        if self.schema_version != self.report.schema_version:
+            raise ValueError("dataset and report schema versions must match")
         ids = [item.place_id for item in self.records]
         if len(ids) != len(set(ids)):
             raise ValueError("canonical active record IDs must be unique")
@@ -414,6 +437,7 @@ class CanonicalActiveDataset(NexTripModel):
             manifest_hash=self.manifest_hash,
             records=self.records,
             report=self.report,
+            schema_version=self.schema_version,
         )
         expected_hash = stable_sha256(payload)
         if self.dataset_hash != expected_hash:
@@ -479,22 +503,41 @@ def materialize_canonical_active_dataset(
         raise CanonicalDatasetMaterializationError(
             "dataset does not exactly cover active manifest identities"
         )
+    quarantined_legacy_ids = {
+        legacy_id
+        for item in manifest.quarantined_identities
+        for legacy_id in item.identity.legacy_place_ids
+    }
+    leaked_quarantined_ids = {
+        item.place_id for item in records
+    } & quarantined_legacy_ids
+    if leaked_quarantined_ids:
+        raise CanonicalDatasetMaterializationError(
+            "quarantined identities leaked into the active dataset: "
+            + ", ".join(sorted(leaked_quarantined_ids))
+        )
+    schema_version = (
+        "1.1.0" if manifest.quarantined_identities else "1.0.0"
+    )
     report = _build_report(
         master,
         manifest=manifest,
         records=records,
         approved_replacement_count=len(overlays),
+        schema_version=schema_version,
     )
     payload = _dataset_payload(
         manifest_id=manifest.manifest_id,
         manifest_hash=manifest.manifest_hash,
         records=records,
         report=report,
+        schema_version=schema_version,
     )
     dataset_hash = stable_sha256(payload)
     return CanonicalActiveDataset(
         dataset_id=f"canonical-active-{dataset_hash[:20]}",
         dataset_hash=dataset_hash,
+        schema_version=schema_version,
         manifest_id=manifest.manifest_id,
         manifest_hash=manifest.manifest_hash,
         records=records,
@@ -678,6 +721,7 @@ def _build_report(
     manifest: CanonicalIdentityManifest,
     records: list[CanonicalActivePlaceRecord],
     approved_replacement_count: int,
+    schema_version: str,
 ) -> CanonicalActiveDatasetReport:
     counts = Counter((item.city_id, item.primary_type) for item in records)
     entity_city_counts = [
@@ -713,6 +757,7 @@ def _build_report(
         for item in records
     )
     values: dict[str, object] = {
+        "schema_version": schema_version,
         "manifest_id": manifest.manifest_id,
         "manifest_hash": manifest.manifest_hash,
         "master_source_record_count": len(master.raw_records_by_id),
@@ -722,6 +767,9 @@ def _build_report(
         - replacement_materialized_count,
         "replacement_materialized_count": replacement_materialized_count,
         "retired_duplicate_count": len(manifest.retired_place_ids),
+        "quarantined_identity_count": len(
+            manifest.quarantined_identities
+        ),
         "open_vacancy_count": open_vacancy_count,
         "filled_vacancy_count": filled_vacancy_count,
         "entity_city_counts": entity_city_counts,

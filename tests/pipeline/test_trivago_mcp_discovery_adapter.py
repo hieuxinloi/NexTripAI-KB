@@ -90,11 +90,14 @@ def test_discovery_prefers_name_search_and_reuses_mcp_session() -> None:
     assert len(tool_calls) == 2
     arguments = tool_calls[0]["params"]["arguments"]
     assert tool_calls[0]["params"]["name"] == "trivago-accommodation-search"
-    assert arguments["query"] == "Hotel One, Đà Nẵng, Việt Nam"
+    assert arguments["query"] == target.search_query
     assert "latitude" not in arguments
     assert "longitude" not in arguments
     assert record.raw_payload["request"]["tool"] == "trivago-accommodation-search"
     assert record.raw_payload["request"]["search_strategy"] == "name"
+    assert record.raw_payload["request"]["registry_search_query"] == (
+        target.search_query
+    )
     assert record.raw_payload["request"]["known_external_id"] is None
     assert record.subject_id == "hotel-1"
     assert second_record.run_id == "discovery-run-2"

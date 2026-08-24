@@ -48,6 +48,7 @@ services:
         condition: service_healthy
     environment:
       NEXTRIP_KB_ROOT: /app
+      NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"
       VALHALLA_ENABLED: "${VALHALLA_ENABLED:-true}"
       VALHALLA_URL: http://valhalla:8002
       HERE_ENABLED: "${HERE_ENABLED:-true}"
@@ -65,8 +66,8 @@ services:
       TRAFFIC_CIRCUIT_COOLDOWN_SECONDS: "${TRAFFIC_CIRCUIT_COOLDOWN_SECONDS:-60}"
     volumes:
       - type: bind
-        source: ../../data/current/place
-        target: /app/data/current/place
+        source: ../../data/canonical
+        target: /app/data/canonical
         read_only: true
       - traffic_cache:/app/data/current/traffic
     ports:

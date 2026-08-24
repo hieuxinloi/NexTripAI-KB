@@ -542,13 +542,11 @@ class V5RetrievalService(V4RetrievalService):
     ) -> list[EntityResult]:
         rows = self.store.run_versioned(
             """
-            MATCH (place:Place)
-            SEARCH place IN (
-              VECTOR INDEX v5_place_embedding
-              FOR $embedding
-              LIMIT $candidate_limit
+            CALL db.index.vector.queryNodes(
+              'v5_place_embedding', $candidate_limit, $embedding
             )
-            SCORE AS vector_score
+            YIELD node, score
+            WITH node AS place, score AS vector_score
             WHERE place.kb_version = $kb_version
               AND ($city IS NULL OR place.city = $city)
               AND ($entity_types = [] OR place.entity_type IN $entity_types)

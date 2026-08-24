@@ -38,7 +38,7 @@ class TrivagoMcpDiscoveryAdapter:
         *,
         endpoint: str = "https://mcp.trivago.com/mcp",
         source_id: str = "trivago-mcp",
-        parser_version: str = "1.0.0",
+        parser_version: str = "1.2.0",
         client: httpx.Client | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -56,19 +56,33 @@ class TrivagoMcpDiscoveryAdapter:
         *,
         run_id: str,
         strategy: TrivagoSearchStrategy = TrivagoSearchStrategy.NAME,
+        query: str | None = None,
     ) -> SourceRecord:
         if (
             request.hotel_name != target.search_name
             or request.destination != target.city
         ):
             raise ValueError("price request identity must match the registry target")
+        if strategy is TrivagoSearchStrategy.RADIUS and query is not None:
+            raise ValueError("radius search cannot accept a text query")
+        if (
+            strategy is TrivagoSearchStrategy.NAME
+            and query is not None
+            and query not in target.identity_search_queries
+        ):
+            raise ValueError("text query must be pinned in the registry target")
         headers = {
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
         }
         session_headers = self._session_headers(headers)
 
-        tool_name, arguments = self._tool_call(target, request, strategy=strategy)
+        tool_name, arguments = self._tool_call(
+            target,
+            request,
+            strategy=strategy,
+            query=query,
+        )
         search_response = self.client.post(
             self.endpoint,
             headers=session_headers,
@@ -92,6 +106,8 @@ class TrivagoMcpDiscoveryAdapter:
                 "registry_status": target.status.value,
                 "known_external_id": target.external_id,
                 "search_strategy": strategy.value,
+                "registry_search_query": arguments.get("query"),
+                "review_target_hash": target.review_target_hash,
             },
             "response": json_object(response_payload),
         }
@@ -153,6 +169,7 @@ class TrivagoMcpDiscoveryAdapter:
         request: TrivagoPriceRequest,
         *,
         strategy: TrivagoSearchStrategy = TrivagoSearchStrategy.NAME,
+        query: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
         arguments: dict[str, Any] = {
             "arrival": request.check_in.isoformat(),
@@ -180,7 +197,5 @@ class TrivagoMcpDiscoveryAdapter:
         # coordinates exist. Radius search returns nearby bookable properties
         # and cannot by itself establish which listing belongs to the master
         # hotel. Coordinates remain resolver evidence or an explicit fallback.
-        arguments["query"] = ", ".join(
-            (request.hotel_name, request.destination, "Việt Nam")
-        )
+        arguments["query"] = query or target.search_query
         return cls.text_tool_name, arguments

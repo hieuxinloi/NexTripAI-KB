@@ -20,11 +20,11 @@ class TrafficSettings(NexTripModel):
 
     Credentials are read at service-construction time, never while importing
     the FastAPI app. This keeps health checks and unit tests usable without a
-    HERE account.
+    HERE account. The canonical dataset is the sole place source.
     """
 
     kb_root: Path = Field(default_factory=_default_kb_root)
-    current_place_root: Path | None = None
+    canonical_dataset_path: Path | None = None
     access_point_overrides_path: Path | None = None
     cache_path: Path | None = None
     valhalla_enabled: bool = True
@@ -46,8 +46,12 @@ class TrafficSettings(NexTripModel):
     def fill_paths(self) -> TrafficSettings:
         root = self.kb_root.expanduser().resolve()
         object.__setattr__(self, "kb_root", root)
-        if self.current_place_root is None:
-            object.__setattr__(self, "current_place_root", root / "data/current/place")
+        if self.canonical_dataset_path is not None:
+            object.__setattr__(
+                self,
+                "canonical_dataset_path",
+                _resolve_path(root, self.canonical_dataset_path),
+            )
         if self.access_point_overrides_path is None:
             object.__setattr__(
                 self,
@@ -81,6 +85,11 @@ class TrafficSettings(NexTripModel):
 
         return cls(
             kb_root=_default_kb_root(),
+            canonical_dataset_path=(
+                Path(value)
+                if (value := os.getenv("NEXTRIP_CANONICAL_DATASET"))
+                else None
+            ),
             valhalla_enabled=boolean("VALHALLA_ENABLED", True),
             valhalla_base_url=os.getenv("VALHALLA_URL", "http://127.0.0.1:8002"),
             here_enabled=boolean("HERE_ENABLED", True),
@@ -104,3 +113,8 @@ class TrafficSettings(NexTripModel):
                 "TRAFFIC_CIRCUIT_COOLDOWN_SECONDS", 60
             ),
         )
+
+
+def _resolve_path(root: Path, value: Path) -> Path:
+    expanded = value.expanduser()
+    return (expanded if expanded.is_absolute() else root / expanded).resolve()

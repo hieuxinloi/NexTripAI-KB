@@ -20,6 +20,7 @@ from nextrip_pipeline.canonical.models import (
     DistinctIdentityDecision,
     DuplicateIdentityDecision,
     LegacyPlaceSlot,
+    VacancyReplacementDecision,
     stable_identifier,
     stable_sha256,
 )
@@ -45,7 +46,7 @@ GENERATED_AT = datetime(2026, 8, 20, 5, tzinfo=UTC)
 PLACE_IDS = ["cafe_dn_001", "night_dn_001"]
 
 
-def _state(*, merged: bool):
+def _state(*, merged: bool, fill_vacancy: bool = True):
     slots = [
         LegacyPlaceSlot(
             legacy_place_id="cafe_dn_001",
@@ -58,6 +59,14 @@ def _state(*, merged: bool):
             primary_type=EntityType.NIGHTLIFE,
         ),
     ]
+    if merged and fill_vacancy:
+        slots.append(
+            LegacyPlaceSlot(
+                legacy_place_id="cafe_dn_100",
+                city_id="city_da_nang",
+                primary_type=EntityType.CAFE,
+            )
+        )
     raws = {
         slot.legacy_place_id: MasterRawRecord(
             place_id=slot.legacy_place_id,
@@ -103,6 +112,16 @@ def _state(*, merged: bool):
     manifest = build_canonical_identity_manifest(
         slots,
         duplicate_decisions=decisions,
+        replacement_decisions=(
+            [
+                VacancyReplacementDecision(
+                    retired_place_id="night_dn_001",
+                    replacement_place_id="cafe_dn_100",
+                )
+            ]
+            if merged and fill_vacancy
+            else []
+        ),
         generated_at=GENERATED_AT,
     )
     dataset = materialize_canonical_active_dataset(master, manifest)
@@ -297,7 +316,7 @@ def test_review_is_resolved_by_explicit_distinct_decision_with_provenance() -> N
     )
 
     assert report.publish_ready is True
-    assert report.schema_version == "1.1.0"
+    assert report.schema_version == "1.3.0"
     assert report.explicit_distinct_decisions == [decision]
     assert report.resolved_distinct[0].reason is (
         ReadinessReason.REVIEW_EXPLICITLY_DISTINCT
@@ -414,6 +433,7 @@ def test_schema_1_0_readiness_artifact_remains_valid() -> None:
             "readiness_id",
             "readiness_hash",
             "explicit_distinct_decisions",
+            "open_vacancy_count",
         },
     )
     legacy_payload["schema_version"] = "1.0.0"
@@ -429,6 +449,55 @@ def test_schema_1_0_readiness_artifact_remains_valid() -> None:
 
     assert parsed.schema_version == "1.0.0"
     assert parsed.explicit_distinct_decisions == []
+
+
+@pytest.mark.parametrize("schema_version", ["1.1.0", "1.2.0"])
+def test_pre_vacancy_gate_readiness_artifacts_remain_valid(
+    schema_version: str,
+) -> None:
+    dataset, resolver = _state(merged=True)
+    current = evaluate_canonical_dataset_readiness(
+        dataset,
+        _audit(DuplicateEvidenceStatus.CONFIRMED),
+        resolver,
+    )
+    legacy_payload = current.model_dump(
+        mode="json",
+        exclude={"readiness_id", "readiness_hash", "open_vacancy_count"},
+    )
+    legacy_payload["schema_version"] = schema_version
+    if schema_version == "1.2.0":
+        legacy_payload["resolved_quarantined"] = []
+    legacy_hash = stable_sha256(legacy_payload)
+
+    parsed = CanonicalDatasetReadinessReport.model_validate(
+        {
+            **legacy_payload,
+            "readiness_id": f"canonical-readiness-{legacy_hash[:20]}",
+            "readiness_hash": legacy_hash,
+        }
+    )
+
+    assert parsed.schema_version == schema_version
+    assert parsed.open_vacancy_count is None
+
+
+def test_open_vacancy_blocks_publish_after_identity_groups_are_resolved() -> None:
+    dataset, resolver = _state(merged=True, fill_vacancy=False)
+
+    report = evaluate_canonical_dataset_readiness(
+        dataset,
+        _audit(DuplicateEvidenceStatus.CONFIRMED),
+        resolver,
+    )
+
+    assert report.schema_version == "1.3.0"
+    assert report.open_vacancy_count == 1
+    assert report.unresolved_groups == []
+    assert len(report.resolved_merge) == 1
+    assert report.publish_ready is False
+    with pytest.raises(CanonicalDatasetNotReadyError, match="1 open vacancy"):
+        require_canonical_dataset_publish_ready(report)
 
 
 def test_dataset_and_resolver_must_use_the_same_manifest() -> None:

@@ -21,10 +21,10 @@ Valhalla không được gắn nhãn realtime nếu deployment chưa có một t
 
 ```mermaid
 flowchart LR
-    MASTER[Verified master JSON] --> BOOTSTRAP[Master place bootstrap]
-    GMAPS[Google Maps targeted refresh] -. khi bật lại .-> CURRENT
-    BOOTSTRAP --> CURRENT[data/current/place: 692 places]
-    CURRENT --> REGISTRY[AccessPoint Registry]
+    CANONICAL[Publish-ready canonical active dataset] --> REGISTRY[AccessPoint Registry]
+    GMAPS[Google Maps scheduled evidence] --> QUALITY[Normalize + validate + decision]
+    QUALITY --> PATCH[Canonical refresh / immutable dataset version]
+    PATCH --> CANONICAL
     OVERRIDE[Curated hub/access-point overrides] --> REGISTRY
 
     CLIENT[Backend / model tool] --> API[Traffic API]
@@ -78,10 +78,17 @@ flowchart LR
 
 ## Access point và dữ liệu đầu vào
 
-Registry đọc `data/current/place/*.json`. Snapshot Google hợp lệ có thể thay
-baseline master sau này; khi Google chưa crawl, 692 record master đã verify vẫn
-được dùng trực tiếp. Các place thiếu tọa độ bị loại khỏi registry thay vì tự
-bịa lat/lng.
+Trong production, registry đọc đúng immutable artifact được chọn bởi
+`NEXTRIP_CANONICAL_DATASET`. Chỉ active record trong publish-ready canonical
+dataset được project thành access point; vì vậy traffic, Neo4j và các data API
+dùng cùng một tập identity/place. Canonical dataset là bắt buộc và registry
+không còn nhận input place legacy. Các place thiếu tọa độ bị loại khỏi registry
+thay vì tự bịa lat/lng.
+
+Deployment không mount `data/current/place`. Traffic API và Airflow chỉ mount
+`data/canonical` ở chế độ read-only và đều fail khi thiếu
+`NEXTRIP_CANONICAL_DATASET`; vì vậy không có nguồn place fallback khi canonical
+dataset lỗi.
 
 Ngoài entrance chính của place, registry tạo hai alias thành phố:
 
@@ -90,7 +97,8 @@ Ngoài entrance chính của place, registry tạo hai alias thành phố:
 
 City center mặc định là median có provenance từ các place đã verify. Với bến
 xe, sân bay, ga tàu hoặc hotel drop-off chính xác hơn, thêm record curated vào
-`config/traffic-access-points.json`; override không làm thay đổi master data.
+`config/traffic-access-points.json`; override không làm thay đổi canonical
+dataset.
 
 ## API
 
@@ -281,7 +289,8 @@ và Airflow không tải PBF trong lúc xử lý request.
 
 ```powershell
 Copy-Item deploy\traffic\traffic.env.example deploy\traffic\.env
-# Điền HERE_API_KEY và TRAFFIC_API_KEY trong file local; không commit secret.
+# Điền NEXTRIP_CANONICAL_DATASET, HERE_API_KEY và TRAFFIC_API_KEY trong file local;
+# không commit secret.
 
 # Tải/copy một Vietnam .osm.pbf về máy, tính checksum rồi chuẩn bị version bất biến.
 $pbf = "C:\data\vietnam-latest.osm.pbf"
@@ -294,6 +303,11 @@ $sha = (Get-FileHash -LiteralPath $pbf -Algorithm SHA256).Hash
 docker-compose --env-file deploy\traffic\.env -f deploy\traffic\compose.yaml up -d
 Invoke-RestMethod http://127.0.0.1:8010/ready
 ```
+
+`NEXTRIP_CANONICAL_DATASET` dùng đường dẫn tương đối từ repository, ví dụ
+`data/canonical/datasets/dataset=<dataset-id>/canonical-active-dataset.json`.
+Compose mount toàn bộ `data/canonical` read-only vào cùng vị trí tương đối trong
+container nên API và Airflow luôn đọc đúng immutable dataset đã pin.
 
 `VALHALLA_DATASET_VERSION` trong `.env` phải trùng version vừa prepare. Lần đầu
 Valhalla sẽ build routing tiles và chỉ báo healthy sau khi tiles sẵn sàng; không
@@ -337,7 +351,9 @@ một Airflow run màu xanh giả.
 
 ## Ranh giới dữ liệu
 
-- Place/static facts có thể đồng bộ incremental vào Neo4j.
+- Identity và static facts của `Place` chỉ được publish từ publish-ready
+  canonical dataset. Mỗi thay đổi được materialize thành một version immutable
+  mới rồi mới đồng bộ Neo4j; traffic registry đọc cùng version được chọn.
 - Hotel price và traffic là observation có context/TTL, phục vụ từ Current Data
   API/traffic service; không embed lại Neo4j mỗi lần thay đổi.
 - GMapsScraper không tham gia traffic routing. Nó chỉ có thể bổ sung place/opening

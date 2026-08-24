@@ -173,11 +173,29 @@ class CanonicalMasterBuildReport(NexTripModel):
     approved_replacement_count: int = Field(default=0, ge=0)
     approved_replacement_ids: list[str] = Field(default_factory=list)
     approved_replacement_hashes: list[str] = Field(default_factory=list)
+    approved_invalidation_count: int = Field(
+        default=0,
+        ge=0,
+        exclude_if=lambda value: value == 0,
+    )
+    approved_invalidation_ids: list[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
+    approved_invalidation_hashes: list[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
     previous_manifest_id: str | None = None
     previous_manifest_hash: str | None = Field(default=None, pattern=_SHA256)
     manifest_id: str = Field(min_length=1)
     manifest_hash: str = Field(pattern=_SHA256)
     canonical_place_count: int = Field(ge=0)
+    quarantined_identity_count: int = Field(
+        default=0,
+        ge=0,
+        exclude_if=lambda value: value == 0,
+    )
     retired_place_id_count: int = Field(ge=0)
     vacancy_count: int = Field(ge=0)
     open_vacancy_count: int = Field(ge=0)
@@ -186,6 +204,33 @@ class CanonicalMasterBuildReport(NexTripModel):
 
     @model_validator(mode="after")
     def validate_report(self) -> CanonicalMasterBuildReport:
+        if self.schema_version not in {"1.0.0", "1.1.0"}:
+            raise ValueError("unsupported canonical master report schema version")
+        if self.schema_version == "1.0.0" and (
+            self.approved_invalidation_count
+            or self.approved_invalidation_ids
+            or self.approved_invalidation_hashes
+            or self.quarantined_identity_count
+        ):
+            raise ValueError(
+                "canonical master report schema 1.0.0 cannot contain invalidations"
+            )
+        if self.approved_invalidation_count != len(
+            self.approved_invalidation_ids
+        ) or self.approved_invalidation_count != len(
+            self.approved_invalidation_hashes
+        ):
+            raise ValueError(
+                "approved invalidation count does not match provenance lists"
+            )
+        if self.approved_invalidation_ids != sorted(
+            set(self.approved_invalidation_ids)
+        ):
+            raise ValueError("approved invalidation IDs must be unique and sorted")
+        if self.approved_invalidation_hashes != sorted(
+            set(self.approved_invalidation_hashes)
+        ):
+            raise ValueError("approved invalidation hashes must be unique and sorted")
         if self.source_record_count != sum(
             item.record_count for item in self.source_files
         ):
@@ -359,6 +404,7 @@ def build_manifest_from_master(
     *,
     include_tagged_duplicates: bool = True,
     approved_replacement_root: str | Path | None = None,
+    approved_invalidation_root: str | Path | None = None,
 ) -> tuple[CanonicalIdentityManifest, CanonicalMasterBuildReport]:
     """Build a canonical manifest and deterministic source-to-output audit."""
 
@@ -368,6 +414,7 @@ def build_manifest_from_master(
     applied_decisions = [*document.decisions]
     applied_replacements = [*document.replacements]
     approved_records = []
+    approved_invalidations = []
     approved_slots: list[LegacyPlaceSlot] = []
     if approved_replacement_root is not None:
         # Imported lazily because projection consumes CanonicalMasterLoad.
@@ -401,6 +448,12 @@ def build_manifest_from_master(
         )
     if include_tagged_duplicates:
         applied_decisions.extend(loaded.explicit_duplicate_decisions)
+    if approved_invalidation_root is not None:
+        from .invalidation import load_approved_invalidations
+
+        approved_invalidations = load_approved_invalidations(
+            approved_invalidation_root
+        )
 
     previous_manifest = (
         read_canonical_identity_manifest(previous_manifest_path)
@@ -413,11 +466,16 @@ def build_manifest_from_master(
         [*loaded.slots, *approved_slots],
         duplicate_decisions=applied_decisions,
         replacement_decisions=applied_replacements,
+        approved_invalidations=approved_invalidations,
         previous_manifest=previous_manifest,
         generated_at=generated_at,
     )
     report_values: dict[str, object] = {
-        "schema_version": "1.0.0",
+        "schema_version": (
+            "1.1.0"
+            if approved_invalidations or manifest.quarantined_identities
+            else "1.0.0"
+        ),
         "source_files": loaded.source_files,
         "source_record_count": len(loaded.slots),
         "source_quota_counts": loaded.quota_counts,
@@ -438,6 +496,13 @@ def build_manifest_from_master(
         "approved_replacement_hashes": sorted(
             item.provenance.approval_hash for item in approved_records
         ),
+        "approved_invalidation_count": len(approved_invalidations),
+        "approved_invalidation_ids": sorted(
+            item.approval_id for item in approved_invalidations
+        ),
+        "approved_invalidation_hashes": sorted(
+            item.approval_hash for item in approved_invalidations
+        ),
         "previous_manifest_id": (
             previous_manifest.manifest_id if previous_manifest else None
         ),
@@ -447,6 +512,7 @@ def build_manifest_from_master(
         "manifest_id": manifest.manifest_id,
         "manifest_hash": manifest.manifest_hash,
         "canonical_place_count": len(manifest.identities),
+        "quarantined_identity_count": len(manifest.quarantined_identities),
         "retired_place_id_count": len(manifest.retired_place_ids),
         "vacancy_count": len(manifest.vacancies),
         "open_vacancy_count": sum(
@@ -458,6 +524,14 @@ def build_manifest_from_master(
         "output_quotas": manifest.quotas,
     }
     report_payload = _jsonable(report_values)
+    for optional_field in (
+        "approved_invalidation_count",
+        "approved_invalidation_ids",
+        "approved_invalidation_hashes",
+        "quarantined_identity_count",
+    ):
+        if not report_payload[optional_field]:
+            del report_payload[optional_field]
     return manifest, CanonicalMasterBuildReport(
         report_hash=stable_sha256(report_payload),
         **report_values,

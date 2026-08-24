@@ -9,20 +9,20 @@ from ..v5.graph_store import V5GraphStore
 
 
 class V8GraphStore(V5GraphStore):
-    """Graph store for the isolated V8 projection.
+    """Graph store for the isolated V8 database.
 
-    V8 is materialized as a versioned projection in the same Neo4j database.
-    Node ids are namespaced so V5 remains untouched, while labels, properties,
-    relationship types and provenance edges are preserved for graph retrieval.
+    New deployments are materialized from gated canonical artifacts by
+    ``v8-import-canonical``. ``project_from_v5`` remains only as a legacy
+    migration helper for databases that already contain a V5 projection.
     """
 
     kb_version = "v8"
     source_kb_version = "v5"
-    place_label = "V8Place"
-    entity_label = "V8Entity"
-    place_fulltext_index = "v8_place_fulltext"
-    place_vector_index = "v8_place_embedding"
-    concept_vector_index = "v8_concept_embedding"
+    place_label = "Place"
+    entity_label = "Entity"
+    place_fulltext_index = "place_fulltext"
+    place_vector_index = "place_embedding"
+    concept_vector_index = "concept_embedding"
 
     def personalized_candidates(
         self,
@@ -40,21 +40,21 @@ class V8GraphStore(V5GraphStore):
     ) -> list[dict[str, Any]]:
         rows = self.run(
             """
-            OPTIONAL MATCH (seed:V8Place {kb_version: $kb_version})
+            OPTIONAL MATCH (seed:Place {kb_version: $kb_version})
             WHERE seed.id IN $seed_place_ids
             OPTIONAL MATCH (seed)-[:HAS_OFFERING*0..1]->(seedSubject)-[]->
-                           (seedConcept:V8Concept {kb_version: $kb_version})
+                           (seedConcept:Concept {kb_version: $kb_version})
             WITH collect(DISTINCT toLower(coalesce(
                    seedConcept.canonical_name, seedConcept.name
                  ))) AS seedConcepts
-            MATCH (candidate:V8Place {kb_version: $kb_version})
+            MATCH (candidate:Place {kb_version: $kb_version})
             WHERE NOT candidate.id IN $excluded_place_ids
               AND (
                 size($preferred_cities) = 0
                 OR candidate.city IN $preferred_cities
               )
             OPTIONAL MATCH (candidate)-[:HAS_OFFERING*0..1]->(subject)-[]->
-                           (concept:V8Concept {kb_version: $kb_version})
+                           (concept:Concept {kb_version: $kb_version})
             WITH candidate, seedConcepts,
                  collect(DISTINCT toLower(coalesce(
                    concept.canonical_name, concept.name
@@ -164,7 +164,7 @@ class V8GraphStore(V5GraphStore):
         return self.run(
             """
             UNWIND range(0, size($place_ids) - 1) AS position
-            MATCH (place:V8Place {
+            MATCH (place:Place {
               id: $place_ids[position],
               kb_version: $kb_version
             })
@@ -196,6 +196,8 @@ class V8GraphStore(V5GraphStore):
         )
 
     def project_from_v5(self, *, replace: bool = False) -> dict[str, int]:
+        """Legacy in-database V5 projection; not used by canonical V8 releases."""
+        self._require_legacy_projection_source()
         if not replace and self._projection_ready():
             self._ensure_search_schema()
             return self.projection_statistics()
@@ -256,8 +258,8 @@ class V8GraphStore(V5GraphStore):
 
         self.run(
             """
-            CREATE RANGE INDEX v8_entity_id IF NOT EXISTS
-            FOR (node:V8Entity) ON (node.id)
+            CREATE RANGE INDEX entity_id IF NOT EXISTS
+            FOR (node:Entity) ON (node.id)
             """
         )
         self.run("CALL db.awaitIndexes(60)")
@@ -271,11 +273,11 @@ class V8GraphStore(V5GraphStore):
               AND target.kb_version = $source_kb_version
               AND source.id IS NOT NULL
               AND target.id IS NOT NULL
-            MATCH (source_copy:V8Entity {
+            MATCH (source_copy:Entity {
               id: $id_prefix + toString(source.id),
               kb_version: $kb_version
             })
-            MATCH (target_copy:V8Entity {
+            MATCH (target_copy:Entity {
               id: $id_prefix + toString(target.id),
               kb_version: $kb_version
             })
@@ -327,35 +329,61 @@ class V8GraphStore(V5GraphStore):
         )
         return statistics
 
-    def _ensure_search_schema(self) -> None:
-        """Give the projection its own labels and semantic indexes.
+    def _require_legacy_projection_source(self) -> None:
+        canonical_rows = self.run(
+            """
+            MATCH (release:DatasetRelease {kb_version: $kb_version})
+            RETURN count(release) AS releases
+            """,
+            kb_version=self.kb_version,
+        )
+        if canonical_rows and int(canonical_rows[0].get("releases", 0)):
+            raise RuntimeError(
+                "refusing legacy v8-project on a canonical-managed V8 database"
+            )
+        source_rows = self.run(
+            """
+            MATCH (catalog:TravelCatalog {
+              kb_version: $source_kb_version,
+              status: 'ready'
+            })
+            OPTIONAL MATCH (node {kb_version: $source_kb_version})
+            RETURN count(DISTINCT catalog) AS catalogs,
+                   count(DISTINCT node) AS nodes
+            """,
+            source_kb_version=self.source_kb_version,
+        )
+        row = source_rows[0] if source_rows else {}
+        if int(row.get("catalogs", 0)) != 1 or int(row.get("nodes", 0)) == 0:
+            raise RuntimeError(
+                "legacy v8-project requires one ready V5 catalog with source nodes"
+            )
 
-        A version-specific label keeps V8 retrieval independent from the V5
-        indexes even though both projections intentionally share one database.
-        """
+    def _ensure_search_schema(self) -> None:
+        """Ensure the isolated projection's business labels and search indexes."""
         self.run(
             """
             MATCH (place:Place {kb_version: $kb_version})
-            SET place:V8Place
+            SET place:Place
             """,
             kb_version=self.kb_version,
         )
         self.run(
             """
             MATCH (concept:Concept {kb_version: $kb_version})
-            SET concept:V8Concept
+            SET concept:Concept
             """,
             kb_version=self.kb_version,
         )
         self.run(
             """
-            CREATE RANGE INDEX v8_place_city IF NOT EXISTS
-            FOR (place:V8Place) ON (place.city)
+            CREATE RANGE INDEX place_city IF NOT EXISTS
+            FOR (place:Place) ON (place.city)
             """
         )
         dimensions = self.run(
             """
-            MATCH (place:V8Place {kb_version: $kb_version})
+            MATCH (place:Place {kb_version: $kb_version})
             WHERE place.embedding IS NOT NULL
             RETURN size(place.embedding) AS dimensions
             LIMIT 1
@@ -383,7 +411,7 @@ class V8GraphStore(V5GraphStore):
         )
         concept_dimensions = self.run(
             """
-            MATCH (concept:V8Concept {kb_version: $kb_version})
+            MATCH (concept:Concept {kb_version: $kb_version})
             WHERE concept.embedding IS NOT NULL
             RETURN size(concept.embedding) AS dimensions
             LIMIT 1
@@ -394,7 +422,7 @@ class V8GraphStore(V5GraphStore):
             create_vector_index(
                 self.driver,
                 self.concept_vector_index,
-                label="V8Concept",
+                label="Concept",
                 embedding_property="embedding",
                 dimensions=int(concept_dimensions[0]["dimensions"]),
                 similarity_fn="cosine",

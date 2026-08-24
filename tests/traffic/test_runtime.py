@@ -11,6 +11,10 @@ from nextrip_traffic.runtime import (
     TrafficRuntimeFactory,
     build_traffic_service,
 )
+from tests.canonical_dataset_support import (
+    CanonicalTestPlace,
+    write_canonical_dataset,
+)
 
 
 class ClosableService:
@@ -48,11 +52,13 @@ def test_runtime_factory_is_lazy_singleton_and_closes() -> None:
 def test_build_traffic_service_constructs_without_provider_network(
     tmp_path: Path,
 ) -> None:
-    current_places = tmp_path / "current-place"
-    current_places.mkdir()
+    canonical_dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [CanonicalTestPlace("one", "Place one", 16.0, 108.0)],
+    )
     settings = TrafficSettings(
         kb_root=tmp_path,
-        current_place_root=current_places,
+        canonical_dataset_path=canonical_dataset,
         cache_path=tmp_path / "cache.sqlite3",
         valhalla_enabled=False,
         here_enabled=False,
@@ -61,10 +67,23 @@ def test_build_traffic_service_constructs_without_provider_network(
     service = build_traffic_service(settings)
     try:
         assert service.providers == {}
-        assert len(service.registry) == 0
+        assert len(service.registry) == 2
         assert service.registry.last_report.error_count == 0
     finally:
         service.close()
+
+
+def test_build_traffic_service_requires_canonical_dataset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NEXTRIP_CANONICAL_DATASET", raising=False)
+
+    with pytest.raises(
+        TrafficConfigurationError,
+        match="NEXTRIP_CANONICAL_DATASET",
+    ):
+        build_traffic_service()
 
 
 def test_build_traffic_service_wraps_invalid_environment(

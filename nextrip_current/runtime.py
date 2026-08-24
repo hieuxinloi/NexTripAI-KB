@@ -18,19 +18,22 @@ def build_current_data_service(
     """Build the shared service without performing network calls or writes."""
 
     resolved = settings or CurrentDataSettings.from_env()
-    place_root = resolved.current_place_root
+    canonical_dataset_path = resolved.canonical_dataset_path
     price_root = resolved.current_hotel_price_root
     availability_root = resolved.current_hotel_availability_root
     mapping_root = resolved.current_trivago_mapping_root
     if (
-        place_root is None
+        canonical_dataset_path is None
         or price_root is None
         or availability_root is None
         or mapping_root is None
     ):
-        raise ValueError("Current Data repository paths must be configured")
+        raise ValueError(
+            "Current Data requires NEXTRIP_CANONICAL_DATASET; "
+            "operational observation repository paths must also be configured."
+        )
     repository = CurrentDataRepository(
-        place_root=place_root,
+        canonical_dataset_path=canonical_dataset_path,
         hotel_price_root=price_root,
         hotel_availability_root=availability_root,
         trivago_mapping_root=mapping_root,

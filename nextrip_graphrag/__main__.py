@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from .config import DEFAULT_TYPED_QUERY_TOP_K, Settings
 from .evaluation import OfflinePlanner, run_benchmark, run_v3_benchmark
@@ -35,6 +36,20 @@ from .versions.v6.retrieval import V6RetrievalService
 from .versions.v7.retrieval import V7RetrievalService
 from .versions.v8.retrieval import V8RetrievalService
 from .versions.v8.graph_store import V8GraphStore
+from .versions.v8.canonical_importer import (
+    CanonicalV8ReleaseManifestWriter,
+    apply_canonical_v8_import,
+    prepare_canonical_v8_import,
+)
+from .versions.v8.observation_publisher import (
+    V8ObservationPublisher,
+    build_v8_observation_plan,
+    write_v8_observation_plan,
+)
+from .versions.v8.label_migration import (
+    apply_generic_label_migration,
+    preflight_generic_label_migration,
+)
 
 
 DEFAULT_V3_BENCHMARK = (
@@ -548,6 +563,12 @@ def cmd_v8_benchmark(args: argparse.Namespace) -> None:
 
 
 def cmd_v8_project(args: argparse.Namespace) -> None:
+    if not args.allow_legacy_shared_database:
+        raise SystemExit(
+            "v8-project is a destructive legacy migration. Use "
+            "v8-import-canonical for isolated V8, or pass "
+            "--allow-legacy-shared-database only for a reviewed shared V5/V8 DB."
+        )
     settings = Settings.from_env()
     store = V8GraphStore(settings.for_v8())
     try:
@@ -555,6 +576,118 @@ def cmd_v8_project(args: argparse.Namespace) -> None:
     finally:
         store.close()
     print(json.dumps(statistics, ensure_ascii=False, indent=2))
+
+
+def cmd_v8_import_canonical(args: argparse.Namespace) -> None:
+    """Validate an immutable canonical release and optionally activate it."""
+
+    plan = prepare_canonical_v8_import(
+        args.canonical_dataset,
+        args.readiness,
+        args.completeness_audit,
+    )
+    release_path = CanonicalV8ReleaseManifestWriter(args.output_root).write(
+        plan.release
+    )
+    if args.apply:
+        store = Neo4jGraphStore(Settings.from_neo4j_env("v8"))
+        try:
+            result = apply_canonical_v8_import(
+                store,
+                plan,
+                batch_size=args.batch_size,
+            )
+        finally:
+            store.close()
+    else:
+        result = plan.dry_run_result()
+    print(
+        json.dumps(
+            {
+                "release_manifest": str(release_path),
+                "result": result.model_dump(mode="json"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+class _DryRunObservationStore:
+    def run(self, _query: str, **_params: object) -> list[dict[str, object]]:
+        raise AssertionError("dry-run observation publishing touched Neo4j")
+
+
+def cmd_v8_publish_observations(args: argparse.Namespace) -> None:
+    """Plan verified dynamic observations and optionally append them to V8."""
+
+    plan = build_v8_observation_plan(
+        args.canonical_dataset,
+        hotel_price_root=args.hotel_price_root,
+        hotel_availability_root=args.hotel_availability_root,
+        current_menu_root=args.menu_root,
+    )
+    output_root = Path(args.output_root)
+    plan_path = write_v8_observation_plan(
+        output_root / f"plan={plan.plan_id}" / "v8-observation-plan.json",
+        plan,
+    )
+    run_path = (
+        output_root
+        / f"run={plan.plan_id}-{'apply' if args.apply else 'dry-run'}-{uuid4().hex}"
+        / "v8-observation-publish-manifest.json"
+    )
+    store: Neo4jGraphStore | _DryRunObservationStore
+    store = (
+        Neo4jGraphStore(Settings.from_neo4j_env("v8"))
+        if args.apply
+        else _DryRunObservationStore()
+    )
+    try:
+        manifest = V8ObservationPublisher(
+            store,
+            batch_size=args.batch_size,
+        ).publish(
+            plan,
+            dry_run=not args.apply,
+            manifest_path=run_path,
+        )
+    finally:
+        close = getattr(store, "close", None)
+        if callable(close):
+            close()
+    print(
+        json.dumps(
+            {
+                "plan": str(plan_path),
+                "publish_manifest": str(run_path),
+                "result": manifest.model_dump(mode="json"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_v8_migrate_labels(args: argparse.Namespace) -> None:
+    """Replace legacy V8-prefixed graph labels without changing graph data."""
+
+    store = Neo4jGraphStore(Settings.from_neo4j_env("v8"))
+    try:
+        if args.apply:
+            result = apply_generic_label_migration(
+                store,
+                batch_size=args.batch_size,
+            )
+        else:
+            result = {
+                "status": "planned",
+                "batch_size": args.batch_size,
+                "preflight": preflight_generic_label_migration(store),
+            }
+    finally:
+        store.close()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def cmd_ask(args: argparse.Namespace) -> None:
@@ -706,9 +839,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    prepare = subparsers.add_parser("prepare", help="Normalize verified travel data into processed files.")
-    prepare.add_argument("--data-dir", default="travel_data_verified")
-    prepare.add_argument("--out-dir", default="processed_verified")
+    prepare = subparsers.add_parser(
+        "prepare",
+        help="Normalize an explicitly supplied historical travel dataset.",
+    )
+    prepare.add_argument(
+        "--data-dir",
+        required=True,
+        help="External legacy import directory; never a V8/current data source.",
+    )
+    prepare.add_argument(
+        "--out-dir",
+        required=True,
+        help="Explicit historical output directory; V8 never reads it.",
+    )
     prepare.set_defaults(func=cmd_prepare)
 
     schema = subparsers.add_parser("schema", help="Create Neo4j constraints and indexes.")
@@ -986,14 +1130,94 @@ def build_parser() -> argparse.ArgumentParser:
 
     v8_project = subparsers.add_parser(
         "v8-project",
-        help="Materialize the isolated V8 node/edge projection from V5.",
+        help=(
+            "Legacy only: project V5 into V8 when both already share one "
+            "database; new V8 databases use v8-import-canonical."
+        ),
     )
     v8_project.add_argument(
         "--replace",
         action="store_true",
         help="Replace only the existing kb_version=v8 projection.",
     )
+    v8_project.add_argument(
+        "--allow-legacy-shared-database",
+        action="store_true",
+        help=(
+            "Acknowledge the legacy shared V5/V8 migration; canonical-managed "
+            "V8 databases are still rejected."
+        ),
+    )
     v8_project.set_defaults(func=cmd_v8_project)
+
+    v8_import_canonical = subparsers.add_parser(
+        "v8-import-canonical",
+        help=(
+            "Validate a gated canonical dataset and optionally activate it in "
+            "the isolated Neo4j V8 database."
+        ),
+    )
+    v8_import_canonical.add_argument("--canonical-dataset", required=True)
+    v8_import_canonical.add_argument("--readiness", required=True)
+    v8_import_canonical.add_argument("--completeness-audit", required=True)
+    v8_import_canonical.add_argument(
+        "--output-root",
+        default="data/neo4j/v8/releases",
+    )
+    v8_import_canonical.add_argument("--batch-size", type=int, default=500)
+    v8_import_canonical.add_argument(
+        "--apply",
+        action="store_true",
+        help="Activate the validated release in NEO4J_V8_*; default is dry-run.",
+    )
+    v8_import_canonical.set_defaults(func=cmd_v8_import_canonical)
+
+    v8_publish_observations = subparsers.add_parser(
+        "v8-publish-observations",
+        help=(
+            "Validate canonical opening plus current price/availability/menu "
+            "artifacts and optionally append them to the active V8 release."
+        ),
+    )
+    v8_publish_observations.add_argument("--canonical-dataset", required=True)
+    v8_publish_observations.add_argument(
+        "--hotel-price-root",
+        default="data/current/hotel_price",
+    )
+    v8_publish_observations.add_argument(
+        "--hotel-availability-root",
+        default="data/current/hotel_availability",
+    )
+    v8_publish_observations.add_argument(
+        "--menu-root",
+        default="data/current/menu",
+    )
+    v8_publish_observations.add_argument(
+        "--output-root",
+        default="data/neo4j/v8/observation_runs",
+    )
+    v8_publish_observations.add_argument("--batch-size", type=int, default=500)
+    v8_publish_observations.add_argument(
+        "--apply",
+        action="store_true",
+        help="Append the plan to NEO4J_V8_*; default is an offline dry-run.",
+    )
+    v8_publish_observations.set_defaults(func=cmd_v8_publish_observations)
+
+    v8_migrate_labels = subparsers.add_parser(
+        "v8-migrate-labels",
+        help=(
+            "Replace legacy V8-prefixed Neo4j labels with canonical business "
+            "labels; default is a read-only plan."
+        ),
+    )
+    v8_migrate_labels.add_argument("--batch-size", type=int, default=500)
+    v8_migrate_labels.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply the resumable label/schema migration to NEO4J_V8_*.",
+    )
+    v8_migrate_labels.set_defaults(func=cmd_v8_migrate_labels)
 
     ask = subparsers.add_parser("ask", help="Ask the GraphRAG chatbot.")
     ask.add_argument("question")
@@ -1029,16 +1253,24 @@ def build_parser() -> argparse.ArgumentParser:
         "build-source-artifacts",
         help="Build the staged source catalog and place-level text units.",
     )
-    artifacts.add_argument("--data-dir", default="travel_data_verified")
-    artifacts.add_argument("--workspace", default="enrichment_workspace")
+    artifacts.add_argument(
+        "--data-dir",
+        required=True,
+        help="External legacy import directory; never a V8/current data source.",
+    )
+    artifacts.add_argument("--workspace", required=True)
     artifacts.set_defaults(func=cmd_build_source_artifacts)
 
     crawl = subparsers.add_parser(
         "crawl-sources",
         help="Crawl source articles into a local, robots-aware staging workspace.",
     )
-    crawl.add_argument("--data-dir", default="travel_data_verified")
-    crawl.add_argument("--workspace", default="enrichment_workspace")
+    crawl.add_argument(
+        "--data-dir",
+        required=True,
+        help="External legacy import directory; never a V8/current data source.",
+    )
+    crawl.add_argument("--workspace", required=True)
     crawl.add_argument("--limit", type=int, default=None)
     crawl.add_argument("--delay", type=float, default=0.75)
     crawl.add_argument("--refresh", action="store_true")
@@ -1048,8 +1280,12 @@ def build_parser() -> argparse.ArgumentParser:
         "enrich-addresses",
         help="Collect review-only address candidates from OpenStreetMap Nominatim.",
     )
-    addresses.add_argument("--data-dir", default="travel_data_verified")
-    addresses.add_argument("--workspace", default="enrichment_workspace")
+    addresses.add_argument(
+        "--data-dir",
+        required=True,
+        help="External legacy import directory; never a V8/current data source.",
+    )
+    addresses.add_argument("--workspace", required=True)
     addresses.add_argument("--limit", type=int, default=None)
     addresses.add_argument("--delay", type=float, default=1.1)
     addresses.add_argument("--refresh", action="store_true")

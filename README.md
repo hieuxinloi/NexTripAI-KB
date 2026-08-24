@@ -15,29 +15,22 @@ Read this before implementation:
 - Logging: [docs/LOGGING.md](docs/LOGGING.md)
 - Hybrid traffic pipeline: [docs/traffic-pipeline.md](docs/traffic-pipeline.md)
 - Current Data HTTP/MCP facade: [docs/current-data-mcp.md](docs/current-data-mcp.md)
+- Neo4j V8 local infrastructure: [docs/neo4j-v8-local.md](docs/neo4j-v8-local.md)
+- Neo4j V8 canonical/observation publishing: [docs/neo4j-v8-publishing.md](docs/neo4j-v8-publishing.md)
 
 ## Data Source
 
-Use only `travel_data_verified/` as the source of truth. Legacy raw dataset folders are intentionally removed to avoid mixing raw and verified datasets.
+The publish-ready immutable dataset selected by `NEXTRIP_CANONICAL_DATASET` is
+the sole production authority for `Place` identity and static facts. Neo4j V8,
+traffic access points and Current Data must all read that exact artifact and
+fail closed when it is absent or invalid.
 
-Current verified dataset:
-
-- total: 692 places
-- attraction: 118
-- cafe: 106
-- hotel: 73
-- nightlife: 195
-- restaurant: 200
-
-Processed verified output lives in `processed_verified/`.
-
-Build staged provenance and address candidates without changing verified JSON:
-
-```powershell
-python -m nextrip_graphrag build-source-artifacts
-python -m nextrip_graphrag crawl-sources
-python -m nextrip_graphrag enrich-addresses
-```
+Raw crawl records, normalized observations, validation/decision outputs,
+review backlogs and generated registries are evidence or derived artifacts.
+They never become an alternative serving source and cannot bypass the
+canonical readiness gate. Canonical cardinality is not fixed: an approved new
+place may be added and a retired identity may be removed in a later immutable
+version.
 
 ## Graph Schema
 
@@ -77,27 +70,55 @@ Run Neo4j locally:
 docker run --name nextrip-neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/your-password neo4j:5
 ```
 
-## Prepare Verified Data
-
-Defaults already point to verified folders:
+Run the isolated Neo4j V8 database without changing V1-V7:
 
 ```powershell
-python -m nextrip_graphrag prepare
+docker-compose --env-file .env -f docker-compose.v8.yml up -d
+docker-compose --env-file .env -f docker-compose.v8.yml ps
 ```
 
-Equivalent explicit command:
+V8 uses Browser `http://localhost:7479`, Bolt `bolt://localhost:7692`, and its
+own named data/log volumes. See [docs/neo4j-v8-local.md](docs/neo4j-v8-local.md)
+for validation, health, and shutdown commands.
+
+The new V8 database is loaded from the gated canonical dataset, not by copying
+V5. `v8-import-canonical` validates offline by default and requires an explicit
+`--apply` to activate a release. Scheduled price, availability, opening, and
+approved-menu evidence is appended with `v8-publish-observations`; traffic is
+kept outside Neo4j. See [docs/neo4j-v8-publishing.md](docs/neo4j-v8-publishing.md).
+
+## Historical V1-V7 Data Preparation
+
+The repository no longer contains the historical verified source snapshot.
+Only its processed artifacts and version history are retained for V1-V7
+reproducibility; neither is a V8/current-pipeline source.
+
+The historical verified seed snapshot contained 692 places: 118 attractions,
+106 cafes, 73 hotels, 195 nightlife places and 200 restaurants. V1-V5 used a
+separate processed bundle derived from that seed.
+
+Do not run `prepare` without arguments: its legacy default source path has been
+removed. Rebuilding a historical bundle requires a separately supplied snapshot
+outside the repository and an explicit output directory:
 
 ```powershell
-python -m nextrip_graphrag prepare --data-dir travel_data_verified --out-dir processed_verified
+$legacyImport = "<legacy-import-dir>"
+$legacyOutput = "<legacy-output-dir>"
+python -m nextrip_graphrag prepare `
+  --data-dir $legacyImport `
+  --out-dir $legacyOutput
 ```
 
 Output:
 
-- `processed_verified/cities.json`
-- `processed_verified/places.jsonl`
-- `processed_verified/manifest.json`
+- `<legacy-output-dir>/cities.json`
+- `<legacy-output-dir>/places.jsonl`
+- `<legacy-output-dir>/manifest.json`
 
-## Load Neo4j
+## Historical V1-V7 Neo4j Load
+
+The commands in this section belong to the legacy version workflow. Use
+`v8-import-canonical` for the active V8 graph.
 
 Create constraints and indexes:
 
@@ -108,22 +129,33 @@ python -m nextrip_graphrag schema
 Fast load without embeddings:
 
 ```powershell
-python -m nextrip_graphrag load
+python -m nextrip_graphrag load --processed-dir processed_verified
 ```
 
 GraphRAG demo load with Gemini embeddings:
 
 ```powershell
-python -m nextrip_graphrag load --with-embeddings
+python -m nextrip_graphrag load `
+  --processed-dir processed_verified `
+  --with-embeddings
 ```
 
 Build and load the provenance evidence graph:
 
 ```powershell
-python -m nextrip_graphrag build-source-artifacts
-python -m nextrip_graphrag crawl-sources
-python -m nextrip_graphrag build-article-text-units
-python -m nextrip_graphrag load-evidence --with-embeddings
+$legacyImport = "<legacy-import-dir>"
+$legacyWorkspace = "<legacy-workspace-dir>"
+python -m nextrip_graphrag build-source-artifacts `
+  --data-dir $legacyImport `
+  --workspace $legacyWorkspace
+python -m nextrip_graphrag crawl-sources `
+  --data-dir $legacyImport `
+  --workspace $legacyWorkspace
+python -m nextrip_graphrag build-article-text-units `
+  --workspace $legacyWorkspace
+python -m nextrip_graphrag load-evidence `
+  --workspace $legacyWorkspace `
+  --with-embeddings
 ```
 
 ## Run KB API

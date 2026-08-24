@@ -21,7 +21,12 @@ from nextrip_pipeline.canonical.models import (
     stable_sha256,
 )
 from nextrip_pipeline.crawl.raw_writer import RawJsonWriter
-from nextrip_pipeline.schemas import NexTripModel, RecordSubjectType, SourceRecord
+from nextrip_pipeline.schemas import (
+    EntityType,
+    NexTripModel,
+    RecordSubjectType,
+    SourceRecord,
+)
 
 
 _MAX_RESULT_LIMIT = 50
@@ -93,8 +98,9 @@ def google_maps_candidate_stage_payload(
     query: str,
     result_limit: int,
     candidates: list[StagedGoogleMapsCandidate],
+    candidate_entity_type: EntityType | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "schema_version": schema_version,
         "stage_id": stage_id,
         "run_id": run_id,
@@ -104,6 +110,11 @@ def google_maps_candidate_stage_payload(
         "result_limit": result_limit,
         "candidates": [item.model_dump(mode="json") for item in candidates],
     }
+    # Preserve hashes for legacy same-type stages while making a cross-type
+    # discovery pool explicit and independently auditable.
+    if candidate_entity_type is not None:
+        payload["candidate_entity_type"] = candidate_entity_type.value
+    return payload
 
 
 class GoogleMapsCandidateStage(NexTripModel):
@@ -116,12 +127,15 @@ class GoogleMapsCandidateStage(NexTripModel):
     source_record_id: str = Field(min_length=1)
     discovered_at: AwareDatetime
     vacancy: EntityCityVacancy
+    candidate_entity_type: EntityType | None = None
     query: str = Field(min_length=1)
     result_limit: int = Field(ge=1, le=_MAX_RESULT_LIMIT)
     candidates: list[StagedGoogleMapsCandidate] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_stage(self) -> GoogleMapsCandidateStage:
+        expected_entity_type = self.candidate_entity_type or self.vacancy.entity_type
+        _validate_candidate_vacancy_type(expected_entity_type, self.vacancy)
         candidate_keys = [item.candidate.candidate_key for item in self.candidates]
         if len(candidate_keys) != len(set(candidate_keys)):
             raise ValueError("staged candidate keys must be unique")
@@ -131,8 +145,10 @@ class GoogleMapsCandidateStage(NexTripModel):
         if len(self.candidates) > self.result_limit:
             raise ValueError("staged candidates exceed the requested result_limit")
         for item in self.candidates:
-            if item.candidate.entity_type is not self.vacancy.entity_type:
-                raise ValueError("candidate entity type does not match vacancy")
+            if item.candidate.entity_type is not expected_entity_type:
+                raise ValueError(
+                    "candidate entity type does not match discovery pool"
+                )
             if item.candidate.city_id != self.vacancy.city_id:
                 raise ValueError("candidate city does not match vacancy")
         expected_hash = stable_sha256(
@@ -145,6 +161,7 @@ class GoogleMapsCandidateStage(NexTripModel):
                 query=self.query,
                 result_limit=self.result_limit,
                 candidates=self.candidates,
+                candidate_entity_type=self.candidate_entity_type,
             )
         )
         if self.stage_hash != expected_hash:
@@ -160,6 +177,7 @@ class GoogleMapsDiscoveryCapture(Protocol):
         run_id: str,
         result_limit: int,
         search_term: str | None = None,
+        candidate_entity_type: EntityType | None = None,
     ) -> SourceRecord: ...
 
 
@@ -240,19 +258,30 @@ class GoogleMapsCandidateDiscovery:
         run_id: str,
         result_limit: int = 20,
         search_term: str | None = None,
+        candidate_entity_type: EntityType | None = None,
     ) -> GoogleMapsDiscoveryRun:
         if isinstance(result_limit, bool) or not 1 <= result_limit <= _MAX_RESULT_LIMIT:
             raise ValueError(f"result_limit must be between 1 and {_MAX_RESULT_LIMIT}")
-        source_record = self.adapter.fetch(
+        _validate_candidate_vacancy_type(
+            candidate_entity_type or vacancy.entity_type,
             vacancy,
-            run_id=run_id,
-            result_limit=result_limit,
-            search_term=search_term,
         )
+        fetch_kwargs: dict[str, object] = {
+            "run_id": run_id,
+            "result_limit": result_limit,
+            "search_term": search_term,
+        }
+        if candidate_entity_type is not None:
+            fetch_kwargs["candidate_entity_type"] = candidate_entity_type
+        source_record = self.adapter.fetch(vacancy, **fetch_kwargs)
         # Evidence is persisted before parsing. A malformed page therefore
         # leaves an audit trail but can never create a partial candidate stage.
         raw_path = self.raw_writer.write(source_record)
-        stage = stage_google_maps_candidates(source_record, vacancy)
+        stage = stage_google_maps_candidates(
+            source_record,
+            vacancy,
+            candidate_entity_type=candidate_entity_type,
+        )
         stage_path = self.stage_writer.write(stage)
         return GoogleMapsDiscoveryRun(
             source_record=source_record,
@@ -265,11 +294,22 @@ class GoogleMapsCandidateDiscovery:
 def stage_google_maps_candidates(
     record: SourceRecord,
     vacancy: EntityCityVacancy,
+    *,
+    candidate_entity_type: EntityType | None = None,
 ) -> GoogleMapsCandidateStage:
     """Strictly parse one raw result feed into unique, unapproved candidates."""
 
-    _validate_record_identity(record, vacancy)
     request = _required_object(record.raw_payload, "request")
+    effective_entity_type = _candidate_entity_type_from_request(
+        request,
+        vacancy,
+        explicit=candidate_entity_type,
+    )
+    _validate_record_identity(
+        record,
+        vacancy,
+        candidate_entity_type=effective_entity_type,
+    )
     page = _required_object(record.raw_payload, "page")
     structured_data = _required_object(page, "structured_data")
     results = structured_data.get("search_results")
@@ -330,7 +370,7 @@ def stage_google_maps_candidates(
         seen_positions.add(position)
         candidate = CanonicalReplacementCandidate(
             candidate_key=stable_identifier("candidate", url_key),
-            entity_type=vacancy.entity_type,
+            entity_type=effective_entity_type,
             city_id=vacancy.city_id,
             name=name,
             external_identities=[
@@ -365,6 +405,11 @@ def stage_google_maps_candidates(
         query=query,
         result_limit=result_limit,
         candidates=candidates,
+        candidate_entity_type=(
+            effective_entity_type
+            if effective_entity_type is not vacancy.entity_type
+            else None
+        ),
     )
     return GoogleMapsCandidateStage(
         schema_version="1.0.0",
@@ -374,6 +419,11 @@ def stage_google_maps_candidates(
         source_record_id=record.source_record_id,
         discovered_at=record.crawled_at,
         vacancy=vacancy,
+        candidate_entity_type=(
+            effective_entity_type
+            if effective_entity_type is not vacancy.entity_type
+            else None
+        ),
         query=query,
         result_limit=result_limit,
         candidates=candidates,
@@ -383,6 +433,8 @@ def stage_google_maps_candidates(
 def _validate_record_identity(
     record: SourceRecord,
     vacancy: EntityCityVacancy,
+    *,
+    candidate_entity_type: EntityType,
 ) -> None:
     if record.source_id != "google-maps-web":
         raise GoogleMapsDiscoveryPayloadError(
@@ -396,9 +448,9 @@ def _validate_record_identity(
         raise GoogleMapsDiscoveryPayloadError(
             "source record belongs to another canonical vacancy"
         )
-    if record.entity_type is not vacancy.entity_type:
+    if record.entity_type is not candidate_entity_type:
         raise GoogleMapsDiscoveryPayloadError(
-            "source record entity type does not match vacancy"
+            "source record entity type does not match candidate discovery pool"
         )
 
 
@@ -417,6 +469,51 @@ def _validate_request_vacancy(
             raise GoogleMapsDiscoveryPayloadError(
                 f"request.{field} does not match canonical vacancy"
             )
+
+
+def _candidate_entity_type_from_request(
+    request: dict[str, object],
+    vacancy: EntityCityVacancy,
+    *,
+    explicit: EntityType | None,
+) -> EntityType:
+    raw = request.get("candidate_entity_type")
+    if raw is None:
+        requested = vacancy.entity_type
+    elif isinstance(raw, str):
+        try:
+            requested = EntityType(raw)
+        except ValueError as error:
+            raise GoogleMapsDiscoveryPayloadError(
+                "request.candidate_entity_type is unsupported"
+            ) from error
+    else:
+        raise GoogleMapsDiscoveryPayloadError(
+            "request.candidate_entity_type must be a string"
+        )
+    if explicit is not None and requested is not explicit:
+        raise GoogleMapsDiscoveryPayloadError(
+            "request.candidate_entity_type does not match the requested pool"
+        )
+    _validate_candidate_vacancy_type(requested, vacancy)
+    return requested
+
+
+def _validate_candidate_vacancy_type(
+    candidate_entity_type: EntityType,
+    vacancy: EntityCityVacancy,
+) -> None:
+    if candidate_entity_type is vacancy.entity_type:
+        return
+    if (
+        vacancy.entity_type is EntityType.NIGHTLIFE
+        and candidate_entity_type in {EntityType.CAFE, EntityType.RESTAURANT}
+    ):
+        return
+    raise ValueError(
+        "cross-type replacement supports only cafe/restaurant candidates "
+        "for nightlife vacancies"
+    )
 
 
 def _required_object(
@@ -480,7 +577,7 @@ def _google_maps_identity(value: str) -> tuple[str, str | None]:
     if external_id is not None:
         # The key remains URL-derived, but stable place identity wins over
         # mutable slug, viewport, locale, and tracking fragments.
-        return f"google-place:{external_id.casefold()}", external_id
+        return f"google-place:{external_id}", external_id
     normalized_query = urlencode(
         sorted(
             (key, item)

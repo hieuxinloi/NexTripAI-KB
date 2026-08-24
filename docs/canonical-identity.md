@@ -1,8 +1,17 @@
-# Canonical identity: quy trinh van hanh
+# Canonical identity: one-time historical migration
 
-Quy trinh nay gop cac record thuc su cung mot dia diem, giu ID cu lam
-alias/tombstone, tim dia diem moi de bu quota va chi tao overlay. Nam file JSON
-trong `travel_data_verified` khong bi sua.
+Tai lieu nay chi mo ta cach migrate mot historical seed duoc cung cap tu ben
+ngoai repository: gop cac record cung mot dia diem, giu ID cu lam
+alias/tombstone, tim dia diem moi va materialize canonical dataset dau tien.
+Historical source snapshot trong repository da duoc xoa; khong co master JSON
+thu hai song song voi canonical.
+
+Workflow hien hanh khong chay lai migration nay. `NEXTRIP_CANONICAL_DATASET`
+pin mot publish-ready immutable canonical active dataset lam nguon `Place` duy
+nhat cho Neo4j V8, traffic va Current Data. Crawl theo lich tao raw evidence,
+normalize/validate/decision, sau do tao canonical patch va mot immutable dataset
+version moi; chi readiness PASS moi duoc promote. Xem `airflow-google-maps.md`,
+`pipeline-crawl.md` va `neo4j-v8-publishing.md` cho workflow hien hanh.
 
 ```text
 audit evidence -> explicit merge decisions -> canonical manifest
@@ -17,24 +26,36 @@ audit evidence -> explicit merge decisions -> canonical manifest
                               rebuild manifest with previous manifest
 ```
 
-Chay cac lenh tu thu muc goc `NexTripAI-KB`. Cac tham so ben duoi da duoc doi
-chieu voi `python -m nextrip_pipeline.cli <command> --help`.
+Chi chay cac lenh ben duoi khi co historical import da duoc phe duyet. Dat cac
+duong dan import ngoai repository; khong copy chung vao `data/canonical`:
+
+```powershell
+$legacyImport = "<legacy-import-dir>"
+$legacyGoogleMappingImport = "<legacy-google-mapping-import-dir>"
+$legacyGoogleRegistryReport = "<legacy-google-registry-report>"
+```
+
+Chay tu thu muc goc `NexTripAI-KB`. Cac tham so ben duoi da duoc doi chieu voi
+`python -m nextrip_pipeline.cli <command> --help`.
 
 ## 1. Audit va ghi quyet dinh merge
 
-Registry report can ton tai o
-`config/generated/google-maps-registry-report.json`. Neu chua co, tao lai:
+Current `build-google-maps-registry` la canonical-only, vi vay khong dung lenh
+do de bootstrap historical migration. Import mot frozen registry report da co
+provenance cung historical corpus va kiem tra no ton tai:
 
 ```powershell
-python -m nextrip_pipeline.cli build-google-maps-registry
+if (-not (Test-Path -LiteralPath $legacyGoogleRegistryReport)) {
+  throw "Missing approved legacy Google registry report"
+}
 ```
 
 Audit master va Google Maps observations ma khong thay doi du lieu:
 
 ```powershell
 python -m nextrip_pipeline.cli audit-canonical-identities `
-  --candidate-groups config/generated/google-maps-registry-report.json `
-  --master-dir travel_data_verified `
+  --candidate-groups $legacyGoogleRegistryReport `
+  --master-dir $legacyImport `
   --observation-root data/normalized/entity=opening_status `
   --output data/reports/canonical/duplicate-evidence.json
 ```
@@ -78,7 +99,7 @@ Build lan dau hoac build lai sau khi sua duplicate decisions:
 
 ```powershell
 python -m nextrip_pipeline.cli build-canonical-manifest `
-  --master-dir travel_data_verified `
+  --master-dir $legacyImport `
   --decisions config/canonical-identity-decisions.json `
   --approved-replacement-dir data/canonical/replacements `
   --output config/generated/canonical-identity-manifest.json `
@@ -91,14 +112,18 @@ thuong; option nay chi danh cho audit/migration co chu dich.
 
 ## 3. Propose replacement theo bounded batch
 
+Canh bao compatibility: `--current-mapping-dir` trong buoc nay chi doc
+historical mapping projection tu thu muc import ben ngoai da khai bao o dau tai
+lieu. Projection nay khong duoc publish, khong duoc dung lam fallback va khong
+nam trong normal production workflow.
+
 Nen chay theo tung entity type va city. Vi du tim toi da 5 cafe moi tai Da Nang:
 
 ```powershell
 python -m nextrip_pipeline.cli propose-canonical-replacements `
   --manifest config/generated/canonical-identity-manifest.json `
-  --master-dir travel_data_verified `
-  --current-place-dir data/current/place `
-  --current-mapping-dir data/current/google_maps_mappings `
+  --master-dir $legacyImport `
+  --current-mapping-dir $legacyGoogleMappingImport `
   --approved-replacement-dir data/canonical/replacements `
   --entity-type cafe `
   --city-id city_da_nang `
@@ -159,7 +184,7 @@ tat ca `--proposal-id`, CLI se apply moi PASS proposal trong batch; chi lam vay
 khi policy tu dong da duoc phe duyet.
 
 Apply tao record trong `data/canonical/replacements/records/...`; day la
-overlay, khong ghi de vao `travel_data_verified`.
+overlay, khong ghi de historical source trong `$legacyImport`.
 
 ## 6. Rebuild voi previous manifest
 
@@ -172,7 +197,7 @@ $previous = "data/canonical/manifests/canonical-identity-$stamp.json"
 Copy-Item config/generated/canonical-identity-manifest.json $previous
 
 python -m nextrip_pipeline.cli build-canonical-manifest `
-  --master-dir travel_data_verified `
+  --master-dir $legacyImport `
   --decisions config/canonical-identity-decisions.json `
   --previous-manifest $previous `
   --approved-replacement-dir data/canonical/replacements `
@@ -189,7 +214,7 @@ Tao mot active dataset duy nhat, dong thoi doi chieu tat ca duplicate evidence:
 
 ```powershell
 python -m nextrip_pipeline.cli materialize-canonical-dataset `
-  --master-dir travel_data_verified `
+  --master-dir $legacyImport `
   --manifest config/generated/canonical-identity-manifest.json `
   --decisions config/canonical-identity-decisions.json `
   --approved-replacement-dir data/canonical/replacements `
@@ -202,6 +227,16 @@ Lenh van ghi dataset va readiness report de audit, nhung tra exit code `1` neu
 con group chua xu ly. Neo4j V8 chi duoc doc dataset khi output co
 `publish_ready=true`. Option `--allow-unresolved-review` chi dung de tao shadow
 dataset/parity report; khong dung option nay trong task publish V8.
+
+Sau khi gate pass, pin chinh xac artifact moi cho moi production consumer:
+
+```text
+NEXTRIP_CANONICAL_DATASET=data/canonical/datasets/dataset=<dataset-id>/canonical-active-dataset.json
+```
+
+Khong truyen bat ky historical import/projection nao cho Neo4j, traffic hoac
+Current Data. Mot canonical version cu van la immutable audit artifact;
+promotion chi doi path/version duoc chon, khong ghi de artifact cu.
 
 Gate kiem tra ba truong hop: `confirmed` phai resolve ve cung mot canonical ID,
 `distinct` phai resolve ve cac canonical ID khac nhau, va `review` chi duoc coi

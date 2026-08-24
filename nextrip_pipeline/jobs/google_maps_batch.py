@@ -235,7 +235,14 @@ def load_google_maps_manifest(path: str | Path) -> list[ExternalEntityMapping]:
                     )
                 by_entity_id[resolved.entity_id] = resolved
             mappings = [by_entity_id[mapping.entity_id] for mapping in mappings]
-    return mappings
+    # Resolved overlays and standalone mapping files are applied after the
+    # registry document is parsed, so validate the final runnable set again.
+    validated = GoogleMapsMappingRegistry(
+        generated_at=datetime.now(timezone.utc),
+        source_files=[str(manifest_path)],
+        mappings=mappings,
+    )
+    return validated.mappings
 
 
 class GoogleMapsBatchSummaryWriter:

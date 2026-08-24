@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from nextrip_pipeline.crawl import BrowserSnapshot, RawJsonWriter
 from nextrip_pipeline.crawl.adapters import (
@@ -96,6 +97,7 @@ def test_google_maps_adapter_uses_mapping_search_query() -> None:
     assert record.subject_type is RecordSubjectType.OPENING_STATUS
     assert record.raw_payload["page"]["json_ld"][0]["geo"]["latitude"] == 13.78
     assert "Nh%C3%A0%20h%C3%A0ng" in browser.requested_urls[0]
+    assert parse_qs(urlsplit(browser.requested_urls[0]).query)["hl"] == ["vi"]
 
 
 def test_google_maps_adapter_uses_search_url_with_master_coordinates() -> None:
@@ -121,7 +123,37 @@ def test_google_maps_adapter_uses_search_url_with_master_coordinates() -> None:
     assert "/maps/search/" in requested_url
     assert "/maps/place/" not in requested_url
     assert "@16.0462401,108.2371618,17z" in requested_url
+    assert parse_qs(urlsplit(requested_url).query)["hl"] == ["vi"]
     assert record.raw_payload["page"]["used_master_coordinates_for_viewport"] is True
+
+
+def test_google_maps_adapter_forces_vi_on_external_url_and_retains_query() -> None:
+    browser = FixtureBrowser("google_maps_place.html")
+    adapter = GoogleMapsPlaceAdapter(browser, clock=lambda: NOW)
+    mapping = _mapping(
+        "google-maps-web",
+        EntityType.CAFE,
+        external_id="stable-google-id",
+    ).model_copy(
+        update={
+            "external_url": (
+                "https://www.google.com/maps/place/Test?api=1&entry=ttu&"
+                "query_place_id=ChIJabc%2B123&hl=en"
+            )
+        }
+    )
+
+    adapter.fetch(mapping, run_id="opening-run")
+
+    requested_url = browser.requested_urls[0]
+    query = parse_qs(urlsplit(requested_url).query)
+    assert query == {
+        "api": ["1"],
+        "entry": ["ttu"],
+        "query_place_id": ["ChIJabc+123"],
+        "hl": ["vi"],
+    }
+    assert "hl=en" not in requested_url
 
 
 def test_browser_jobs_write_separate_raw_partitions(tmp_path: Path) -> None:

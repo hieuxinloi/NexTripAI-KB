@@ -28,6 +28,11 @@ from nextrip_pipeline.validators import GoogleMapsValidatorOrchestrator
 
 
 NOW = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
+GOOGLE_TOKEN = "0x31421b00723d9291:0x46d9f1c4fa5c9f78"
+GOOGLE_URL = (
+    "https://www.google.com/maps/place/xom-meo/"
+    f"data=!4m7!3m6!1s{GOOGLE_TOKEN}!8m2"
+)
 
 
 def _mapping() -> ExternalEntityMapping:
@@ -77,7 +82,7 @@ def _observation(
         place_id="cafe_dn_062",
         source_record_id=source_record_id,
         source_id="google-maps-web",
-        source_url="https://www.google.com/maps/place/xom-meo",
+        source_url=GOOGLE_URL,
         name=name,
         address=address,
         category=category,
@@ -99,7 +104,7 @@ def test_strong_safe_identity_is_auto_confirmed_and_materialized() -> None:
     resolution, confirmed = resolver.resolve_and_update(
         _mapping(),
         observation,
-        canonical_url="https://www.google.com/maps/place/canonical-xom-meo",
+        canonical_url=GOOGLE_URL,
     )
 
     assert resolution.status is MappingResolutionStatus.AUTO_CONFIRM
@@ -107,12 +112,132 @@ def test_strong_safe_identity_is_auto_confirmed_and_materialized() -> None:
     assert resolution.evidence.city_score == 1
     assert resolution.evidence.coordinate_distance_m < 500
     assert confirmed.status is MappingStatus.CONFIRMED
-    assert confirmed.external_id == "Xóm Mèo Coffee"
-    assert str(confirmed.external_url) == (
-        "https://www.google.com/maps/place/canonical-xom-meo"
-    )
+    assert confirmed.external_id == GOOGLE_TOKEN
+    assert str(confirmed.external_url) == GOOGLE_URL
     assert confirmed.source_record_ids == ["maps-record-1"]
     assert confirmed.attributes["mapping_evidence_hash"] == resolution.evidence_hash
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "category"),
+    [
+        (EntityType.ATTRACTION, "  BẢO-TÀNG ĐIÊU KHẮC  "),
+        (EntityType.ATTRACTION, "Công viên nước"),
+        (EntityType.ATTRACTION, "Bãi biển"),
+        (EntityType.ATTRACTION, "Chợ truyền thống"),
+        (EntityType.ATTRACTION, "Chùa Phật giáo"),
+        (EntityType.ATTRACTION, "Đảo"),
+        (EntityType.ATTRACTION, "Địa điểm hành hương"),
+        (EntityType.ATTRACTION, "Điểm tắm suối khoáng nóng kiểu Nhật"),
+        (EntityType.ATTRACTION, "Điểm mốc lịch sử"),
+        (EntityType.ATTRACTION, "Đỉnh núi"),
+        (EntityType.ATTRACTION, "Hồ"),
+        (EntityType.ATTRACTION, "Hồ chứa nước"),
+        (EntityType.ATTRACTION, "Quần đảo"),
+        (EntityType.ATTRACTION, "Sân chơi"),
+        (EntityType.ATTRACTION, "Thắng cảnh"),
+        (EntityType.ATTRACTION, "Trung tâm vui chơi giải trí"),
+        (EntityType.ATTRACTION, "Vườn bách thú"),
+        (EntityType.CAFE, "Quán CÀ-PHÊ"),
+        (EntityType.CAFE, "Trà trân châu"),
+        (EntityType.NIGHTLIFE, "Hộp đêm"),
+        (EntityType.NIGHTLIFE, "Câu lạc bộ bãi biển"),
+        (EntityType.RESTAURANT, "Cửa hàng bán đồ ăn nấu sẵn"),
+        (EntityType.RESTAURANT, "Khu ẨM-THỰC"),
+        (EntityType.HOTEL, "Khu nghỉ dưỡng"),
+    ],
+)
+def test_vietnamese_google_category_is_normalized_and_recognized(
+    entity_type: EntityType,
+    category: str,
+) -> None:
+    mapping = _mapping().model_copy(update={"entity_type": entity_type})
+
+    resolution = GoogleMapsMappingResolver(clock=lambda: NOW).resolve(
+        mapping,
+        _observation(category=category),
+    )
+
+    assert resolution.evidence.category_score == 1.0
+    assert "CATEGORY_EVIDENCE_MISSING" not in resolution.reason_codes
+    assert "CATEGORY_CONFLICT_REVIEW" not in resolution.reason_codes
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "other_category"),
+    [
+        (EntityType.RESTAURANT, "Quán cà phê"),
+        (EntityType.CAFE, "Hộp đêm"),
+        (EntityType.NIGHTLIFE, "Khu ẩm thực"),
+        (EntityType.ATTRACTION, "Khách sạn"),
+    ],
+)
+def test_specific_vietnamese_category_does_not_match_another_entity_type(
+    entity_type: EntityType,
+    other_category: str,
+) -> None:
+    mapping = _mapping().model_copy(update={"entity_type": entity_type})
+
+    resolution = GoogleMapsMappingResolver(clock=lambda: NOW).resolve(
+        mapping,
+        _observation(category=other_category),
+    )
+
+    assert resolution.evidence.category_score == 0.0
+    assert "CATEGORY_CONFLICT_REVIEW" in resolution.reason_codes
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "category", "category_score", "reason_code"),
+    [
+        (
+            EntityType.ATTRACTION,
+            "Cửa hàng bán đồ thủ công",
+            None,
+            "CATEGORY_EVIDENCE_MISSING",
+        ),
+        (
+            EntityType.ATTRACTION,
+            "Nhà sản xuất",
+            None,
+            "CATEGORY_EVIDENCE_MISSING",
+        ),
+        (
+            EntityType.ATTRACTION,
+            "Hiệp hội cư dân",
+            None,
+            "CATEGORY_EVIDENCE_MISSING",
+        ),
+        (
+            EntityType.NIGHTLIFE,
+            "Căn hộ nghỉ mát",
+            0.0,
+            "CATEGORY_CONFLICT_REVIEW",
+        ),
+        (
+            EntityType.NIGHTLIFE,
+            "Trà trân châu",
+            0.0,
+            "CATEGORY_CONFLICT_REVIEW",
+        ),
+    ],
+)
+def test_ambiguous_or_wrong_result_category_stays_in_review(
+    entity_type: EntityType,
+    category: str,
+    category_score: float | None,
+    reason_code: str,
+) -> None:
+    mapping = _mapping().model_copy(update={"entity_type": entity_type})
+
+    resolution = GoogleMapsMappingResolver(clock=lambda: NOW).resolve(
+        mapping,
+        _observation(category=category),
+    )
+
+    assert resolution.status is MappingResolutionStatus.REVIEW
+    assert resolution.evidence.category_score == category_score
+    assert reason_code in resolution.reason_codes
 
 
 def test_auto_confirmed_multifield_identity_is_not_rejected_by_name_only_check(
@@ -155,6 +280,49 @@ def test_verified_master_coordinate_fallback_is_not_google_geo_evidence() -> Non
     assert resolution.status is MappingResolutionStatus.REVIEW
     assert resolution.evidence.coordinate_distance_m is None
     assert "COORDINATE_EVIDENCE_MISSING" in resolution.reason_codes
+
+
+def test_strong_match_without_stable_google_id_requires_review() -> None:
+    observation = _observation().model_copy(
+        update={"source_url": "https://www.google.com/maps/place/xom-meo"}
+    )
+
+    resolver = GoogleMapsMappingResolver(clock=lambda: NOW)
+    resolution, unchanged = resolver.resolve_and_update(_mapping(), observation)
+
+    assert resolution.status is MappingResolutionStatus.REVIEW
+    assert resolution.reason_codes == ("STABLE_EXTERNAL_ID_MISSING",)
+    assert unchanged == _mapping()
+
+
+def test_case_distinct_google_place_ids_are_conflicting_evidence() -> None:
+    mapping_token = "ChIJCaseSensitive"
+    observed_token = "ChIJcasesensitive"
+    mapping = _mapping().model_copy(
+        update={
+            "external_id": mapping_token,
+            "external_url": (
+                "https://www.google.com/maps/place/xom-meo/"
+                f"data=!4m7!3m6!1s{mapping_token}!8m2"
+            ),
+        }
+    )
+    observation = _observation().model_copy(
+        update={
+            "source_url": (
+                "https://www.google.com/maps/place/xom-meo/"
+                f"data=!4m7!3m6!1s{observed_token}!8m2"
+            )
+        }
+    )
+
+    resolution, unchanged = GoogleMapsMappingResolver(
+        clock=lambda: NOW
+    ).resolve_and_update(mapping, observation)
+
+    assert resolution.status is MappingResolutionStatus.REVIEW
+    assert resolution.reason_codes == ("STABLE_EXTERNAL_ID_CONFLICT",)
+    assert unchanged == mapping
 
 
 @pytest.mark.parametrize(

@@ -117,18 +117,24 @@ def _cross_type_inputs():
     return master, manifest
 
 
-def _replacement(retired_place_id: str = "cafe_dn_002"):
+def _replacement(
+    retired_place_id: str = "cafe_dn_002",
+    *,
+    vacancy_entity_type: EntityType = EntityType.CAFE,
+    entity_type: EntityType = EntityType.CAFE,
+    allocated_place_id: str = "cafe_dn_100",
+):
     vacancy_id = stable_identifier(
         "vacancy",
         "city_da_nang",
-        EntityType.CAFE.value,
+        vacancy_entity_type.value,
         retired_place_id,
     )
     return MaterializedReplacementRecord(
-        id="cafe_dn_100",
-        entity_type=EntityType.CAFE,
-        primary_type=EntityType.CAFE,
-        place_types=[EntityType.CAFE],
+        id=allocated_place_id,
+        entity_type=entity_type,
+        primary_type=entity_type,
+        place_types=[entity_type],
         name="New Google Cafe",
         city="Đà Nẵng",
         city_id="city_da_nang",
@@ -196,6 +202,32 @@ def _filled_inputs():
         replacement_decisions=[
             VacancyReplacementDecision(
                 retired_place_id="cafe_dn_002",
+                replacement_place_id="cafe_dn_100",
+            )
+        ],
+        previous_manifest=initial,
+        generated_at=APPROVED_AT,
+    )
+    return master, filled, replacement
+
+
+def _cross_type_filled_inputs():
+    master, initial = _cross_type_inputs()
+    replacement = _replacement(
+        "night_dn_001",
+        vacancy_entity_type=EntityType.NIGHTLIFE,
+    )
+    duplicate = DuplicateIdentityDecision(
+        keeper_legacy_place_id="cafe_dn_001",
+        duplicate_legacy_place_ids=["night_dn_001"],
+        reason="reviewed physical duplicate",
+    )
+    filled = build_canonical_identity_manifest(
+        [*master.slots, replacement.to_legacy_place_slot()],
+        duplicate_decisions=[duplicate],
+        replacement_decisions=[
+            VacancyReplacementDecision(
+                retired_place_id="night_dn_001",
                 replacement_place_id="cafe_dn_100",
             )
         ],
@@ -275,6 +307,32 @@ def test_filled_overlay_becomes_active_record_and_retired_duplicate_is_excluded(
     assert dataset.report.filled_vacancy_count == 1
     quota = dataset.report.quotas[0]
     assert (quota.target_count, quota.active_count, quota.vacancy_count) == (2, 2, 0)
+
+
+def test_cross_type_fill_materializes_actual_type_and_preserves_total_capacity() -> None:
+    master, manifest, replacement = _cross_type_filled_inputs()
+
+    dataset = materialize_canonical_active_dataset(
+        master,
+        manifest,
+        approved_replacements=[replacement],
+    )
+
+    assert [item.place_id for item in dataset.records] == [
+        "cafe_dn_001",
+        "cafe_dn_100",
+    ]
+    added = dataset.records[1]
+    assert added.primary_type is EntityType.CAFE
+    assert added.data["entity_type"] == "cafe"
+    assert added.provenance.replacement_of == "night_dn_001"
+    assert dataset.report.canonical_record_count == 2
+    assert dataset.report.filled_vacancy_count == 1
+    assert dataset.report.open_vacancy_count == 0
+    assert sum(item.target_count for item in dataset.report.quotas) == 2
+    assert len(dataset.report.entity_city_counts) == 1
+    assert dataset.report.entity_city_counts[0].count == 2
+    assert dataset.report.entity_city_counts[0].entity_type is EntityType.CAFE
 
 
 def test_missing_active_source_fails_instead_of_emitting_partial_dataset() -> None:

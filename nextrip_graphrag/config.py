@@ -188,6 +188,24 @@ class Settings:
             neo4j_version_connections=_configured_neo4j_versions(),
         )
 
+    @classmethod
+    def from_neo4j_env(cls, version: str) -> "Settings":
+        """Load one Neo4j connection without requiring any LLM settings.
+
+        Data publication and schema-management commands do not call Gemini.
+        Keeping this loader separate prevents those deterministic operations
+        from depending on ``GEMINI_PLANNER_MODEL`` or an API key.
+        """
+
+        settings = cls(
+            neo4j_uri=os.getenv("NEO4J_URI", cls.neo4j_uri),
+            neo4j_user=os.getenv("NEO4J_USER", cls.neo4j_user),
+            neo4j_password=os.getenv("NEO4J_PASSWORD", cls.neo4j_password),
+            neo4j_database=os.getenv("NEO4J_DATABASE", cls.neo4j_database) or None,
+            neo4j_version_connections=_configured_neo4j_versions(),
+        )
+        return settings.for_version(version)
+
     @property
     def configured_kb_versions(self) -> tuple[str, ...]:
         from .versions.registry import kb_version_manifests

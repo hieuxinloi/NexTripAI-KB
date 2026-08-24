@@ -19,6 +19,7 @@ from nextrip_current.service import CurrentDataService
 from nextrip_pipeline.publishing import CurrentHotelAvailabilityWriter
 from nextrip_pipeline.publishing.current_price import CurrentHotelPriceSnapshot
 from nextrip_pipeline.schemas import (
+    EntityType,
     HotelAvailabilityObservation,
     HotelAvailabilityReason,
     HotelAvailabilityStatus,
@@ -26,6 +27,10 @@ from nextrip_pipeline.schemas import (
     Occupancy,
     OfferAvailability,
     VerificationStatus,
+)
+from tests.canonical_dataset_support import (
+    CanonicalTestPlace,
+    write_canonical_dataset,
 )
 
 
@@ -35,14 +40,30 @@ REQUESTED = date(2026, 8, 24)
 
 def _repository(tmp_path: Path) -> CurrentDataRepository:
     roots = {
-        "place_root": tmp_path / "place",
         "hotel_price_root": tmp_path / "hotel_price",
         "hotel_availability_root": tmp_path / "hotel_availability",
         "trivago_mapping_root": tmp_path / "mapping",
     }
     for root in roots.values():
         root.mkdir(parents=True)
-    return CurrentDataRepository(**roots)
+    canonical_dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [
+            CanonicalTestPlace(
+                place_id="hotel_qn_025",
+                name="Canonical Hotel",
+                latitude=13.77,
+                longitude=109.22,
+                entity_type=EntityType.HOTEL,
+                city="Quy Nhon",
+                city_id="city_quy_nhon",
+            )
+        ],
+    )
+    return CurrentDataRepository(
+        canonical_dataset_path=canonical_dataset,
+        **roots,
+    )
 
 
 def _price(
@@ -375,7 +396,10 @@ def test_http_availability_endpoint_exposes_duration_and_fallback_windows(
     )
     service = CurrentDataService(repository, clock=lambda: NOW)
     app = create_app(
-        settings=CurrentDataSettings(kb_root=tmp_path),
+        settings=CurrentDataSettings(
+            kb_root=tmp_path,
+            canonical_dataset_path=repository.canonical_dataset_path,
+        ),
         service_factory=CurrentDataServiceFactory(lambda: service),
         internal_api_key="current-secret",
     )

@@ -23,6 +23,10 @@ def test_hotel_dag_module_is_safe_without_airflow_and_uses_mcp_cli() -> None:
     registry_command = module._registry_command()
     batch_command = module._batch_command()
     assert "build-trivago-registry" in registry_command
+    assert "NEXTRIP_CANONICAL_DATASET:?" in registry_command
+    assert '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET"' in registry_command
+    assert "--master-file" not in registry_command
+    assert "travel_data_verified" not in registry_command
     assert "--override config/trivago-mapping.json" in registry_command
     assert "batch-trivago-availability" in batch_command
     assert "NEXTRIP_HOTEL_CHECK_IN_OFFSET_DAYS:-1" in batch_command
@@ -30,6 +34,7 @@ def test_hotel_dag_module_is_safe_without_airflow_and_uses_mcp_cli() -> None:
     assert "NEXTRIP_HOTEL_LOOKAHEAD_DAYS:-1" in batch_command
     assert "NEXTRIP_HOTEL_ADULTS:-2" in batch_command
     assert "NEXTRIP_HOTEL_ROOMS:-1" in batch_command
+    assert "--include-identity-discovery" not in batch_command
     assert "playwright" not in batch_command.casefold()
     assert "neo4j" not in batch_command.casefold()
 

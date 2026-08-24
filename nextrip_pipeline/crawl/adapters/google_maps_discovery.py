@@ -80,6 +80,7 @@ class GoogleMapsCandidateDiscoveryAdapter:
         vacancy: EntityCityVacancy,
         *,
         search_term: str | None = None,
+        candidate_entity_type: EntityType | None = None,
     ) -> str:
         try:
             city_name = self.city_names[_city_key(vacancy.city_id)]
@@ -88,18 +89,20 @@ class GoogleMapsCandidateDiscoveryAdapter:
                 f"unsupported canonical city: {vacancy.city_id!r}"
             ) from error
         if search_term is None:
+            entity_type = candidate_entity_type or vacancy.entity_type
             try:
-                entity_term = self.entity_search_terms[vacancy.entity_type].strip()
+                entity_term = self.entity_search_terms[entity_type].strip()
             except KeyError as error:
                 raise GoogleMapsDiscoveryConfigurationError(
                     "missing search term for entity type: "
-                    f"{vacancy.entity_type.value}"
+                    f"{entity_type.value}"
                 ) from error
         else:
             entity_term = search_term.strip()
         if not entity_term:
             raise GoogleMapsDiscoveryConfigurationError(
-                f"blank search term for entity type: {vacancy.entity_type.value}"
+                "blank search term for entity type: "
+                f"{(candidate_entity_type or vacancy.entity_type).value}"
             )
         return f"{entity_term} tại {city_name}"
 
@@ -110,9 +113,27 @@ class GoogleMapsCandidateDiscoveryAdapter:
         run_id: str,
         result_limit: int = DEFAULT_GOOGLE_MAPS_DISCOVERY_RESULTS,
         search_term: str | None = None,
+        candidate_entity_type: EntityType | None = None,
     ) -> SourceRecord:
         _validate_result_limit(result_limit)
-        query = self.query_for(vacancy, search_term=search_term)
+        effective_entity_type = candidate_entity_type or vacancy.entity_type
+        if (
+            effective_entity_type is not vacancy.entity_type
+            and not (
+                vacancy.entity_type is EntityType.NIGHTLIFE
+                and effective_entity_type
+                in {EntityType.CAFE, EntityType.RESTAURANT}
+            )
+        ):
+            raise GoogleMapsDiscoveryConfigurationError(
+                "cross-type discovery supports only cafe/restaurant "
+                "candidates for nightlife vacancies"
+            )
+        query = self.query_for(
+            vacancy,
+            search_term=search_term,
+            candidate_entity_type=candidate_entity_type,
+        )
         requested_url = f"{self.base_url}/{quote(query, safe='')}?hl=vi"
         search_capture = getattr(
             self.browser,
@@ -145,11 +166,15 @@ class GoogleMapsCandidateDiscoveryAdapter:
                 "structured_data": snapshot.structured_data or {},
             },
         }
+        if effective_entity_type is not vacancy.entity_type:
+            raw_payload["request"]["candidate_entity_type"] = (
+                effective_entity_type.value
+            )
         return SourceRecord(
             source_record_id=f"google-maps-discovery-{uuid4().hex}",
             run_id=run_id,
             source_id=self.source_id,
-            entity_type=vacancy.entity_type,
+            entity_type=effective_entity_type,
             subject_type=RecordSubjectType.PLACE,
             subject_id=vacancy.vacancy_id,
             crawled_at=self.clock(),

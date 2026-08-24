@@ -311,6 +311,41 @@ def _filled_replacement_projection_inputs():
     return master, initial, filled, replacement
 
 
+def _filled_cross_type_projection_inputs():
+    master, initial = _master_and_manifest()
+    approval = ApprovedReplacement.from_candidate_detail(
+        _detail(
+            candidate_key="candidate-cafe-for-nightlife-capacity",
+            retired_place_id="night_dn_001",
+            vacancy_entity_type=EntityType.NIGHTLIFE,
+            candidate_entity_type=EntityType.CAFE,
+        ),
+        allocated_place_id="cafe_dn_100",
+        reviewer="reviewer@example.com",
+        approved_at=APPROVED_AT,
+    )
+    replacement = materialize_master_record(approval)
+    filled = build_canonical_identity_manifest(
+        [*master.slots, replacement.to_legacy_place_slot()],
+        duplicate_decisions=[
+            DuplicateIdentityDecision(
+                keeper_legacy_place_id="cafe_dn_001",
+                duplicate_legacy_place_ids=["night_dn_001"],
+                reason="reviewed duplicate",
+            )
+        ],
+        replacement_decisions=[
+            VacancyReplacementDecision(
+                retired_place_id="night_dn_001",
+                replacement_place_id="cafe_dn_100",
+            )
+        ],
+        previous_manifest=initial,
+        generated_at=APPROVED_AT,
+    )
+    return master, filled, replacement
+
+
 def test_projection_reloads_filled_replacement_overlay_without_master_rewrite() -> None:
     master, _, filled, replacement = _filled_replacement_projection_inputs()
 
@@ -333,6 +368,29 @@ def test_projection_reloads_filled_replacement_overlay_without_master_rewrite() 
     assert projected.location is not None
     assert projected.location.source == "google-maps-web"
     assert projected.external_identities[0].external_id == GOOGLE_TOKEN
+
+
+def test_projection_accepts_actual_type_overlay_for_cross_type_city_fill() -> None:
+    master, filled, replacement = _filled_cross_type_projection_inputs()
+
+    projection = build_existing_identity_projection(
+        master,
+        filled,
+        approved_replacements=[replacement],
+    )
+
+    vacancy = next(
+        item
+        for item in filled.vacancies
+        if item.retired_place_id == "night_dn_001"
+    )
+    projected = next(
+        item for item in projection.identities if item.place_id == "cafe_dn_100"
+    )
+    assert vacancy.entity_type is EntityType.NIGHTLIFE
+    assert vacancy.replacement_place_id == "cafe_dn_100"
+    assert projected.entity_type is EntityType.CAFE
+    assert projected.city_id == vacancy.city_id
 
 
 def test_projection_rejects_unrepresented_or_duplicate_overlay() -> None:
@@ -373,6 +431,8 @@ def _detail(
     *,
     candidate_key: str = "candidate-new-cafe",
     retired_place_id: str = "cafe_dn_002",
+    vacancy_entity_type: EntityType = EntityType.CAFE,
+    candidate_entity_type: EntityType = EntityType.CAFE,
     token: str = GOOGLE_TOKEN,
     url_token: str | None = None,
     allocated_location_source: str = "google-maps-web",
@@ -382,16 +442,16 @@ def _detail(
         vacancy_id=stable_identifier(
             "vacancy",
             "city_da_nang",
-            EntityType.CAFE.value,
+            vacancy_entity_type.value,
             retired_place_id,
         ),
         retired_place_id=retired_place_id,
         city_id="city_da_nang",
-        entity_type=EntityType.CAFE,
+        entity_type=vacancy_entity_type,
     )
     candidate = CanonicalReplacementCandidate(
         candidate_key=candidate_key,
-        entity_type=EntityType.CAFE,
+        entity_type=candidate_entity_type,
         city_id="city_da_nang",
         name="New Distinct Cafe",
         phone="0905222222",
@@ -486,6 +546,38 @@ def test_approval_and_materialization_are_strict_traceable_and_non_mutating() ->
     assert record.provenance.google_external_id == GOOGLE_TOKEN
     assert approval.approval_method is ReplacementApprovalMethod.HUMAN
     assert record.provenance.approval_method is ReplacementApprovalMethod.HUMAN
+
+
+def test_cross_type_approval_uses_actual_candidate_type_and_source_vacancy() -> None:
+    detail = _detail(
+        candidate_key="candidate-cafe-for-nightlife-capacity",
+        retired_place_id="night_dn_001",
+        vacancy_entity_type=EntityType.NIGHTLIFE,
+        candidate_entity_type=EntityType.CAFE,
+    )
+
+    approval = ApprovedReplacement.from_candidate_detail(
+        detail,
+        allocated_place_id="cafe_dn_100",
+        reviewer="reviewer@example.com",
+        approved_at=APPROVED_AT,
+    )
+    record = materialize_master_record(approval)
+
+    assert approval.replacement_of == "night_dn_001"
+    assert record.id == "cafe_dn_100"
+    assert record.entity_type is EntityType.CAFE
+    assert record.primary_type is EntityType.CAFE
+    assert record.provenance.vacancy_id == detail.vacancy.vacancy_id
+    assert record.provenance.replacement_of == "night_dn_001"
+
+    with pytest.raises(ValueError, match="entity/city slot"):
+        ApprovedReplacement.from_candidate_detail(
+            detail,
+            allocated_place_id="night_dn_100",
+            reviewer="reviewer@example.com",
+            approved_at=APPROVED_AT,
+        )
 
 
 def test_deterministic_pass_approval_is_traceable_and_auto_verified() -> None:

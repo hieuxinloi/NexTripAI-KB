@@ -30,16 +30,17 @@ def build_traffic_service(
     providers: dict[RoutingProvider, RoutingProviderAdapter] = {}
     try:
         resolved = settings or TrafficSettings.from_env()
-        current_place_root = resolved.current_place_root
+        canonical_dataset_path = resolved.canonical_dataset_path
         cache_path = resolved.cache_path
-        if current_place_root is None or cache_path is None:
+        if canonical_dataset_path is None or cache_path is None:
             raise TrafficConfigurationError(
-                "current-place and cache paths must be configured"
+                "NEXTRIP_CANONICAL_DATASET and a traffic cache path must be "
+                "configured"
             )
 
         override_path = _existing_override_path(resolved.access_point_overrides_path)
         registry = AccessPointRegistry(
-            current_place_root,
+            canonical_dataset_path=canonical_dataset_path,
             overrides_path=override_path,
         )
         cache = SQLiteTrafficCache(cache_path)

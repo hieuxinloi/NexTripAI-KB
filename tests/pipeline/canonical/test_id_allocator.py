@@ -87,6 +87,26 @@ def test_valid_replacement_gets_new_id_in_the_retired_slot() -> None:
     assert allocated not in {"cafe_dn_062", "cafe_dn_064"}
 
 
+def test_valid_quarantined_replacement_uses_fresh_id_above_high_water() -> None:
+    allocator = MonotonicPlaceIdAllocator(
+        existing_ids=["cafe_dn_016"],
+        quarantined_ids=["cafe_dn_017"],
+    )
+
+    allocated = allocator.allocate(
+        _candidate(),
+        _pass(),
+        replacement_of="cafe_dn_017",
+    )
+
+    assert allocated == "cafe_dn_018"
+    assert allocated not in {"cafe_dn_016", "cafe_dn_017"}
+    assert (
+        allocator.allocate(_candidate(key="candidate-2"), _pass("candidate-2"))
+        == "cafe_dn_019"
+    )
+
+
 def test_allocator_never_allocates_non_pass_candidate() -> None:
     allocator = MonotonicPlaceIdAllocator(existing_ids=["cafe_dn_062"])
     review = CandidateValidationResult(

@@ -34,6 +34,12 @@ class CandidateReasonCode(StrEnum):
     GOOGLE_PROVIDER_CATEGORY_MISSING = "google_provider_category_missing"
     GOOGLE_PROVIDER_CATEGORY_AMBIGUOUS = "google_provider_category_ambiguous"
     GOOGLE_PROVIDER_CATEGORY_INCOMPATIBLE = "google_provider_category_incompatible"
+    GOOGLE_LATE_NIGHT_SUBTYPE_COMPATIBLE = (
+        "google_late_night_subtype_compatible"
+    )
+    GOOGLE_LATE_NIGHT_SUBTYPE_MISMATCH = "google_late_night_subtype_mismatch"
+    GOOGLE_LATE_NIGHT_HOURS_COMPATIBLE = "google_late_night_hours_compatible"
+    GOOGLE_LATE_NIGHT_HOURS_UNPROVEN = "google_late_night_hours_unproven"
     GOOGLE_PERMANENTLY_CLOSED = "google_permanently_closed"
     GOOGLE_CITY_BOUNDARY_MISMATCH = "google_city_boundary_mismatch"
     GOOGLE_CITY_BOUNDARY_UNAVAILABLE = "google_city_boundary_unavailable"
@@ -127,6 +133,8 @@ class CandidateValidationResult(NexTripModel):
             allowed = {
                 CandidateReasonCode.NO_DUPLICATE_SIGNAL,
                 CandidateReasonCode.GOOGLE_PROVIDER_CATEGORY_COMPATIBLE,
+                CandidateReasonCode.GOOGLE_LATE_NIGHT_SUBTYPE_COMPATIBLE,
+                CandidateReasonCode.GOOGLE_LATE_NIGHT_HOURS_COMPATIBLE,
             }
             if CandidateReasonCode.NO_DUPLICATE_SIGNAL not in reasons:
                 raise ValueError("pass requires no_duplicate_signal")

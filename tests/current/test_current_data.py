@@ -39,6 +39,10 @@ from nextrip_pipeline.schemas import (
     VerificationStatus,
 )
 from nextrip_traffic.models import TrafficRouteRequest
+from tests.canonical_dataset_support import (
+    CanonicalTestPlace,
+    write_canonical_dataset,
+)
 
 
 NOW = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
@@ -164,8 +168,21 @@ def _write_price(root: Path, snapshot: CurrentHotelPriceSnapshot):
 
 def _service(tmp_path: Path, *, refresher=None):
     place_root, price_root, mapping_root = _roots(tmp_path)
+    canonical_dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [
+            CanonicalTestPlace(
+                place_id="hotel_1",
+                name="Master Hotel",
+                latitude=16.06,
+                longitude=108.22,
+                entity_type=EntityType.HOTEL,
+            )
+        ],
+        generated_at=NOW - timedelta(days=1),
+    )
     repository = CurrentDataRepository(
-        place_root=place_root,
+        canonical_dataset_path=canonical_dataset,
         hotel_price_root=price_root,
         trivago_mapping_root=mapping_root,
     )
@@ -333,6 +350,18 @@ def test_hotel_search_matches_children_ages_as_part_of_exact_context(tmp_path):
 def test_refresh_missing_once_then_rereads_current_projection(tmp_path):
     place_root, price_root, mapping_root = _roots(tmp_path)
     _write_place(place_root)
+    canonical_dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [
+            CanonicalTestPlace(
+                place_id="hotel_1",
+                name="Master Hotel",
+                latitude=16.06,
+                longitude=108.22,
+                entity_type=EntityType.HOTEL,
+            )
+        ],
+    )
     calls = []
 
     class Refresher:
@@ -342,7 +371,7 @@ def test_refresh_missing_once_then_rereads_current_projection(tmp_path):
 
     service = CurrentDataService(
         CurrentDataRepository(
-            place_root=place_root,
+            canonical_dataset_path=canonical_dataset,
             hotel_price_root=price_root,
             trivago_mapping_root=mapping_root,
         ),
@@ -370,7 +399,10 @@ def test_http_contract_auth_readiness_batch_limit_and_search(tmp_path):
     _write_mapping(mapping_root)
     _write_price(price_root, _price_snapshot())
     app = create_app(
-        settings=CurrentDataSettings(kb_root=tmp_path),
+        settings=CurrentDataSettings(
+            kb_root=tmp_path,
+            canonical_dataset_path=tmp_path / "canonical.json",
+        ),
         service_factory=CurrentDataServiceFactory(lambda: service),
         internal_api_key="current-secret",
     )
@@ -442,7 +474,19 @@ def test_traffic_client_sends_secret_header_and_parses_typed_response():
 def test_runtime_refresh_gate_drops_refresher_when_disabled(tmp_path):
     from nextrip_current.runtime import build_current_data_service
 
-    place_root, price_root, mapping_root = _roots(tmp_path)
+    _, price_root, mapping_root = _roots(tmp_path)
+    canonical_dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [
+            CanonicalTestPlace(
+                place_id="hotel_1",
+                name="Master Hotel",
+                latitude=16.06,
+                longitude=108.22,
+                entity_type=EntityType.HOTEL,
+            )
+        ],
+    )
 
     class Refresher:
         def refresh(self, hotel_id, request):
@@ -451,7 +495,7 @@ def test_runtime_refresh_gate_drops_refresher_when_disabled(tmp_path):
     service = build_current_data_service(
         CurrentDataSettings(
             kb_root=tmp_path,
-            current_place_root=place_root,
+            canonical_dataset_path=canonical_dataset,
             current_hotel_price_root=price_root,
             current_trivago_mapping_root=mapping_root,
             trivago_refresh_enabled=False,
@@ -464,7 +508,19 @@ def test_runtime_refresh_gate_drops_refresher_when_disabled(tmp_path):
 def test_runtime_keeps_enabled_refresher_and_service_closes_it(tmp_path):
     from nextrip_current.runtime import build_current_data_service
 
-    place_root, price_root, mapping_root = _roots(tmp_path)
+    _, price_root, mapping_root = _roots(tmp_path)
+    canonical_dataset = write_canonical_dataset(
+        tmp_path / "canonical",
+        [
+            CanonicalTestPlace(
+                place_id="hotel_1",
+                name="Master Hotel",
+                latitude=16.06,
+                longitude=108.22,
+                entity_type=EntityType.HOTEL,
+            )
+        ],
+    )
 
     class Refresher:
         closed = False
@@ -479,7 +535,7 @@ def test_runtime_keeps_enabled_refresher_and_service_closes_it(tmp_path):
     service = build_current_data_service(
         CurrentDataSettings(
             kb_root=tmp_path,
-            current_place_root=place_root,
+            canonical_dataset_path=canonical_dataset,
             current_hotel_price_root=price_root,
             current_trivago_mapping_root=mapping_root,
             trivago_refresh_enabled=True,

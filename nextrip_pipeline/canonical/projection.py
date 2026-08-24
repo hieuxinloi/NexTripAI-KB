@@ -283,10 +283,60 @@ def build_existing_identity_projection(
                 )
             )
 
+    # Quarantined identities are excluded from active materialization but stay
+    # in the duplicate corpus. This prevents a rejected physical place from
+    # being rediscovered and approved under a newly allocated ID.
+    for archived in manifest.quarantined_identities:
+        canonical = archived.identity
+        members = list(canonical.legacy_place_ids)
+        expected_ids.update(members)
+        external_identities = _confirmed_google_identities(
+            members,
+            mappings_by_id=mappings_by_id,
+            current_by_id=current_by_id,
+            expected_city_id=canonical.city_id,
+            allowed_types=set(canonical.place_types),
+            issues=issues,
+        )
+        identities.append(
+            _project_one_identity(
+                master,
+                place_id=canonical.canonical_place_id,
+                master_place_id=canonical.active_legacy_place_id,
+                entity_type=canonical.primary_type,
+                city_id=canonical.city_id,
+                retired=True,
+                current_by_id=current_by_id,
+                external_identities=external_identities,
+                issues=issues,
+            )
+        )
+        for retired_id in canonical.legacy_place_ids:
+            if retired_id == canonical.active_legacy_place_id:
+                continue
+            retirement = retirement_by_id.get(retired_id)
+            if retirement is None:
+                raise ExistingIdentityProjectionError(
+                    f"manifest is missing retirement metadata for {retired_id}"
+                )
+            identities.append(
+                _project_one_identity(
+                    master,
+                    place_id=retired_id,
+                    master_place_id=retired_id,
+                    entity_type=retirement.entity_type,
+                    city_id=retirement.city_id,
+                    retired=True,
+                    current_by_id=current_by_id,
+                    external_identities=external_identities,
+                    issues=issues,
+                )
+            )
     actual_ids = {item.place_id for item in identities}
     if actual_ids != expected_ids:
         raise ExistingIdentityProjectionError(
-            "projection does not exactly cover active and retired manifest IDs"
+            "projection does not exactly cover active, retired, and quarantined "
+            "manifest IDs"
         )
     _reject_overlay_token_conflicts(
         identities,
@@ -348,7 +398,14 @@ def apply_review_corrections_to_identity_projection(
         "review_correction_overlay_hash": overlay.overlay_hash,
     }
     return ExistingIdentityProjection(
-        projection_hash=stable_sha256(_projection_payload(**values)),
+        projection_hash=stable_sha256(
+            _projection_payload(
+                identities,
+                projection.quarantined_inputs,
+                review_correction_overlay_id=overlay.overlay_id,
+                review_correction_overlay_hash=overlay.overlay_hash,
+            )
+        ),
         **values,
     )
 
@@ -594,7 +651,7 @@ def _confirmed_google_identities(
                     continue
                 if token is None:
                     continue
-                token_key = token.casefold()
+                token_key = token
                 proposed = CandidateExternalIdentity(
                     source_id=_GOOGLE_SOURCE_ID,
                     external_id=token,
@@ -750,14 +807,12 @@ class ApprovedReplacement(NexTripModel):
             raise ValueError("only a PASS candidate detail can be approved")
         if self.replacement_of != detail.vacancy.retired_place_id:
             raise ValueError("replacement_of must match the candidate vacancy")
-        if candidate.entity_type is not detail.vacancy.entity_type:
-            raise ValueError("candidate type must match the vacant quota slot")
         if candidate.city_id != detail.vacancy.city_id:
             raise ValueError("candidate city must match the vacant quota slot")
         _validate_allocated_place_id(
             self.allocated_place_id,
-            entity_type=detail.vacancy.entity_type,
-            city_id=detail.vacancy.city_id,
+            entity_type=candidate.entity_type,
+            city_id=candidate.city_id,
         )
         if self.allocated_place_id == self.replacement_of:
             raise ValueError("a retired ID can never be reused for its replacement")
@@ -803,9 +858,9 @@ def _required_google_identity(
             _, token = _google_maps_identity(str(identity.external_url))
         except ValueError:
             continue
-        if token is None or token.casefold() != identity.external_id.casefold():
+        if token is None or token != identity.external_id:
             continue
-        valid_by_token.setdefault(token.casefold(), identity)
+        valid_by_token.setdefault(token, identity)
     if len(valid_by_token) != 1:
         raise ReplacementApprovalError(
             "approved replacement requires exactly one matching stable Google token"
@@ -830,7 +885,7 @@ def _validate_allocated_place_id(
         or match.group("city") != expected_city
     ):
         raise ReplacementApprovalError(
-            "allocated place ID does not preserve vacancy entity/city slot"
+            "allocated place ID does not preserve candidate entity/city slot"
         )
 
 
@@ -960,7 +1015,6 @@ def _validate_projection_overlays(
             vacancy is None
             or vacancy.retired_place_id != record.provenance.replacement_of
             or vacancy.vacancy_id != record.provenance.vacancy_id
-            or vacancy.entity_type is not record.entity_type
             or vacancy.city_id != record.city_id
         ):
             raise ExistingIdentityProjectionError(
@@ -988,7 +1042,7 @@ def _overlay_google_identity(
         ) from error
     if (
         token is None
-        or token.casefold() != provenance.google_external_id.casefold()
+        or token != provenance.google_external_id
     ):
         raise ExistingIdentityProjectionError(
             f"replacement Google token does not match its URL: {record.id}"
@@ -1029,7 +1083,7 @@ def _reject_overlay_token_conflicts(
     overlays: Iterable[MaterializedReplacementRecord],
 ) -> None:
     overlay_token_owner = {
-        item.provenance.google_external_id.casefold(): item.id for item in overlays
+        item.provenance.google_external_id: item.id for item in overlays
     }
     if not overlay_token_owner:
         return
@@ -1037,7 +1091,7 @@ def _reject_overlay_token_conflicts(
         for external in identity.external_identities:
             if external.source_id != _GOOGLE_SOURCE_ID or external.external_id is None:
                 continue
-            owner = overlay_token_owner.get(external.external_id.casefold())
+            owner = overlay_token_owner.get(external.external_id)
             if owner is not None and owner != identity.place_id:
                 raise ExistingIdentityProjectionError(
                     "approved replacement Google token already belongs to existing "
@@ -1142,7 +1196,7 @@ class ApprovedReplacementWriter:
             existing = self._read_existing()
             existing_by_id = {item.id: item for item in existing}
             existing_by_token = {
-                item.provenance.google_external_id.casefold(): item for item in existing
+                item.provenance.google_external_id: item for item in existing
             }
             for record in records:
                 same_id = existing_by_id.get(record.id)
@@ -1150,7 +1204,7 @@ class ApprovedReplacementWriter:
                     raise ReplacementWriteConflictError(
                         f"allocated place ID already exists: {record.id}"
                     )
-                token_key = record.provenance.google_external_id.casefold()
+                token_key = record.provenance.google_external_id
                 same_token = existing_by_token.get(token_key)
                 if same_token is not None and same_token.id != record.id:
                     raise ReplacementWriteConflictError(
@@ -1166,9 +1220,7 @@ class ApprovedReplacementWriter:
                     continue
                 self._atomic_write(destination, record)
                 existing_by_id[record.id] = record
-                existing_by_token[
-                    record.provenance.google_external_id.casefold()
-                ] = record
+                existing_by_token[record.provenance.google_external_id] = record
             return destinations
 
     def _read_existing(self) -> list[MaterializedReplacementRecord]:
@@ -1188,7 +1240,7 @@ class ApprovedReplacementWriter:
                 raise ReplacementWriteConflictError(
                     f"cannot validate existing replacement {path}: {error}"
                 ) from error
-            token = record.provenance.google_external_id.casefold()
+            token = record.provenance.google_external_id
             if record.id in ids:
                 raise ReplacementWriteConflictError(
                     f"duplicate existing allocated place ID: {record.id}"
@@ -1243,7 +1295,7 @@ def _reject_incoming_duplicates(
                 f"duplicate allocated place ID in batch: {record.id}"
             )
         place_ids.add(record.id)
-        token = record.provenance.google_external_id.casefold()
+        token = record.provenance.google_external_id
         if token in tokens:
             raise ReplacementWriteConflictError(
                 "duplicate Google external token in batch: "

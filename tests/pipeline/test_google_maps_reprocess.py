@@ -29,6 +29,7 @@ from nextrip_pipeline.quality import (
     LLMReviewRequestWriter,
 )
 from nextrip_pipeline.schemas import (
+    BusinessStatus,
     DailyOpeningStatus,
     EntityType,
     ExternalEntityMapping,
@@ -44,6 +45,10 @@ from nextrip_pipeline.validators import (
 
 
 NOW = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
+GOOGLE_TOKEN = "0x31421b00723d9291:0x46d9f1c4fa5c9f78"
+GOOGLE_URL = (
+    f"https://www.google.com/maps/place/Test-Place/data=!4m7!3m6!1s{GOOGLE_TOKEN}!8m2"
+)
 
 
 def _mapping(
@@ -62,9 +67,7 @@ def _mapping(
         confidence=0.9 if status is MappingStatus.CONFIRMED else 0.7,
         matched_at=NOW - timedelta(days=1),
         verified_at=(
-            NOW - timedelta(hours=2)
-            if status is MappingStatus.CONFIRMED
-            else None
+            NOW - timedelta(hours=2) if status is MappingStatus.CONFIRMED else None
         ),
         attributes={
             "master_name": name,
@@ -100,24 +103,31 @@ def _observation(
         place_id=place_id,
         source_record_id=source_record_id,
         source_id="google-maps-web",
-        source_url=f"https://www.google.com/maps/place/{place_id}",
+        source_url=GOOGLE_URL,
         name=name,
         category="Cafe",
         address="1 Bach Dang, Da Nang, Vietnam",
         location=location,
+        business_status=BusinessStatus.ACTIVE,
         opening=opening,
         observed_at=observed_at,
     )
 
 
-def _processor(tmp_path, *, llm_max_requests: int = 5):
+def _processor(
+    tmp_path, *, llm_max_requests: int = 5, publish_current_place: bool = True
+):
     return GoogleMapsQualityReprocessor(
         NormalizedGoogleMapsWriter(tmp_path / "output-normalized"),
         GoogleMapsMappingResolutionWriter(tmp_path / "resolution"),
         GoogleMapsValidationWriter(tmp_path / "validation"),
         GoogleMapsDecisionWriter(tmp_path / "decision"),
         CurrentGoogleMapsMappingWriter(tmp_path / "current-mapping"),
-        CurrentPlaceWriter(tmp_path / "current-place", clock=lambda: NOW),
+        (
+            CurrentPlaceWriter(tmp_path / "current-place", clock=lambda: NOW)
+            if publish_current_place
+            else None
+        ),
         GoogleMapsReprocessSummaryWriter(tmp_path / "reports"),
         resolver=GoogleMapsMappingResolver(clock=lambda: NOW),
         validator=GoogleMapsValidatorOrchestrator(clock=lambda: NOW),
@@ -150,9 +160,7 @@ def test_reprocess_selects_latest_and_publishes_confirmed_with_fallback(
             accuracy="google_maps_place_page",
         ),
     )
-    latest = _observation(
-        "cafe-1", "Cafe Latest", source_record_id="source-latest"
-    )
+    latest = _observation("cafe-1", "Cafe Latest", source_record_id="source-latest")
     orphan = _observation(
         "cafe-orphan", "Cafe Orphan", source_record_id="source-orphan"
     )
@@ -225,17 +233,19 @@ def test_reprocess_ignores_output_from_an_earlier_reprocess_run(tmp_path) -> Non
         observed_at=NOW,
     ).model_copy(
         update={
-            "observation_id": (
-                f"{original.observation_id}:quality-reprocess:previous"
-            )
+            "observation_id": (f"{original.observation_id}:quality-reprocess:previous")
         }
     )
 
-    summary = _processor(tmp_path).run(
-        [_mapping("cafe-1", "Cafe Original")],
-        observations=[original, derived],
-        run_id="quality-reprocess-no-recursion",
-    ).summary
+    summary = (
+        _processor(tmp_path)
+        .run(
+            [_mapping("cafe-1", "Cafe Original")],
+            observations=[original, derived],
+            run_id="quality-reprocess-no-recursion",
+        )
+        .summary
+    )
 
     assert summary.selected_observation_count == 1
     assert summary.items[0].source_observation_id == original.observation_id
@@ -252,11 +262,15 @@ def test_reprocess_migrates_legacy_string_menu_source_in_memory(tmp_path) -> Non
     path = tmp_path / "observation=legacy.json"
     path.write_text(json.dumps(document), encoding="utf-8")
 
-    summary = _processor(tmp_path).run(
-        [_mapping("cafe-legacy", "Cafe Legacy")],
-        observation_paths=[path],
-        run_id="quality-reprocess-legacy-menu-source",
-    ).summary
+    summary = (
+        _processor(tmp_path)
+        .run(
+            [_mapping("cafe-legacy", "Cafe Legacy")],
+            observation_paths=[path],
+            run_id="quality-reprocess-legacy-menu-source",
+        )
+        .summary
+    )
 
     assert summary.succeeded_count == 1
     assert summary.errors == []
@@ -266,7 +280,9 @@ def test_reprocess_migrates_legacy_string_menu_source_in_memory(tmp_path) -> Non
     assert derived.menu_source is None
 
 
-@pytest.mark.parametrize("status", [MappingStatus.PENDING_REVIEW, MappingStatus.REJECTED])
+@pytest.mark.parametrize(
+    "status", [MappingStatus.PENDING_REVIEW, MappingStatus.REJECTED]
+)
 def test_explicit_reprocess_reevaluates_non_active_mapping_states(
     tmp_path, status: MappingStatus
 ) -> None:
@@ -283,11 +299,15 @@ def test_explicit_reprocess_reevaluates_non_active_mapping_states(
         ),
     )
 
-    summary = _processor(tmp_path).run(
-        [mapping],
-        observations=[observation],
-        run_id=f"quality-reprocess-{status.value}",
-    ).summary
+    summary = (
+        _processor(tmp_path)
+        .run(
+            [mapping],
+            observations=[observation],
+            run_id=f"quality-reprocess-{status.value}",
+        )
+        .summary
+    )
 
     assert summary.processed_count == 1
     assert summary.resolution_status_counts == {"auto_confirm": 1}
@@ -306,11 +326,15 @@ def test_auto_matched_reviews_use_bounded_llm_queue_and_do_not_publish(
         _observation("cafe-2", "Cafe Two", source_record_id="source-2"),
     ]
 
-    summary = _processor(tmp_path, llm_max_requests=1).run(
-        mappings,
-        observations=observations,
-        run_id="quality-reprocess-llm",
-    ).summary
+    summary = (
+        _processor(tmp_path, llm_max_requests=1)
+        .run(
+            mappings,
+            observations=observations,
+            run_id="quality-reprocess-llm",
+        )
+        .summary
+    )
 
     assert summary.succeeded_count == 2
     assert summary.resolution_status_counts == {"review": 2}
@@ -322,9 +346,7 @@ def test_auto_matched_reviews_use_bounded_llm_queue_and_do_not_publish(
         "queued": 1,
         "run_request_cap_reached": 1,
     }
-    assert {
-        item.llm_queue_disposition for item in summary.items
-    } == {
+    assert {item.llm_queue_disposition for item in summary.items} == {
         LLMReviewQueueDisposition.QUEUED,
         LLMReviewQueueDisposition.RUN_REQUEST_CAP_REACHED,
     }
@@ -348,11 +370,15 @@ def test_auto_confirmed_mapping_and_pass_place_are_published(tmp_path) -> None:
         ),
     )
 
-    summary = _processor(tmp_path).run(
-        [mapping],
-        observations=[observation],
-        run_id="quality-reprocess-strong",
-    ).summary
+    summary = (
+        _processor(tmp_path)
+        .run(
+            [mapping],
+            observations=[observation],
+            run_id="quality-reprocess-strong",
+        )
+        .summary
+    )
 
     assert summary.resolution_status_counts == {"auto_confirm": 1}
     assert summary.decision_status_counts == {"pass": 1}
@@ -361,6 +387,41 @@ def test_auto_confirmed_mapping_and_pass_place_are_published(tmp_path) -> None:
     assert summary.llm_queued_count == 0
     assert summary.items[0].current_mapping_path is not None
     assert summary.items[0].current_place_path is not None
+
+
+def test_reprocess_can_run_without_a_current_place_writer(tmp_path) -> None:
+    mapping = _mapping(
+        "cafe-canonical", "Cafe Canonical", status=MappingStatus.AUTO_MATCHED
+    )
+    observation = _observation(
+        "cafe-canonical",
+        "Cafe Canonical",
+        source_record_id="source-canonical",
+        location=GeoPoint(
+            latitude=16.0602,
+            longitude=108.2202,
+            source="google-maps-web",
+            accuracy="google_maps_place_page",
+        ),
+    )
+
+    summary = (
+        _processor(tmp_path, publish_current_place=False)
+        .run(
+            [mapping],
+            observations=[observation],
+            run_id="quality-reprocess-canonical-only",
+        )
+        .summary
+    )
+
+    assert summary.succeeded_count == 1
+    assert summary.decision_status_counts == {"pass": 1}
+    assert summary.published_mapping_count == 1
+    assert summary.published_place_count == 0
+    assert summary.items[0].current_place_path is None
+    assert summary.items[0].current_place_published is False
+    assert not (tmp_path / "current-place").exists()
 
 
 def test_hard_identity_conflict_is_persisted_and_never_publishes_place(
@@ -395,9 +456,9 @@ def test_hard_identity_conflict_is_persisted_and_never_publishes_place(
     assert summary.published_mapping_count == 1
     assert summary.published_place_count == 0
     assert summary.items[0].current_mapping_path is not None
-    rejected = CurrentGoogleMapsMappingWriter(
-        tmp_path / "current-mapping"
-    ).get("cafe-wrong-city")
+    rejected = CurrentGoogleMapsMappingWriter(tmp_path / "current-mapping").get(
+        "cafe-wrong-city"
+    )
     assert rejected is not None
     assert rejected.status is MappingStatus.REJECTED
 
@@ -412,15 +473,19 @@ def test_invalid_observations_and_item_failures_are_reported_without_stopping(
     )
     good = _observation("cafe-good", "Cafe Good", source_record_id="source-good")
 
-    summary = _processor(tmp_path).run(
-        [
-            _mapping("cafe-shell", "Cafe Shell"),
-            _mapping("cafe-good", "Cafe Good"),
-        ],
-        observations=[generic_shell, good],
-        observation_paths=[invalid_path],
-        run_id="quality-reprocess-errors",
-    ).summary
+    summary = (
+        _processor(tmp_path)
+        .run(
+            [
+                _mapping("cafe-shell", "Cafe Shell"),
+                _mapping("cafe-good", "Cafe Good"),
+            ],
+            observations=[generic_shell, good],
+            observation_paths=[invalid_path],
+            run_id="quality-reprocess-errors",
+        )
+        .summary
+    )
 
     assert summary.processed_count == 1
     assert summary.succeeded_count == 1
@@ -442,10 +507,8 @@ def test_reprocess_cli_parser_has_local_only_defaults() -> None:
     assert arguments.quality_dir == Path("data/quality/google_maps_mapping")
     assert arguments.validation_dir == Path("data/validation")
     assert arguments.decision_dir == Path("data/decisions")
-    assert arguments.current_mapping_dir == Path(
-        "data/current/google_maps_mappings"
-    )
-    assert arguments.current_place_dir == Path("data/current/place")
+    assert arguments.current_mapping_dir == Path("data/current/google_maps_mappings")
+    assert not hasattr(arguments, "current_place_dir")
     assert arguments.summary_dir == Path("data/runs/google_maps_reprocess")
     assert arguments.entity_type == []
     assert arguments.disable_llm_review_queue is False
@@ -516,6 +579,7 @@ def test_reprocess_cli_filters_default_entities_and_fails_on_item_failure(
     assert exit_code == 1
     assert [mapping.entity_id for mapping in captured["mappings"]] == ["cafe-1"]
     assert captured["run_kwargs"]["observation_root"] == Path("data/normalized")
+    assert captured["constructor_args"][5] is None
     assert "selected=1 processed=1 succeeded=0 failed=1" in captured_output.out
     assert "failed place_id=cafe-1" in captured_output.err
 

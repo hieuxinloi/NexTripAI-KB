@@ -1,0 +1,39 @@
+name: nextrip-neo4j-v8
+
+services:
+  neo4j-v8:
+    image: neo4j:5
+    container_name: nextrip-neo4j-v8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7479:7474"
+      - "127.0.0.1:7692:7687"
+    environment:
+      NEO4J_AUTH: "${NEO4J_V8_USER:-neo4j}/${NEO4J_V8_PASSWORD:?Set NEO4J_V8_PASSWORD in .env}"
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+      NEO4J_server_config_strict__validation_enabled: "true"
+      NEO4J_server_bolt_advertised__address: "localhost:7692"
+      NEO4J_server_http_advertised__address: "localhost:7479"
+    volumes:
+      - nextrip_neo4j_v8_data:/data
+      - nextrip_neo4j_v8_logs:/logs
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          cypher-shell -a bolt://localhost:7687
+          -u "$${NEO4J_AUTH%%/*}" -p "$${NEO4J_AUTH#*/}"
+          "RETURN 1" >/dev/null 2>&1 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 2m
+
+volumes:
+  nextrip_neo4j_v8_data:
+    name: nextrip_neo4j_v8_data
+  nextrip_neo4j_v8_logs:
+    name: nextrip_neo4j_v8_logs

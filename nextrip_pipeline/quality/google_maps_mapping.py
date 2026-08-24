@@ -15,6 +15,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, ConfigDict, Field
 
+from nextrip_pipeline.google_maps_identity import google_maps_stable_external_ids
 from nextrip_pipeline.schemas import (
     EntityType,
     ExternalEntityMapping,
@@ -92,7 +93,7 @@ class GoogleMapsMappingResolver:
     rejected without semantic review.
     """
 
-    resolver_version = "1.0.0"
+    resolver_version = "1.2.0"
     _weights = {
         "name": 0.40,
         "address": 0.20,
@@ -105,15 +106,38 @@ class GoogleMapsMappingResolver:
             "amusement park",
             "art gallery",
             "attraction",
+            "bảo tàng",
+            "bãi biển",
             "beach",
+            "chợ truyền thống",
+            "chùa phật giáo",
+            "công viên giải trí",
+            "công viên nước",
             "cultural landmark",
+            "danh lam thắng cảnh",
+            "đảo",
+            "địa danh lịch sử",
+            "địa điểm hành hương",
+            "điểm tắm suối khoáng nóng kiểu nhật",
+            "điểm mốc lịch sử",
+            "điểm thu hút khách du lịch",
+            "đỉnh núi",
+            "di tích lịch sử",
+            "hồ",
             "historical landmark",
+            "khu bảo tồn thiên nhiên",
             "museum",
             "pagoda",
             "park",
+            "phòng trưng bày nghệ thuật",
+            "quần đảo",
+            "sân chơi",
             "scenic spot",
             "temple",
+            "thắng cảnh",
             "tourist attraction",
+            "trung tâm vui chơi giải trí",
+            "vườn bách thú",
         },
         EntityType.CAFE: {
             "bakery",
@@ -121,44 +145,68 @@ class GoogleMapsMappingResolver:
             "cafe",
             "coffee",
             "coffee shop",
+            "cửa hàng cà phê",
             "dessert",
+            "quán cà phê",
+            "quán trà",
+            "quán trà sữa",
             "quan ca phe",
             "tea house",
+            "tiệm cà phê",
+            "tiệm trà",
+            "trà trân châu",
         },
         EntityType.HOTEL: {
             "apartment",
+            "căn hộ dịch vụ",
             "guest house",
             "homestay",
             "hostel",
             "hotel",
+            "khách sạn",
+            "khu nghỉ dưỡng",
             "lodging",
             "motel",
+            "nhà khách",
+            "nhà nghỉ",
             "resort",
             "villa",
         },
         EntityType.NIGHTLIFE: {
             "bar",
+            "câu lạc bộ đêm",
+            "câu lạc bộ bãi biển",
             "cocktail bar",
             "club",
+            "hộp đêm",
             "karaoke",
             "lounge",
             "night club",
             "nightclub",
             "pub",
+            "quán bar cocktail",
+            "quán karaoke",
+            "quán rượu",
+            "vũ trường",
         },
         EntityType.RESTAURANT: {
             "bistro",
             "breakfast restaurant",
             "buffet",
+            "cửa hàng bán đồ ăn nấu sẵn",
             "eatery",
             "food",
             "grill",
+            "khu ẩm thực",
+            "nhà hàng",
             "nha hang",
             "noodle",
             "pizza",
+            "quán ăn",
             "restaurant",
             "seafood",
             "sushi",
+            "tiệm ăn",
             "vegan restaurant",
         },
     }
@@ -187,6 +235,8 @@ class GoogleMapsMappingResolver:
         self,
         mapping: ExternalEntityMapping,
         observation: GoogleMapsPlaceObservation,
+        *,
+        canonical_url: str | None = None,
     ) -> GoogleMapsMappingResolution:
         master = self._master_snapshot(mapping)
         observed = self._observed_snapshot(observation, master.city)
@@ -197,8 +247,21 @@ class GoogleMapsMappingResolver:
             status = MappingResolutionStatus.REJECT
             reasons = hard_conflicts
         elif self._can_auto_confirm(evidence, score):
-            status = MappingResolutionStatus.AUTO_CONFIRM
-            reasons = ("STRONG_IDENTITY_MATCH",)
+            stable_ids = self._stable_external_ids(
+                mapping,
+                observation,
+                canonical_url=canonical_url,
+            )
+            if len(stable_ids) == 1:
+                status = MappingResolutionStatus.AUTO_CONFIRM
+                reasons = ("STRONG_IDENTITY_MATCH",)
+            else:
+                status = MappingResolutionStatus.REVIEW
+                reasons = (
+                    "STABLE_EXTERNAL_ID_CONFLICT"
+                    if stable_ids
+                    else "STABLE_EXTERNAL_ID_MISSING",
+                )
         else:
             status = MappingResolutionStatus.REVIEW
             reasons = self._review_reasons(evidence, score)
@@ -230,7 +293,11 @@ class GoogleMapsMappingResolver:
         makes this method convenient for refresh and historical reprocessing.
         """
 
-        resolution = self.resolve(mapping, observation)
+        resolution = self.resolve(
+            mapping,
+            observation,
+            canonical_url=canonical_url,
+        )
         if resolution.status is not MappingResolutionStatus.AUTO_CONFIRM:
             return resolution, mapping
         return resolution, apply_auto_confirmation(
@@ -256,6 +323,23 @@ class GoogleMapsMappingResolver:
             longitude=float(longitude)
             if isinstance(longitude, (int, float))
             else None,
+        )
+
+    @staticmethod
+    def _stable_external_ids(
+        mapping: ExternalEntityMapping,
+        observation: GoogleMapsPlaceObservation,
+        *,
+        canonical_url: str | None,
+    ) -> tuple[str, ...]:
+        return google_maps_stable_external_ids(
+            canonical_url,
+            observation.source_url,
+            mapping.external_id,
+            mapping.external_url,
+            mapping.attributes.get("canonical_google_maps_url"),
+            mapping.attributes.get("google_external_id"),
+            mapping.attributes.get("google_place_id"),
         )
 
     def _observed_snapshot(
@@ -344,7 +428,7 @@ class GoogleMapsMappingResolver:
             and distance <= self.policy.auto_confirm_max_distance_m
             and evidence.name_score is not None
             and evidence.name_score >= self.policy.auto_confirm_min_name_score
-            and evidence.category_score != 0
+            and evidence.category_score == 1.0
             and secondary >= self.policy.secondary_evidence_min_score
             and score >= self.policy.auto_confirm_min_score
         )
@@ -439,7 +523,10 @@ class GoogleMapsMappingResolver:
         matched_types = {
             entity_type
             for entity_type, terms in cls._category_terms.items()
-            if any(cls._phrase_in_text(term, observed) for term in terms)
+            if any(
+                cls._phrase_in_text(cls._normalize_text(term), observed)
+                for term in terms
+            )
         }
         if expected in matched_types:
             return 1.0
@@ -565,14 +652,32 @@ def apply_auto_confirmation(
     observed_name = (observation.name or "").strip()
     if not observed_name:
         raise ValueError("auto-confirmation requires an observed place name")
-    observed_url = canonical_url or str(observation.source_url)
+    stable_ids = GoogleMapsMappingResolver._stable_external_ids(
+        mapping,
+        observation,
+        canonical_url=canonical_url,
+    )
+    if len(stable_ids) != 1:
+        raise ValueError(
+            "auto-confirmation requires exactly one stable Google external ID"
+        )
+    external_id = stable_ids[0]
+    url_candidates = (canonical_url, observation.source_url, mapping.external_url)
+    observed_url = next(
+        (
+            str(value)
+            for value in url_candidates
+            if google_maps_stable_external_ids(value) == (external_id,)
+        ),
+        None,
+    )
     source_record_ids = list(
         dict.fromkeys([*mapping.source_record_ids, observation.source_record_id])
     )
     return ExternalEntityMapping.model_validate(
         {
             **mapping.model_dump(mode="python"),
-            "external_id": observed_name,
+            "external_id": external_id,
             "external_url": observed_url,
             "status": MappingStatus.CONFIRMED,
             "confidence": resolution.score,

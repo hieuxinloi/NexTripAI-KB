@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
@@ -15,6 +16,29 @@ from nextrip_pipeline.canonical.evidence import (
     DuplicateEvidenceAudit,
     DuplicateEvidenceAuditor,
 )
+from nextrip_pipeline.canonical.completeness import (
+    ArtifactInputDigest,
+    CanonicalCompletenessWriter,
+    CanonicalHotelStayContext,
+    CanonicalSourcePolicy,
+    CompletenessArtifactKind,
+    CompletenessSeverity,
+    build_canonical_completeness_audit,
+    digest_artifact_file,
+    load_artifact_directory,
+    read_canonical_completeness_audit,
+)
+from nextrip_pipeline.canonical.crawl_backlog import (
+    CanonicalCrawlBacklog,
+    CanonicalCrawlBacklogWriter,
+    CanonicalCrawlExecutionClaimWriter,
+    CanonicalCrawlJob,
+    CanonicalCrawlRequiredField,
+    CanonicalCrawlTask,
+    build_canonical_crawl_backlog,
+    build_canonical_crawl_execution_claim,
+    read_canonical_crawl_backlog,
+)
 from nextrip_pipeline.canonical.detail import (
     CandidateDetailStage,
     CandidateDetailStageWriter,
@@ -23,12 +47,26 @@ from nextrip_pipeline.canonical.detail import (
 from nextrip_pipeline.canonical.dataset import (
     CanonicalActiveDatasetWriter,
     materialize_canonical_active_dataset,
+    read_canonical_active_dataset,
+)
+from nextrip_pipeline.canonical.google_maps_refresh import (
+    CanonicalGoogleMapsPatchWriter,
+    CanonicalMenuCollectionBacklogWriter,
+    GOOGLE_MAPS_CANONICAL_ENTITY_TYPES,
+    apply_google_maps_canonical_refresh_patch,
+    build_canonical_menu_collection_backlog,
+    build_google_maps_canonical_refresh_patch,
 )
 from nextrip_pipeline.canonical.discovery import (
     GoogleMapsCandidateDiscovery,
     GoogleMapsCandidateStageWriter,
 )
 from nextrip_pipeline.canonical.id_allocator import MonotonicPlaceIdAllocator
+from nextrip_pipeline.canonical.invalidation import (
+    CanonicalInvalidationReason,
+    CanonicalInvalidationWriter,
+    approve_canonical_invalidation,
+)
 from nextrip_pipeline.canonical.manifest import CanonicalIdentityManifestWriter
 from nextrip_pipeline.canonical.manifest import read_canonical_identity_manifest
 from nextrip_pipeline.canonical.master import (
@@ -40,6 +78,7 @@ from nextrip_pipeline.canonical.projection import (
     ApprovedReplacement,
     ApprovedReplacementWriter,
     ReplacementApprovalMethod,
+    apply_review_corrections_to_identity_projection,
     build_existing_identity_projection,
     load_approved_replacements,
 )
@@ -54,7 +93,14 @@ from nextrip_pipeline.canonical.readiness import (
     CanonicalDatasetNotReadyError,
     CanonicalDatasetReadinessWriter,
     evaluate_canonical_dataset_readiness,
+    read_canonical_dataset_readiness,
     require_canonical_dataset_publish_ready,
+)
+from nextrip_pipeline.canonical.replacement_enrichment import (
+    CanonicalReplacementEnrichmentWriter,
+    apply_replacement_enrichments,
+    build_canonical_replacement_enrichment_overlay,
+    read_canonical_replacement_enrichment_overlay,
 )
 from nextrip_pipeline.canonical.review_correction import (
     apply_review_corrections,
@@ -62,6 +108,7 @@ from nextrip_pipeline.canonical.review_correction import (
 )
 from nextrip_pipeline.canonical.resolver import CanonicalIdentityResolver
 from nextrip_pipeline.crawl import (
+    GoogleMapsBatchManifestDocument,
     GoogleMapsRegistryBuilder,
     GoogleMapsRegistryWriter,
     MasterDataValidationError,
@@ -73,6 +120,7 @@ from nextrip_pipeline.crawl import (
     TrivagoHotelRegistry,
     TrivagoRegistryBuilder,
     TrivagoRegistryWriter,
+    TrivagoSearchReviewConfig,
 )
 from nextrip_pipeline.crawl.adapters import (
     GoogleMapsPlaceAdapter,
@@ -95,7 +143,6 @@ from nextrip_pipeline.jobs import (
     GoogleMapsOpeningJob,
     GoogleMapsRefreshPipeline,
     HotelPriceRefreshPipeline,
-    MasterPlaceBootstrapSummaryWriter,
     TrivagoHotelPriceJob,
     TrivagoBatchSummaryWriter,
     TrivagoMcpBatchRunner,
@@ -104,8 +151,6 @@ from nextrip_pipeline.jobs import (
     TrivagoStayAvailabilityResultWriter,
     TrivagoStayAvailabilityRunner,
     TrivagoStayBatchSummaryWriter,
-    VerifiedMasterCurrentPlaceWriter,
-    VerifiedMasterPlaceBootstrapper,
     load_google_maps_manifest,
     MenuRefreshPipeline,
 )
@@ -121,10 +166,12 @@ from nextrip_pipeline.preprocessing import (
     RapidOcrEngine,
 )
 from nextrip_pipeline.publishing import (
+    CurrentHotelAvailabilitySnapshot,
     CurrentHotelAvailabilityWriter,
+    CurrentHotelPriceSnapshot,
     CurrentHotelPriceWriter,
     CurrentMenuWriter,
-    CurrentPlaceWriter,
+    GoogleMapsMenuSourceEntry,
     GoogleMapsMenuSourceIndex,
 )
 from nextrip_pipeline.crawl.adapters.google_maps_discovery import (
@@ -138,8 +185,14 @@ from nextrip_pipeline.quality import (
     LLMReviewQueueConfig,
     LLMReviewRequestWriter,
     TrivagoDiscoveryAuditWriter,
+    TrivagoMappingApprovalWriter,
+    approve_trivago_review,
 )
 from nextrip_pipeline.review import MenuReviewQueue
+from nextrip_pipeline.review.trivago_mapping import (
+    TrivagoReviewBatchBuilder,
+    TrivagoReviewBatchWriter,
+)
 from nextrip_pipeline.schemas import (
     EntityType,
     ExternalEntityMapping,
@@ -251,12 +304,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     build_trivago_registry = subparsers.add_parser(
         "build-trivago-registry",
-        help="Build Trivago MCP search targets from verified hotel master data.",
+        help="Build Trivago MCP search targets from the canonical dataset.",
     )
     build_trivago_registry.add_argument(
-        "--master-file",
+        "--canonical-dataset",
         type=Path,
-        default=Path("travel_data_verified/hotel_final.json"),
+        required=True,
+        help=(
+            "Required content-addressed canonical active dataset. This is the "
+            "only source used to select active hotels."
+        ),
     )
     build_trivago_registry.add_argument(
         "--override",
@@ -271,6 +328,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("data/current/trivago_mappings"),
     )
     build_trivago_registry.add_argument(
+        "--search-review-config",
+        type=Path,
+        default=Path("config/trivago-search-review.json"),
+        help=(
+            "Reviewed aliases and expected provider identities. The expected "
+            "identity is only confirmed after fresh entity-owned evidence."
+        ),
+    )
+    build_trivago_registry.add_argument(
         "--output",
         type=Path,
         default=Path("config/generated/trivago-hotel-registry.json"),
@@ -279,6 +345,76 @@ def build_parser() -> argparse.ArgumentParser:
         "--report",
         type=Path,
         default=Path("config/generated/trivago-registry-report.json"),
+    )
+
+    approve_trivago_mapping = subparsers.add_parser(
+        "approve-trivago-mapping",
+        help="Human-approve one source-pinned Trivago REVIEW resolution.",
+    )
+    approve_trivago_mapping.add_argument(
+        "--resolution",
+        type=Path,
+        required=True,
+        help="Immutable Trivago REVIEW resolution JSON to approve.",
+    )
+    approve_trivago_mapping.add_argument(
+        "--registry",
+        type=Path,
+        default=Path("config/generated/trivago-hotel-registry.json"),
+    )
+    approve_trivago_mapping.add_argument("--reviewer", required=True)
+    approve_trivago_mapping.add_argument(
+        "--allow-external-id-change",
+        action="store_true",
+        help=(
+            "Explicitly authorize replacing an already-confirmed Trivago "
+            "external ID after human identity verification."
+        ),
+    )
+    approve_trivago_mapping.add_argument(
+        "--approval-dir",
+        type=Path,
+        default=Path("data/approvals/trivago_mapping"),
+    )
+    approve_trivago_mapping.add_argument(
+        "--current-mapping-dir",
+        type=Path,
+        default=Path("data/current/trivago_mappings"),
+    )
+
+    build_trivago_review = subparsers.add_parser(
+        "build-trivago-review-batch",
+        help=(
+            "Build a source-pinned review queue for unresolved Trivago hotel "
+            "identities. This command never approves a mapping."
+        ),
+    )
+    build_trivago_review.add_argument(
+        "--batch-summary",
+        type=Path,
+        required=True,
+        help="Immutable batch-trivago-availability summary to review.",
+    )
+    build_trivago_review.add_argument(
+        "--registry",
+        type=Path,
+        default=Path("config/generated/trivago-hotel-registry.json"),
+    )
+    build_trivago_review.add_argument(
+        "--current-mapping-dir",
+        type=Path,
+        default=Path("data/current/trivago_mappings"),
+    )
+    build_trivago_review.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/review/trivago_mapping"),
+    )
+    build_trivago_review.add_argument(
+        "--workspace-root",
+        type=Path,
+        default=Path("."),
+        help="Root used to resolve artifact paths recorded by the batch.",
     )
 
     batch_trivago = subparsers.add_parser(
@@ -341,6 +477,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("config/generated/trivago-hotel-registry.json"),
     )
+    batch_availability.add_argument(
+        "--backlog",
+        type=Path,
+        default=None,
+        help=(
+            "Run only automatic, due Trivago tasks from this immutable "
+            "canonical crawl backlog."
+        ),
+    )
+    batch_availability.add_argument(
+        "--claim-dir",
+        type=Path,
+        default=Path("data/runs/canonical_crawl_claims"),
+    )
     batch_availability.add_argument("--check-in", type=date.fromisoformat)
     batch_availability.add_argument(
         "--check-out",
@@ -355,19 +505,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Full-stay duration used when --check-out is omitted.",
     )
     batch_availability.add_argument("--lookahead-days", type=int, default=1)
+    batch_availability.add_argument(
+        "--identity-retry-limit",
+        type=int,
+        choices=range(0, TrivagoStayAvailabilityRunner.max_identity_retry_limit + 1),
+        default=2,
+        metavar="0..4",
+        help=(
+            "Maximum additional registry-pinned identity searches per stay "
+            "window (default: 2)."
+        ),
+    )
+    batch_availability.add_argument(
+        "--include-radius-identity-retry",
+        action="store_true",
+        help=(
+            "Reserve the final identity retry for a coordinate-radius search; "
+            "radius evidence alone never auto-confirms a hotel."
+        ),
+    )
+    batch_availability.add_argument(
+        "--include-identity-discovery",
+        action="store_true",
+        help=(
+            "Explicitly include unresolved/review registry identities in this "
+            "batch. Scheduled five-hour price refreshes omit this option and "
+            "only call confirmed identities."
+        ),
+    )
     batch_availability.add_argument("--adults", type=int, default=2)
     batch_availability.add_argument("--rooms", type=int, default=1)
     batch_availability.add_argument("--children", type=int, default=0)
-    batch_availability.add_argument(
-        "--children-ages", type=int, nargs="*", default=[]
-    )
+    batch_availability.add_argument("--children-ages", type=int, nargs="*", default=[])
     batch_availability.add_argument("--currency", default="VND")
     batch_availability.add_argument("--max-requests", type=int)
     batch_availability.add_argument("--offset", type=int, default=0)
     batch_availability.add_argument("--entity-id", action="append", default=[])
-    batch_availability.add_argument(
-        "--raw-dir", type=Path, default=Path("data/raw")
-    )
+    batch_availability.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
     batch_availability.add_argument(
         "--normalized-dir", type=Path, default=Path("data/normalized")
     )
@@ -422,25 +596,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--decision-dir", type=Path, default=Path("data/decisions")
     )
     _add_google_quality_arguments(refresh_maps)
-
-    bootstrap_master = subparsers.add_parser(
-        "bootstrap-master-places",
-        help=(
-            "Seed current place JSON from verified master data without "
-            "crawling or review."
-        ),
-    )
-    bootstrap_master.add_argument(
-        "--master-dir", type=Path, default=Path("travel_data_verified")
-    )
-    bootstrap_master.add_argument(
-        "--current-place-dir", type=Path, default=Path("data/current/place")
-    )
-    bootstrap_master.add_argument(
-        "--summary-dir",
-        type=Path,
-        default=Path("data/runs/master_place_bootstrap"),
-    )
 
     refresh_menu = subparsers.add_parser(
         "refresh-place-menu",
@@ -510,9 +665,42 @@ def build_parser() -> argparse.ArgumentParser:
     _add_browser_arguments(batch_maps)
     batch_maps.add_argument("--manifest", type=Path, required=True)
     batch_maps.add_argument(
+        "--canonical-dataset",
+        type=Path,
+        default=(
+            Path(value) if (value := os.getenv("NEXTRIP_CANONICAL_DATASET")) else None
+        ),
+        help=(
+            "Canonical dataset pinned by a v1.1 crawl backlog. Required when "
+            "--backlog has automatic work. Defaults to NEXTRIP_CANONICAL_DATASET."
+        ),
+    )
+    batch_maps.add_argument(
+        "--backlog",
+        type=Path,
+        default=None,
+        help=(
+            "Run only automatic, due tasks for the selected mode from this "
+            "immutable canonical crawl backlog."
+        ),
+    )
+    batch_maps.add_argument(
+        "--claim-dir",
+        type=Path,
+        default=Path("data/runs/canonical_crawl_claims"),
+    )
+    batch_maps.add_argument(
         "--mode", choices=[item.value for item in GoogleMapsBatchMode], required=True
     )
     batch_maps.add_argument("--max-requests", type=int, default=32)
+    batch_maps.add_argument(
+        "--run-id",
+        default=None,
+        help=(
+            "Optional caller-owned immutable run ID. Airflow uses this to pin "
+            "the canonical patch to exactly the crawl attempts in one cycle."
+        ),
+    )
     batch_maps.add_argument(
         "--offset",
         type=int,
@@ -560,6 +748,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data/current/google_maps_menu_sources"),
     )
+    batch_maps.add_argument(
+        "--current-menu-dir",
+        type=Path,
+        default=Path("data/current/menu"),
+    )
     _add_google_quality_arguments(batch_maps)
 
     reprocess_maps = subparsers.add_parser(
@@ -600,20 +793,47 @@ def build_parser() -> argparse.ArgumentParser:
 
     build_maps_registry = subparsers.add_parser(
         "build-google-maps-registry",
-        help="Generate Google Maps mappings from all verified master data.",
+        help="Generate active Google Maps mappings from the canonical dataset.",
     )
     build_maps_registry.add_argument(
-        "--master-dir", type=Path, default=Path("travel_data_verified")
+        "--canonical-dataset",
+        type=Path,
+        required=True,
+        help=(
+            "Required immutable canonical active dataset. This is the only "
+            "source used to select active non-hotel places."
+        ),
+    )
+    build_maps_registry.add_argument(
+        "--base-manifest",
+        type=Path,
+        default=None,
+        help=(
+            "Optional derived Maps manifest whose active mappings are deliberately "
+            "reused when --canonical-dataset is supplied. Omit this argument to "
+            "derive every mapping from the pinned canonical dataset only. A missing "
+            "explicit file bootstraps an empty derived registry; an invalid existing "
+            "file fails closed."
+        ),
     )
     build_maps_registry.add_argument(
         "--output",
         type=Path,
-        default=Path("config/generated/google-maps-mapping-registry.json"),
+        default=Path("config/generated/canonical-google-maps-mapping-registry.json"),
     )
     build_maps_registry.add_argument(
         "--report",
         type=Path,
-        default=Path("config/generated/google-maps-registry-report.json"),
+        default=Path("config/generated/canonical-google-maps-registry-report.json"),
+    )
+    build_maps_registry.add_argument(
+        "--batch-manifest-output",
+        type=Path,
+        default=None,
+        help=(
+            "Optional active-only batch manifest pointing at the generated "
+            "canonical registry."
+        ),
     )
     build_maps_registry.add_argument(
         "--override",
@@ -633,10 +853,13 @@ def build_parser() -> argparse.ArgumentParser:
     audit_canonical.add_argument(
         "--candidate-groups",
         type=Path,
-        default=Path("config/generated/google-maps-registry-report.json"),
+        default=Path("config/generated/canonical-google-maps-registry-report.json"),
     )
     audit_canonical.add_argument(
-        "--master-dir", type=Path, default=Path("travel_data_verified")
+        "--master-dir",
+        type=Path,
+        required=True,
+        help="Explicit legacy import directory; never used as serving authority.",
     )
     audit_canonical.add_argument(
         "--observation-root",
@@ -657,7 +880,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     build_canonical.add_argument(
-        "--master-dir", type=Path, default=Path("travel_data_verified")
+        "--master-dir",
+        type=Path,
+        required=True,
+        help="Explicit legacy import directory used only for one-time migration.",
     )
     build_canonical.add_argument(
         "--decisions",
@@ -670,6 +896,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data/canonical/replacements"),
         help="Immutable approved replacement overlay; verified master is unchanged.",
+    )
+    build_canonical.add_argument(
+        "--approved-invalidation-dir",
+        type=Path,
+        default=Path("data/canonical/invalidations"),
+        help=(
+            "Immutable human-approved canonical invalidations applied against "
+            "the exact previous manifest."
+        ),
     )
     build_canonical.add_argument(
         "--output",
@@ -687,6 +922,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not apply explicit duplicate_record/duplicate_of_* master tags.",
     )
 
+    approve_invalidation = subparsers.add_parser(
+        "approve-canonical-invalidation",
+        help=(
+            "Create one immutable, source-pinned human approval that quarantines "
+            "an ineligible active canonical identity on the next manifest build."
+        ),
+    )
+    approve_invalidation.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("config/generated/canonical-identity-manifest.json"),
+    )
+    approve_invalidation.add_argument("--place-id", required=True)
+    approve_invalidation.add_argument(
+        "--observation",
+        type=Path,
+        required=True,
+        help="Normalized Google Maps place observation used as pinned evidence.",
+    )
+    approve_invalidation.add_argument(
+        "--identity-source",
+        type=Path,
+        required=True,
+        help=(
+            "Verified master JSON containing the observed place; exact identity "
+            "facts are pinned into the approval."
+        ),
+    )
+    approve_invalidation.add_argument(
+        "--reason",
+        choices=[item.value for item in CanonicalInvalidationReason],
+        default=CanonicalInvalidationReason.ENTITY_TYPE_INELIGIBLE.value,
+    )
+    approve_invalidation.add_argument(
+        "--reviewer",
+        required=True,
+        help="Human reviewer identity recorded in immutable provenance.",
+    )
+    approve_invalidation.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/canonical/invalidations"),
+    )
+
     propose_replacements = subparsers.add_parser(
         "propose-canonical-replacements",
         help=(
@@ -701,12 +980,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("config/generated/canonical-identity-manifest.json"),
     )
     propose_replacements.add_argument(
-        "--master-dir", type=Path, default=Path("travel_data_verified")
+        "--master-dir",
+        type=Path,
+        required=True,
+        help="Explicit legacy import corpus for this historical vacancy workflow.",
     )
     propose_replacements.add_argument(
         "--current-place-dir",
         type=Path,
-        default=Path("data/current/place"),
+        default=None,
+        help=argparse.SUPPRESS,
     )
     propose_replacements.add_argument(
         "--current-mapping-dir",
@@ -717,6 +1000,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--approved-replacement-dir",
         type=Path,
         default=Path("data/canonical/replacements"),
+    )
+    propose_replacements.add_argument(
+        "--review-correction",
+        type=Path,
+        default=None,
+        help=(
+            "Source-backed REVIEW correction overlay used by the duplicate "
+            "gate; it never changes identity decisions."
+        ),
     )
     propose_replacements.add_argument(
         "--stage-dir",
@@ -734,15 +1026,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("data/runs/canonical_replacements"),
     )
     propose_replacements.add_argument("--result-limit", type=int, default=30)
-    propose_replacements.add_argument(
-        "--max-detail-candidates", type=int, default=20
-    )
+    propose_replacements.add_argument("--max-detail-candidates", type=int, default=20)
     propose_replacements.add_argument("--max-vacancies", type=int, default=100)
     propose_replacements.add_argument(
         "--entity-type",
         action="append",
         choices=[item.value for item in EntityType],
         default=[],
+    )
+    propose_replacements.add_argument(
+        "--candidate-entity-type",
+        choices=[EntityType.CAFE.value, EntityType.RESTAURANT.value],
+        default=None,
+        help=(
+            "Use the actual cafe/restaurant type for candidates that fill "
+            "nightlife vacancies while preserving only the total place count."
+        ),
     )
     propose_replacements.add_argument(
         "--city-id",
@@ -796,6 +1095,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Human reviewer or deterministic policy identity recorded in provenance.",
     )
 
+    build_replacement_enrichment = subparsers.add_parser(
+        "build-canonical-replacement-enrichment",
+        help=(
+            "Recover address, Google category, and one eligible cover from the "
+            "immutable raw records pinned by every approved replacement."
+        ),
+    )
+    build_replacement_enrichment.add_argument(
+        "--approved-replacement-dir",
+        type=Path,
+        default=Path("data/canonical/replacements"),
+    )
+    build_replacement_enrichment.add_argument(
+        "--raw-dir",
+        type=Path,
+        default=Path("data/raw"),
+    )
+    build_replacement_enrichment.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/canonical/replacement-enrichments"),
+    )
+
     materialize_canonical = subparsers.add_parser(
         "materialize-canonical-dataset",
         help=(
@@ -804,7 +1126,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     materialize_canonical.add_argument(
-        "--master-dir", type=Path, default=Path("travel_data_verified")
+        "--master-dir",
+        type=Path,
+        required=True,
+        help="Explicit legacy import directory used only for one-time migration.",
     )
     materialize_canonical.add_argument(
         "--manifest",
@@ -842,6 +1167,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     materialize_canonical.add_argument(
+        "--replacement-enrichment",
+        type=Path,
+        default=None,
+        help=(
+            "Optional complete, immutable source-backed field overlay for all "
+            "approved replacements."
+        ),
+    )
+    materialize_canonical.add_argument(
         "--readiness-output-dir",
         type=Path,
         default=Path("data/canonical/readiness"),
@@ -854,7 +1188,337 @@ def build_parser() -> argparse.ArgumentParser:
             "never use this flag on the Neo4j V8 publish task."
         ),
     )
+
+    apply_google_refresh = subparsers.add_parser(
+        "apply-google-maps-canonical-refresh",
+        help=(
+            "Build one source-pinned Google Maps patch and materialize a new "
+            "immutable canonical dataset without writing data/current/place."
+        ),
+    )
+    apply_google_refresh.add_argument(
+        "--canonical-dataset",
+        type=Path,
+        required=True,
+    )
+    apply_google_refresh.add_argument(
+        "--observation-root",
+        type=Path,
+        default=Path("data/normalized"),
+    )
+    apply_google_refresh.add_argument(
+        "--decision-root",
+        type=Path,
+        default=Path("data/decisions"),
+    )
+    apply_google_refresh.add_argument(
+        "--entity-type",
+        action="append",
+        choices=[item.value for item in GOOGLE_MAPS_CANONICAL_ENTITY_TYPES],
+        default=[],
+        help=(
+            "Entity type to patch; repeat as needed. Defaults to attraction, "
+            "cafe, nightlife, and restaurant."
+        ),
+    )
+    apply_google_refresh.add_argument(
+        "--run-id",
+        action="append",
+        default=[],
+        help="Only use evidence from these Google batch run IDs.",
+    )
+    apply_google_refresh.add_argument(
+        "--patch-output-dir",
+        type=Path,
+        default=Path("data/canonical/google-maps-patches"),
+    )
+    apply_google_refresh.add_argument(
+        "--dataset-output-dir",
+        type=Path,
+        default=Path("data/canonical/datasets"),
+    )
+    apply_google_refresh.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("config/generated/canonical-identity-manifest.json"),
+    )
+    apply_google_refresh.add_argument(
+        "--identity-decisions",
+        type=Path,
+        default=Path("config/canonical-identity-decisions.json"),
+    )
+    apply_google_refresh.add_argument(
+        "--duplicate-evidence",
+        type=Path,
+        default=Path("data/reports/canonical/duplicate-evidence.json"),
+    )
+    apply_google_refresh.add_argument(
+        "--readiness-output-dir",
+        type=Path,
+        default=Path("data/canonical/readiness"),
+    )
+    apply_google_refresh.add_argument(
+        "--menu-review-output-dir",
+        type=Path,
+        default=Path("data/review/menu/canonical-backlogs"),
+    )
+    apply_google_refresh.add_argument(
+        "--require-complete",
+        action="store_true",
+        help="Fail instead of materializing when any requested place is deferred.",
+    )
+    apply_google_refresh.add_argument(
+        "--skip-menu-backlog",
+        action="store_true",
+        help="Do not generate the cafe/restaurant manual menu backlog.",
+    )
+
+    audit_completeness = subparsers.add_parser(
+        "audit-canonical-completeness",
+        help=(
+            "Audit static, live-context, and deferred data coverage for one "
+            "immutable canonical dataset without crawling."
+        ),
+    )
+    audit_completeness.add_argument("--dataset", type=Path, required=True)
+    audit_completeness.add_argument("--readiness", type=Path, required=True)
+    audit_completeness.add_argument(
+        "--as-of",
+        type=_aware_datetime_argument,
+        default=None,
+        help="Timezone-aware audit instant, for example 2026-08-21T12:00:00Z.",
+    )
+    audit_completeness.add_argument("--check-in", type=date.fromisoformat)
+    audit_completeness.add_argument("--check-out", type=date.fromisoformat)
+    audit_completeness.add_argument("--adults", type=int, default=2)
+    audit_completeness.add_argument("--rooms", type=int, default=1)
+    audit_completeness.add_argument("--children", type=int, default=0)
+    audit_completeness.add_argument("--children-ages", type=int, nargs="*", default=[])
+    audit_completeness.add_argument("--currency", default="VND")
+    audit_completeness.add_argument(
+        "--google-manifest",
+        type=Path,
+        default=Path("config/generated/canonical-google-maps-batch-manifest.json"),
+    )
+    audit_completeness.add_argument(
+        "--google-registry",
+        type=Path,
+        default=Path("config/generated/canonical-google-maps-mapping-registry.json"),
+    )
+    audit_completeness.add_argument(
+        "--trivago-registry",
+        type=Path,
+        default=Path("config/generated/trivago-hotel-registry.json"),
+    )
+    audit_completeness.add_argument(
+        "--trivago-mapping-dir",
+        type=Path,
+        default=Path("data/current/trivago_mappings"),
+    )
+    audit_completeness.add_argument(
+        "--hotel-availability-dir",
+        type=Path,
+        default=Path("data/current/hotel_availability"),
+    )
+    audit_completeness.add_argument(
+        "--hotel-price-dir",
+        type=Path,
+        default=Path("data/current/hotel_price"),
+    )
+    audit_completeness.add_argument(
+        "--current-menu-dir",
+        type=Path,
+        default=Path("data/current/menu"),
+    )
+    audit_completeness.add_argument(
+        "--menu-source-dir",
+        type=Path,
+        default=Path("data/current/google_maps_menu_sources"),
+    )
+    audit_completeness.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/canonical/completeness"),
+    )
+
+    build_backlog = subparsers.add_parser(
+        "build-canonical-crawl-backlog",
+        help=(
+            "Coalesce a canonical completeness report into deterministic, "
+            "provider-specific scheduled crawl tasks."
+        ),
+    )
+    build_backlog.add_argument("--completeness-report", type=Path, required=True)
+    build_backlog.add_argument(
+        "--sources", type=Path, default=Path("config/sources.json")
+    )
+    build_backlog.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/canonical/crawl-backlogs"),
+    )
     return parser
+
+
+def _aware_datetime_argument(value: str) -> datetime:
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "expected an ISO-8601 datetime with timezone"
+        ) from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise argparse.ArgumentTypeError("datetime must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _completeness_stay_context(
+    arguments: argparse.Namespace,
+    *,
+    as_of: datetime,
+) -> CanonicalHotelStayContext:
+    if (arguments.check_in is None) != (arguments.check_out is None):
+        raise ValueError("--check-in and --check-out must be provided together")
+    if arguments.check_in is None:
+        local_today = as_of.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+        check_in = local_today + timedelta(days=1)
+        check_out = check_in + timedelta(days=1)
+    else:
+        check_in = arguments.check_in
+        check_out = arguments.check_out
+    return CanonicalHotelStayContext(
+        check_in=check_in,
+        check_out=check_out,
+        occupancy=Occupancy(
+            adults=arguments.adults,
+            children=arguments.children,
+            rooms=arguments.rooms,
+        ),
+        children_ages=sorted(arguments.children_ages),
+        currency=arguments.currency.upper(),
+    )
+
+
+def _canonical_source_policies(registry: SourceRegistry) -> list[CanonicalSourcePolicy]:
+    relevant_source_ids = {"google-maps-web", "trivago-mcp"}
+    return sorted(
+        (
+            CanonicalSourcePolicy(
+                source_id=source.source_id,
+                enabled=source.enabled,
+                schedule_interval_minutes=(
+                    source.schedule_interval_minutes or source.cache_policy.ttl_minutes
+                ),
+                parser_version=source.parser_version,
+            )
+            for source in registry.document.sources
+            if source.source_id in relevant_source_ids
+        ),
+        key=lambda item: item.source_id,
+    )
+
+
+def _dispatchable_backlog_tasks(
+    path: Path,
+    job: CanonicalCrawlJob,
+    *,
+    evaluated_at: datetime | None = None,
+) -> tuple[CanonicalCrawlBacklog, list[CanonicalCrawlTask]]:
+    backlog = read_canonical_crawl_backlog(path)
+    now = evaluated_at or datetime.now(timezone.utc)
+    return (
+        backlog,
+        [
+            task
+            for task in backlog.tasks
+            if task.job is job and task.automatic and task.due_at <= now
+        ],
+    )
+
+
+def _canonical_google_registry_path(manifest_path: Path) -> Path:
+    manifest = GoogleMapsBatchManifestDocument.model_validate_json(
+        manifest_path.read_bytes()
+    )
+    registry_path = Path(manifest.registry_file)
+    if not registry_path.is_absolute():
+        registry_path = manifest_path.parent / registry_path
+    return registry_path.resolve()
+
+
+def _require_backlog_artifact_digest(
+    backlog: CanonicalCrawlBacklog,
+    actual_digest: ArtifactInputDigest,
+) -> None:
+    expected = next(
+        (item for item in backlog.input_digests if item.kind is actual_digest.kind),
+        None,
+    )
+    if expected is None:
+        raise ValueError(
+            f"backlog does not pin {actual_digest.kind.value} input artifacts"
+        )
+    if (
+        expected.file_count != actual_digest.file_count
+        or expected.input_hash != actual_digest.input_hash
+    ):
+        raise ValueError(
+            f"{actual_digest.kind.value} artifacts changed after backlog creation; "
+            "build a new completeness audit and backlog"
+        )
+
+
+def _require_backlog_parser_version(
+    backlog: CanonicalCrawlBacklog,
+    source_id: str,
+    parser_version: str,
+) -> None:
+    policy = next(
+        (item for item in backlog.source_policies if item.source_id == source_id),
+        None,
+    )
+    if policy is None:
+        raise ValueError(f"backlog does not pin source policy {source_id}")
+    if policy.parser_version != parser_version:
+        raise ValueError(
+            f"{source_id} parser version changed from "
+            f"{policy.parser_version} to {parser_version}; rebuild the backlog"
+        )
+
+
+def _validate_trivago_backlog_context(
+    tasks: Sequence[CanonicalCrawlTask],
+    context: TrivagoPriceBatchContext,
+    *,
+    lookahead_days: int,
+) -> None:
+    expected = {
+        **CanonicalHotelStayContext(
+            check_in=context.check_in,
+            check_out=context.check_out,
+            occupancy=context.occupancy,
+            children_ages=sorted(context.children_ages),
+            currency=context.currency,
+        ).model_dump(mode="json"),
+        "lookahead_days": lookahead_days,
+    }
+    mismatches = [task.place_id for task in tasks if task.context != expected]
+    if mismatches:
+        preview = ", ".join(mismatches[:5])
+        suffix = ", ..." if len(mismatches) > 5 else ""
+        raise ValueError(
+            "Trivago CLI context does not match the pinned backlog context for: "
+            f"{preview}{suffix}"
+        )
+
+
+def _relative_artifact_reference(target: Path, manifest: Path) -> str:
+    return os.path.relpath(target.resolve(), manifest.parent.resolve()).replace(
+        "\\", "/"
+    )
 
 
 def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
@@ -880,11 +1544,6 @@ def _add_google_quality_arguments(parser: argparse.ArgumentParser) -> None:
         "--mapping-review-dir",
         type=Path,
         default=Path("data/review/google_maps_mapping"),
-    )
-    parser.add_argument(
-        "--current-place-dir",
-        type=Path,
-        default=Path("data/current/place"),
     )
     parser.add_argument("--llm-max-requests", type=int, default=25)
     parser.add_argument("--llm-max-tokens", type=int, default=25_000)
@@ -922,7 +1581,7 @@ def _price_request(arguments: argparse.Namespace) -> TrivagoPriceRequest:
             children=arguments.children,
             rooms=arguments.rooms,
         ),
-        children_ages=arguments.children_ages,
+        children_ages=sorted(arguments.children_ages),
     )
 
 
@@ -949,11 +1608,6 @@ def _new_google_batch_run_id(mode: GoogleMapsBatchMode) -> str:
 def _new_google_reprocess_run_id() -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"google-maps-reprocess-{timestamp}-{uuid4().hex[:8]}"
-
-
-def _new_master_bootstrap_run_id() -> str:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"master-place-bootstrap-{timestamp}-{uuid4().hex[:8]}"
 
 
 def _new_trivago_batch_run_id() -> str:
@@ -1027,11 +1681,14 @@ def _google_maps_refresh_pipeline(
                 )
             )
         ),
-        current_place_writer=CurrentPlaceWriter(arguments.current_place_dir),
+        # Place/status fields are promoted only through an immutable canonical
+        # patch. Do not create a competing data/current/place source.
+        current_place_writer=None,
     )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    _configure_utf8_standard_streams()
     parser = build_parser()
     arguments = parser.parse_args(argv)
 
@@ -1151,9 +1808,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ).all()
                 }
             )
-            registry, report = TrivagoRegistryBuilder().build(
-                arguments.master_file,
+            search_review_overrides = []
+            if arguments.search_review_config.exists():
+                search_review_config = TrivagoSearchReviewConfig.model_validate_json(
+                    arguments.search_review_config.read_bytes()
+                )
+                search_review_overrides = search_review_config.overrides
+            builder = TrivagoRegistryBuilder()
+            dataset = read_canonical_active_dataset(arguments.canonical_dataset)
+            registry, report = builder.build_from_canonical_dataset(
+                dataset,
                 overrides=list(overrides_by_entity.values()),
+                search_review_overrides=search_review_overrides,
             )
             registry_path = TrivagoRegistryWriter.write(registry, arguments.output)
             report_path = TrivagoRegistryWriter.write(report, arguments.report)
@@ -1166,8 +1832,64 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"hotels={report.registry_count} "
             f"confirmed={report.status_counts.get('confirmed', 0)} "
             f"unresolved={report.status_counts.get('unresolved', 0)} "
-            f"overrides={report.overrides_applied}"
+            f"overrides={report.overrides_applied} "
+            f"search_review_overrides={report.search_review_overrides_applied}"
         )
+        return 0
+
+    if arguments.command == "approve-trivago-mapping":
+        try:
+            approval, mapping, approval_path, mapping_path = approve_trivago_review(
+                arguments.resolution,
+                arguments.registry,
+                reviewer=arguments.reviewer,
+                approval_writer=TrivagoMappingApprovalWriter(arguments.approval_dir),
+                mapping_writer=CurrentTrivagoMappingWriter(
+                    arguments.current_mapping_dir
+                ),
+                allow_external_id_change=arguments.allow_external_id_change,
+            )
+        except (OSError, ValidationError, ValueError) as error:
+            print(f"Cannot approve Trivago mapping: {error}", file=sys.stderr)
+            return 2
+        print(f"approval={approval_path}")
+        print(f"mapping={mapping_path}")
+        print(
+            f"entity_id={mapping.entity_id} external_id={mapping.external_id} "
+            f"approval_id={approval.approval_id}"
+        )
+        return 0
+
+    if arguments.command == "build-trivago-review-batch":
+        try:
+            review_batch = TrivagoReviewBatchBuilder().build(
+                arguments.batch_summary,
+                arguments.registry,
+                current_mapping_directory=arguments.current_mapping_dir,
+                workspace_root=arguments.workspace_root,
+            )
+            review_path = TrivagoReviewBatchWriter(arguments.output_dir).write(
+                review_batch
+            )
+        except (OSError, ValidationError, ValueError) as error:
+            print(f"Cannot build Trivago review batch: {error}", file=sys.stderr)
+            return 2
+        print(f"review_batch={review_path}")
+        print(
+            f"queue_id={review_batch.queue_id} "
+            f"tasks={review_batch.task_count} "
+            f"candidates={review_batch.candidate_count}"
+        )
+        print(
+            "approval_candidates="
+            f"{review_batch.recommendation_counts.get('approval_candidate', 0)} "
+            "reject_selected="
+            f"{review_batch.recommendation_counts.get('reject_selected_candidate', 0)} "
+            "needs_research="
+            f"{review_batch.recommendation_counts.get('needs_research', 0)}"
+        )
+        for warning in review_batch.warnings:
+            print(f"warning={warning}")
         return 0
 
     if arguments.command == "batch-trivago-prices":
@@ -1182,7 +1904,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     children=arguments.children,
                     rooms=arguments.rooms,
                 ),
-                children_ages=arguments.children_ages,
+                children_ages=sorted(arguments.children_ages),
                 currency=arguments.currency.upper(),
             )
             summary, summary_path = TrivagoMcpBatchRunner(
@@ -1248,40 +1970,167 @@ def main(argv: Sequence[str] | None = None) -> int:
                     children=arguments.children,
                     rooms=arguments.rooms,
                 ),
-                children_ages=arguments.children_ages,
+                children_ages=sorted(arguments.children_ages),
                 currency=arguments.currency.upper(),
             )
+            entity_ids = list(arguments.entity_id)
+            backlog_tasks: list[CanonicalCrawlTask] = []
+            canonical_backlog: CanonicalCrawlBacklog | None = None
+            if arguments.backlog is not None:
+                canonical_backlog, backlog_tasks = _dispatchable_backlog_tasks(
+                    arguments.backlog,
+                    CanonicalCrawlJob.TRIVAGO_AVAILABILITY,
+                )
+                backlog_ids = {task.place_id for task in backlog_tasks}
+                requested_ids = set(entity_ids)
+                outside_backlog = requested_ids - backlog_ids
+                if outside_backlog:
+                    raise ValueError(
+                        "requested Trivago IDs are not automatic due backlog tasks: "
+                        + ", ".join(sorted(outside_backlog))
+                    )
+                entity_ids = sorted(requested_ids or backlog_ids)
+                identity_discovery_ids = sorted(
+                    task.place_id
+                    for task in backlog_tasks
+                    if task.place_id in set(entity_ids)
+                    and CanonicalCrawlRequiredField.HOTEL_MAPPING
+                    in task.required_fields
+                )
+                if identity_discovery_ids and not arguments.include_identity_discovery:
+                    raise ValueError(
+                        "Trivago backlog contains identity-discovery work; rerun "
+                        "with --include-identity-discovery for: "
+                        + ", ".join(identity_discovery_ids)
+                    )
+                _validate_trivago_backlog_context(
+                    [
+                        task
+                        for task in backlog_tasks
+                        if task.place_id in set(entity_ids)
+                    ],
+                    context,
+                    lookahead_days=arguments.lookahead_days,
+                )
+                unknown_ids = set(entity_ids) - {
+                    entry.entity_id for entry in registry.entries
+                }
+                if unknown_ids:
+                    raise ValueError(
+                        "canonical backlog references unknown Trivago IDs: "
+                        + ", ".join(sorted(unknown_ids))
+                    )
+                if not entity_ids:
+                    print(
+                        "backlog_dispatch=skipped "
+                        "job=trivago_availability automatic_due=0"
+                    )
+                    return 0
+                _require_backlog_artifact_digest(
+                    canonical_backlog,
+                    digest_artifact_file(
+                        arguments.registry,
+                        kind=CompletenessArtifactKind.TRIVAGO_REGISTRY,
+                    ),
+                )
+                _, current_mapping_digest = load_artifact_directory(
+                    arguments.current_mapping_dir,
+                    ExternalEntityMapping,
+                    kind=CompletenessArtifactKind.TRIVAGO_MAPPING,
+                )
+                _require_backlog_artifact_digest(
+                    canonical_backlog,
+                    current_mapping_digest,
+                )
+                _, availability_digest = load_artifact_directory(
+                    arguments.current_availability_dir,
+                    CurrentHotelAvailabilitySnapshot,
+                    kind=CompletenessArtifactKind.HOTEL_AVAILABILITY,
+                )
+                _require_backlog_artifact_digest(
+                    canonical_backlog,
+                    availability_digest,
+                )
+                _, price_digest = load_artifact_directory(
+                    arguments.current_price_dir,
+                    CurrentHotelPriceSnapshot,
+                    kind=CompletenessArtifactKind.HOTEL_PRICE,
+                )
+                _require_backlog_artifact_digest(
+                    canonical_backlog,
+                    price_digest,
+                )
+            trivago_adapter = TrivagoMcpDiscoveryAdapter()
+            if canonical_backlog is not None:
+                _require_backlog_parser_version(
+                    canonical_backlog,
+                    "trivago-mcp",
+                    trivago_adapter.parser_version,
+                )
             stay_runner = TrivagoStayAvailabilityRunner(
-                TrivagoMcpDiscoveryAdapter(),
+                trivago_adapter,
                 RawJsonWriter(arguments.raw_dir),
                 NormalizedHotelPriceWriter(arguments.normalized_dir),
                 TrivagoDiscoveryAuditWriter(arguments.quality_dir),
                 CurrentTrivagoMappingWriter(arguments.current_mapping_dir),
-                CurrentHotelAvailabilityWriter(
-                    arguments.current_availability_dir
-                ),
-                validation_writer=ValidationResultWriter(
-                    arguments.validation_dir
-                ),
+                CurrentHotelAvailabilityWriter(arguments.current_availability_dir),
+                validation_writer=ValidationResultWriter(arguments.validation_dir),
                 decision_writer=HotelPriceDecisionWriter(arguments.decision_dir),
                 current_price_writer=CurrentHotelPriceWriter(
                     arguments.current_price_dir
                 ),
                 validator=HotelPriceValidatorOrchestrator(),
+                identity_retry_limit=arguments.identity_retry_limit,
+                include_radius_identity_retry=(arguments.include_radius_identity_retry),
             )
+            effective_run_id = _new_trivago_availability_batch_run_id()
+            claim_path = None
+            if canonical_backlog is not None:
+                selected_ids = set(entity_ids)
+                selected_tasks = [
+                    task for task in backlog_tasks if task.place_id in selected_ids
+                ]
+                claim = build_canonical_crawl_execution_claim(
+                    canonical_backlog,
+                    job=CanonicalCrawlJob.TRIVAGO_AVAILABILITY,
+                    task_ids=[task.task_id for task in selected_tasks],
+                    selection_context={
+                        "entity_ids": sorted(selected_ids),
+                        "max_requests": arguments.max_requests,
+                        "offset": arguments.offset,
+                        "lookahead_days": arguments.lookahead_days,
+                        "identity_retry_limit": arguments.identity_retry_limit,
+                        "include_radius_identity_retry": (
+                            arguments.include_radius_identity_retry
+                        ),
+                        "include_identity_discovery": (
+                            arguments.include_identity_discovery
+                        ),
+                    },
+                    claimed_at=datetime.now(timezone.utc),
+                )
+                claim_path, created = CanonicalCrawlExecutionClaimWriter(
+                    arguments.claim_dir
+                ).claim(claim)
+                if not created:
+                    print(
+                        "backlog_dispatch=skipped reason=already_claimed "
+                        f"claim={claim_path}"
+                    )
+                    return 0
+                effective_run_id = claim.run_id
             summary, summary_path = TrivagoStayAvailabilityBatchRunner(
                 stay_runner,
-                TrivagoStayAvailabilityResultWriter(
-                    arguments.stay_result_dir
-                ),
+                TrivagoStayAvailabilityResultWriter(arguments.stay_result_dir),
                 TrivagoStayBatchSummaryWriter(arguments.summary_dir),
                 max_requests=arguments.max_requests,
                 offset=arguments.offset,
-                entity_ids=arguments.entity_id,
+                entity_ids=entity_ids,
+                include_identity_discovery=arguments.include_identity_discovery,
             ).run(
                 registry,
                 context,
-                run_id=_new_trivago_availability_batch_run_id(),
+                run_id=effective_run_id,
                 lookahead_days=arguments.lookahead_days,
             )
         except (
@@ -1294,6 +2143,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Trivago availability batch failed: {error}", file=sys.stderr)
             return 2
         print(f"summary={summary_path}")
+        if claim_path is not None:
+            print(f"claim={claim_path}")
         print(
             f"selected={summary.selected_count} "
             f"completed={summary.completed_count} "
@@ -1346,31 +2197,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if result.current_place_path is not None:
             print(f"current_place={result.current_place_path}")
         if result.llm_review_receipt is not None:
-            print(
-                "llm_review="
-                f"{result.llm_review_receipt.disposition.value}"
-            )
+            print(f"llm_review={result.llm_review_receipt.disposition.value}")
         return 0
-
-    if arguments.command == "bootstrap-master-places":
-        try:
-            summary, summary_path = VerifiedMasterPlaceBootstrapper(
-                VerifiedMasterCurrentPlaceWriter(arguments.current_place_dir),
-                MasterPlaceBootstrapSummaryWriter(arguments.summary_dir),
-            ).run(
-                arguments.master_dir,
-                run_id=_new_master_bootstrap_run_id(),
-            )
-        except (OSError, ValidationError, ValueError) as error:
-            print(f"Master place bootstrap failed: {error}", file=sys.stderr)
-            return 2
-        print(f"summary={summary_path}")
-        print(
-            f"records={summary.source_record_count} seeded={summary.seeded_count} "
-            f"skipped_existing={summary.skipped_existing_count} "
-            f"failed={summary.failed_count}"
-        )
-        return 1 if summary.failed_count else 0
 
     if arguments.command == "reprocess-google-maps":
         try:
@@ -1393,7 +2221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 GoogleMapsValidationWriter(arguments.validation_dir),
                 GoogleMapsDecisionWriter(arguments.decision_dir),
                 CurrentGoogleMapsMappingWriter(arguments.current_mapping_dir),
-                CurrentPlaceWriter(arguments.current_place_dir),
+                None,
                 GoogleMapsReprocessSummaryWriter(arguments.summary_dir),
                 llm_review_writer=(
                     None
@@ -1547,23 +2375,82 @@ def main(argv: Sequence[str] | None = None) -> int:
             mappings = load_google_maps_manifest(arguments.manifest)
             excluded_ids = set(arguments.exclude_entity_id)
             requested_ids = set(arguments.entity_id)
-            unknown_ids = requested_ids - {
-                mapping.entity_id for mapping in mappings
-            }
+            canonical_backlog: CanonicalCrawlBacklog | None = None
+            if arguments.backlog is not None:
+                backlog_job = (
+                    CanonicalCrawlJob.GOOGLE_MAPS_PLACE
+                    if mode is GoogleMapsBatchMode.PLACE
+                    else CanonicalCrawlJob.GOOGLE_MAPS_MENU
+                )
+                canonical_backlog, backlog_tasks = _dispatchable_backlog_tasks(
+                    arguments.backlog,
+                    backlog_job,
+                )
+                backlog_ids = {task.place_id for task in backlog_tasks}
+                outside_backlog = requested_ids - backlog_ids
+                if outside_backlog:
+                    raise ValueError(
+                        "requested Google Maps IDs are not automatic due backlog "
+                        "tasks: " + ", ".join(sorted(outside_backlog))
+                    )
+                requested_ids = requested_ids or backlog_ids
+                if not requested_ids:
+                    print(
+                        f"backlog_dispatch=skipped job={backlog_job.value} "
+                        "automatic_due=0"
+                    )
+                    return 0
+                if arguments.canonical_dataset is None:
+                    raise ValueError(
+                        "--canonical-dataset or NEXTRIP_CANONICAL_DATASET is "
+                        "required to dispatch a canonical crawl backlog"
+                    )
+                dispatch_dataset = read_canonical_active_dataset(
+                    arguments.canonical_dataset
+                )
+                if (
+                    dispatch_dataset.dataset_id,
+                    dispatch_dataset.dataset_hash,
+                ) != (
+                    canonical_backlog.dataset_id,
+                    canonical_backlog.dataset_hash,
+                ):
+                    raise ValueError(
+                        "canonical dataset does not match the crawl backlog "
+                        "dataset ID and hash"
+                    )
+                registry_path = _canonical_google_registry_path(arguments.manifest)
+                _require_backlog_artifact_digest(
+                    canonical_backlog,
+                    digest_artifact_file(
+                        registry_path,
+                        kind=CompletenessArtifactKind.GOOGLE_REGISTRY,
+                    ),
+                )
+            unknown_ids = requested_ids - {mapping.entity_id for mapping in mappings}
             if unknown_ids:
                 raise ValueError(
-                    "unknown Google Maps entity IDs: "
-                    + ", ".join(sorted(unknown_ids))
+                    "unknown Google Maps entity IDs: " + ", ".join(sorted(unknown_ids))
                 )
+            if canonical_backlog is not None:
+                wrong_dataset_ids = sorted(
+                    mapping.entity_id
+                    for mapping in mappings
+                    if mapping.entity_id in requested_ids
+                    and mapping.attributes.get("canonical_dataset_id")
+                    != canonical_backlog.dataset_id
+                )
+                if wrong_dataset_ids:
+                    raise ValueError(
+                        "Google Maps mappings belong to another canonical "
+                        "dataset: " + ", ".join(wrong_dataset_ids[:5])
+                    )
             selected_types = set(arguments.entity_type)
             mappings = [
                 mapping
                 for mapping in mappings
                 if mapping.entity_id not in excluded_ids
-                and (
-                    not requested_ids
-                    or mapping.entity_id in requested_ids
-                )
+                and (not requested_ids or mapping.entity_id in requested_ids)
                 and (
                     not selected_types
                     or (
@@ -1572,12 +2459,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             ]
+            if canonical_backlog is not None and not mappings:
+                print(
+                    f"backlog_dispatch=skipped job={backlog_job.value} "
+                    "selected_after_filters=0"
+                )
+                return 0
             if mode is GoogleMapsBatchMode.PLACE:
                 browser = PlaywrightBrowserClient(
                     headless=not arguments.headed,
                     artifact_directory=arguments.artifact_dir,
                 )
                 pipeline = _google_maps_refresh_pipeline(arguments, browser)
+                if canonical_backlog is not None:
+                    _require_backlog_parser_version(
+                        canonical_backlog,
+                        "google-maps-web",
+                        pipeline.adapter.parser_version,
+                    )
                 menu_source_index = GoogleMapsMenuSourceIndex(arguments.menu_source_dir)
 
                 def processor(mapping, effective_run_id):
@@ -1622,7 +2521,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 def processor(mapping, effective_run_id):
                     return pipeline.run(mapping, run_id=effective_run_id)
 
-            run_id = _new_google_batch_run_id(mode)
+            run_id = arguments.run_id or _new_google_batch_run_id(mode)
+            claim_path = None
+            if canonical_backlog is not None:
+                selected_mapping_ids = {mapping.entity_id for mapping in mappings}
+                selected_tasks = [
+                    task
+                    for task in backlog_tasks
+                    if task.place_id in selected_mapping_ids
+                ]
+                claim = build_canonical_crawl_execution_claim(
+                    canonical_backlog,
+                    job=backlog_job,
+                    task_ids=[task.task_id for task in selected_tasks],
+                    selection_context={
+                        "entity_ids": sorted(selected_mapping_ids),
+                        "entity_types": sorted(selected_types),
+                        "excluded_entity_ids": sorted(excluded_ids),
+                        "max_requests": arguments.max_requests,
+                        "offset": arguments.offset,
+                        "rotation_date": (
+                            datetime.now(timezone.utc).date().isoformat()
+                            if arguments.offset is None
+                            else None
+                        ),
+                    },
+                    claimed_at=datetime.now(timezone.utc),
+                )
+                claim_path, created = CanonicalCrawlExecutionClaimWriter(
+                    arguments.claim_dir
+                ).claim(claim)
+                if not created:
+                    print(
+                        "backlog_dispatch=skipped reason=already_claimed "
+                        f"claim={claim_path}"
+                    )
+                    return 0
+                run_id = claim.run_id
             summary = GoogleMapsBatchRunner(
                 processor,
                 mode=mode,
@@ -1653,6 +2588,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"failed entity_id={item.entity_id} error={item.error}",
                     file=sys.stderr,
                 )
+        # Keep this as the final stdout line. Airflow's BashOperator XCom uses
+        # it to source-pin the downstream canonical refresh patch.
+        print(f"run_id={summary.run_id}")
         return 1 if summary.failed_count else 0
 
     if arguments.command == "apply-canonical-replacements":
@@ -1697,8 +2635,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     or detail.detail_hash != proposal.detail_hash
                     or detail.candidate != proposal.candidate
                     or detail.validation != proposal.validation
-                    or detail.vacancy.vacancy_id
-                    != proposal.target_vacancy.vacancy_id
+                    or detail.vacancy.vacancy_id != proposal.target_vacancy.vacancy_id
                 ):
                     raise ValueError(
                         f"proposal/detail mismatch: {proposal.proposal_id}"
@@ -1726,6 +2663,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
 
+    if arguments.command == "build-canonical-replacement-enrichment":
+        try:
+            approved_records = load_approved_replacements(
+                arguments.approved_replacement_dir
+            )
+            overlay = build_canonical_replacement_enrichment_overlay(
+                approved_records,
+                arguments.raw_dir,
+            )
+            overlay_path = CanonicalReplacementEnrichmentWriter(
+                arguments.output_dir
+            ).write(overlay)
+        except (OSError, ValidationError, ValueError) as error:
+            print(
+                f"Cannot build canonical replacement enrichment: {error}",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"replacement_enrichment={overlay_path}")
+        print(
+            f"records={overlay.enrichment_count} "
+            f"address={overlay.address_count} "
+            f"category={overlay.category_count} "
+            f"cover={overlay.cover_count} "
+            f"missing_cover={overlay.enrichment_count - overlay.cover_count}"
+        )
+        return 0
+
     if arguments.command == "materialize-canonical-dataset":
         try:
             manifest = read_canonical_identity_manifest(arguments.manifest)
@@ -1738,27 +2703,39 @@ def main(argv: Sequence[str] | None = None) -> int:
                 manifest,
                 approved_replacements=approved_records,
             )
+            identity_resolver = CanonicalIdentityResolver(manifest)
+            replacement_enrichment = None
+            if arguments.replacement_enrichment is not None:
+                replacement_enrichment = read_canonical_replacement_enrichment_overlay(
+                    arguments.replacement_enrichment
+                )
+                dataset = apply_replacement_enrichments(
+                    dataset,
+                    replacement_enrichment,
+                )
             review_correction = None
             if arguments.review_correction is not None:
                 review_correction = read_canonical_review_correction_overlay(
                     arguments.review_correction
                 )
-                dataset = apply_review_corrections(dataset, review_correction)
+                dataset = apply_review_corrections(
+                    dataset,
+                    review_correction,
+                    resolver=identity_resolver,
+                )
             evidence_audit = DuplicateEvidenceAudit.model_validate_json(
                 arguments.duplicate_evidence.read_bytes()
             )
-            identity_decisions = load_duplicate_identity_decisions(
-                arguments.decisions
-            )
+            identity_decisions = load_duplicate_identity_decisions(arguments.decisions)
             readiness = evaluate_canonical_dataset_readiness(
                 dataset,
                 evidence_audit,
-                CanonicalIdentityResolver(manifest),
+                identity_resolver,
                 distinct_decisions=identity_decisions.distinct_decisions,
             )
-            dataset_path = CanonicalActiveDatasetWriter(
-                arguments.output_dir
-            ).write(dataset)
+            dataset_path = CanonicalActiveDatasetWriter(arguments.output_dir).write(
+                dataset
+            )
             readiness_path = CanonicalDatasetReadinessWriter(
                 arguments.readiness_output_dir
             ).write(readiness)
@@ -1767,6 +2744,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         print(f"dataset={dataset_path}")
         print(f"readiness={readiness_path}")
+        if replacement_enrichment is not None:
+            print(
+                f"replacement_enrichment={replacement_enrichment.overlay_id} "
+                f"enriched={replacement_enrichment.enrichment_count} "
+                f"cover={replacement_enrichment.cover_count}"
+            )
         if review_correction is not None:
             print(
                 f"review_correction={review_correction.overlay_id} "
@@ -1778,12 +2761,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"master={dataset.report.master_materialized_count} "
             f"replacements={dataset.report.replacement_materialized_count} "
             f"retired={dataset.report.retired_duplicate_count} "
+            f"quarantined={dataset.report.quarantined_identity_count} "
             f"open_vacancies={dataset.report.open_vacancy_count}"
         )
         print(
             f"publish_ready={str(readiness.publish_ready).lower()} "
             f"resolved_merge={len(readiness.resolved_merge)} "
             f"resolved_distinct={len(readiness.resolved_distinct)} "
+            f"resolved_quarantined={len(readiness.resolved_quarantined)} "
             f"unresolved={len(readiness.unresolved_groups)}"
         )
         if not arguments.allow_unresolved_review:
@@ -1797,8 +2782,251 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1
         return 0
 
+    if arguments.command == "apply-google-maps-canonical-refresh":
+        try:
+            dataset = read_canonical_active_dataset(arguments.canonical_dataset)
+            entity_types = (
+                [EntityType(value) for value in arguments.entity_type]
+                if arguments.entity_type
+                else list(GOOGLE_MAPS_CANONICAL_ENTITY_TYPES)
+            )
+            patch = build_google_maps_canonical_refresh_patch(
+                dataset,
+                arguments.observation_root,
+                arguments.decision_root,
+                entity_types=entity_types,
+                source_run_ids=arguments.run_id,
+            )
+            patch_path = CanonicalGoogleMapsPatchWriter(
+                arguments.patch_output_dir
+            ).write(patch)
+            if arguments.require_complete and not patch.complete:
+                raise ValueError(
+                    "Google Maps refresh is incomplete: "
+                    f"{len(patch.deferred)} of {patch.target_count} places deferred"
+                )
+            refreshed_dataset = apply_google_maps_canonical_refresh_patch(
+                dataset,
+                patch,
+            )
+
+            manifest = read_canonical_identity_manifest(arguments.manifest)
+            identity_resolver = CanonicalIdentityResolver(manifest)
+            evidence_audit = DuplicateEvidenceAudit.model_validate_json(
+                arguments.duplicate_evidence.read_bytes()
+            )
+            identity_decisions = load_duplicate_identity_decisions(
+                arguments.identity_decisions
+            )
+            readiness = evaluate_canonical_dataset_readiness(
+                refreshed_dataset,
+                evidence_audit,
+                identity_resolver,
+                distinct_decisions=identity_decisions.distinct_decisions,
+            )
+            require_canonical_dataset_publish_ready(readiness)
+            dataset_path = CanonicalActiveDatasetWriter(
+                arguments.dataset_output_dir
+            ).write(refreshed_dataset)
+            readiness_path = CanonicalDatasetReadinessWriter(
+                arguments.readiness_output_dir
+            ).write(readiness)
+
+            menu_backlog_path = None
+            menu_task_count = 0
+            if not arguments.skip_menu_backlog:
+                menu_backlog = build_canonical_menu_collection_backlog(
+                    refreshed_dataset,
+                    generated_at=patch.generated_at,
+                )
+                menu_task_count = len(menu_backlog.tasks)
+                menu_backlog_path = CanonicalMenuCollectionBacklogWriter(
+                    arguments.menu_review_output_dir
+                ).write(menu_backlog)
+        except (
+            CanonicalDatasetNotReadyError,
+            OSError,
+            ValidationError,
+            ValueError,
+        ) as error:
+            print(
+                f"Cannot apply Google Maps canonical refresh: {error}",
+                file=sys.stderr,
+            )
+            return 2
+
+        dispositions = {
+            value: sum(item.disposition.value == value for item in patch.deferred)
+            for value in ("missing", "review", "quarantine")
+        }
+        permanent_closed = sum(
+            item.business_status.value == "permanently_closed" for item in patch.records
+        )
+        weekly_schedule = sum(item.weekly_opening is not None for item in patch.records)
+        price_evidence = sum(
+            item.price_status.value == "observed" for item in patch.records
+        )
+        print(f"patch={patch_path}")
+        print(f"dataset={dataset_path}")
+        print(f"readiness={readiness_path}")
+        if menu_backlog_path is not None:
+            print(f"menu_backlog={menu_backlog_path}")
+        print(
+            f"target={patch.target_count} refreshed={len(patch.records)} "
+            f"deferred={len(patch.deferred)} missing={dispositions['missing']} "
+            f"review={dispositions['review']} "
+            f"quarantine={dispositions['quarantine']}"
+        )
+        print(
+            f"weekly_schedule={weekly_schedule} "
+            f"google_price_evidence={price_evidence} "
+            f"permanently_closed={permanent_closed} "
+            f"menu_human_tasks={menu_task_count}"
+        )
+        return 0
+
+    if arguments.command == "audit-canonical-completeness":
+        try:
+            as_of = arguments.as_of or datetime.now(timezone.utc)
+            stay_context = _completeness_stay_context(arguments, as_of=as_of)
+            dataset = read_canonical_active_dataset(arguments.dataset)
+            readiness = read_canonical_dataset_readiness(arguments.readiness)
+            manifest_registry_path = _canonical_google_registry_path(
+                arguments.google_manifest
+            )
+            if manifest_registry_path != arguments.google_registry.resolve():
+                raise ValueError(
+                    "--google-manifest does not point at --google-registry"
+                )
+            google_mappings = load_google_maps_manifest(arguments.google_manifest)
+            wrong_dataset_mappings = sorted(
+                mapping.entity_id
+                for mapping in google_mappings
+                if mapping.attributes.get("canonical_dataset_id") != dataset.dataset_id
+            )
+            if wrong_dataset_mappings:
+                preview = ", ".join(wrong_dataset_mappings[:5])
+                suffix = ", ..." if len(wrong_dataset_mappings) > 5 else ""
+                raise ValueError(
+                    "Google Maps registry belongs to another canonical dataset: "
+                    f"{preview}{suffix}"
+                )
+            google_registry_digest = digest_artifact_file(
+                manifest_registry_path,
+                kind=CompletenessArtifactKind.GOOGLE_REGISTRY,
+            )
+            trivago_registry = _load_trivago_registry(arguments.trivago_registry)
+            trivago_registry_digest = digest_artifact_file(
+                arguments.trivago_registry,
+                kind=CompletenessArtifactKind.TRIVAGO_REGISTRY,
+            )
+            trivago_mappings, trivago_mapping_digest = load_artifact_directory(
+                arguments.trivago_mapping_dir,
+                ExternalEntityMapping,
+                kind=CompletenessArtifactKind.TRIVAGO_MAPPING,
+            )
+            availability, availability_digest = load_artifact_directory(
+                arguments.hotel_availability_dir,
+                CurrentHotelAvailabilitySnapshot,
+                kind=CompletenessArtifactKind.HOTEL_AVAILABILITY,
+            )
+            prices, price_digest = load_artifact_directory(
+                arguments.hotel_price_dir,
+                CurrentHotelPriceSnapshot,
+                kind=CompletenessArtifactKind.HOTEL_PRICE,
+            )
+            current_menus, current_menu_digest = load_artifact_directory(
+                arguments.current_menu_dir,
+                NormalizedMenu,
+                kind=CompletenessArtifactKind.CURRENT_MENU,
+                excluded_directories=("_audit",),
+            )
+            menu_sources, menu_source_digest = load_artifact_directory(
+                arguments.menu_source_dir,
+                GoogleMapsMenuSourceEntry,
+                kind=CompletenessArtifactKind.MENU_SOURCE,
+            )
+            audit = build_canonical_completeness_audit(
+                dataset,
+                readiness,
+                as_of=as_of,
+                stay_context=stay_context,
+                google_mappings=google_mappings,
+                trivago_mappings=trivago_mappings,
+                trivago_entries=trivago_registry.entries,
+                hotel_availability=availability,
+                hotel_prices=prices,
+                current_menus=current_menus,
+                menu_sources=menu_sources,
+                input_digests=[
+                    google_registry_digest,
+                    trivago_registry_digest,
+                    trivago_mapping_digest,
+                    availability_digest,
+                    price_digest,
+                    current_menu_digest,
+                    menu_source_digest,
+                ],
+            )
+            audit_path = CanonicalCompletenessWriter(arguments.output_dir).write(audit)
+        except (OSError, ValidationError, ValueError) as error:
+            print(f"Cannot audit canonical completeness: {error}", file=sys.stderr)
+            return 2
+        severity_counts = {
+            severity.value: sum(gap.severity is severity for gap in audit.gaps)
+            for severity in CompletenessSeverity
+        }
+        print(f"completeness={audit_path}")
+        print(
+            f"records={len(dataset.records)} gaps={len(audit.gaps)} "
+            f"blocking={severity_counts['blocking']} "
+            f"backfill={severity_counts['backfill']} "
+            f"operational={severity_counts['operational']} "
+            f"deferred={severity_counts['deferred']}"
+        )
+        print(
+            f"static_ingest_ready={str(audit.static_ingest_ready).lower()} "
+            f"operational_fresh={str(audit.operational_fresh).lower()} "
+            f"deferred_complete={str(audit.deferred_complete).lower()} "
+            f"identity_publish_ready={str(audit.identity_publish_ready).lower()} "
+            f"identity_review_places={len(audit.identity_review_place_ids)} "
+            f"open_vacancies={audit.open_vacancy_count}"
+        )
+        return 0 if audit.static_ingest_ready else 1
+
+    if arguments.command == "build-canonical-crawl-backlog":
+        try:
+            completeness = read_canonical_completeness_audit(
+                arguments.completeness_report
+            )
+            source_registry = SourceRegistry.load(arguments.sources)
+            backlog = build_canonical_crawl_backlog(
+                completeness,
+                _canonical_source_policies(source_registry),
+            )
+            backlog_path = CanonicalCrawlBacklogWriter(arguments.output_dir).write(
+                backlog
+            )
+        except (OSError, SourceRegistryError, ValidationError, ValueError) as error:
+            print(f"Cannot build canonical crawl backlog: {error}", file=sys.stderr)
+            return 2
+        print(f"backlog={backlog_path}")
+        print(
+            f"tasks={backlog.task_count} automatic={backlog.automatic_count} "
+            f"blocked={backlog.blocked_count} manual={backlog.manual_count}"
+        )
+        for job, count in backlog.job_counts.items():
+            print(f"job={job} count={count}")
+        return 0
+
     if arguments.command == "propose-canonical-replacements":
         try:
+            if arguments.candidate_entity_type is not None and (
+                arguments.entity_type != [EntityType.NIGHTLIFE.value]
+            ):
+                raise ValueError(
+                    "--candidate-entity-type requires exactly --entity-type nightlife"
+                )
             if arguments.search_term and (
                 len(arguments.entity_type) != 1 or len(arguments.city_id) != 1
             ):
@@ -1831,6 +3059,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 current_google_mapping_directory=arguments.current_mapping_dir,
                 approved_replacements=approved_records,
             )
+            review_correction = None
+            if arguments.review_correction is not None:
+                review_correction = read_canonical_review_correction_overlay(
+                    arguments.review_correction
+                )
+                projection = apply_review_corrections_to_identity_projection(
+                    projection,
+                    review_correction,
+                )
             prior_ids = {item.proposed_place_id for item in prior_proposals}
             projection.identities.extend(
                 ExistingCanonicalIdentity(
@@ -1844,7 +3081,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     external_identities=item.candidate.external_identities,
                 )
                 for item in prior_proposals
-                if item.proposed_place_id not in {x.place_id for x in projection.identities}
+                if item.proposed_place_id
+                not in {x.place_id for x in projection.identities}
             )
             selected_types = set(arguments.entity_type)
             selected_cities = set(arguments.city_id)
@@ -1852,13 +3090,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             vacancies = [
                 vacancy
                 for vacancy in manifest.vacancies
-                if (
-                    not selected_types
-                    or vacancy.entity_type.value in selected_types
-                )
-                and (
-                    not selected_cities or vacancy.city_id in selected_cities
-                )
+                if (not selected_types or vacancy.entity_type.value in selected_types)
+                and (not selected_cities or vacancy.city_id in selected_cities)
                 and (
                     not selected_vacancy_ids
                     or vacancy.vacancy_id in selected_vacancy_ids
@@ -1871,11 +3104,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ValueError(
                     "unknown vacancy IDs: " + ", ".join(sorted(unknown_vacancies))
                 )
-            blocked_ids = {
-                item.legacy_place_id for item in master.slots
-            } | {item.id for item in approved_records} | prior_ids
-            retired_ids = {
-                item.retired_place_id for item in manifest.retired_place_ids
+            blocked_ids = (
+                {item.legacy_place_id for item in master.slots}
+                | {item.id for item in approved_records}
+                | prior_ids
+            )
+            retired_ids = {item.retired_place_id for item in manifest.retired_place_ids}
+            quarantined_ids = {
+                legacy_id
+                for item in manifest.quarantined_identities
+                for legacy_id in item.identity.legacy_place_ids
             }
             browser = PlaywrightBrowserClient(
                 headless=not arguments.headed,
@@ -1884,7 +3122,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             entity_search_terms = None
             if arguments.search_term:
                 entity_search_terms = {
-                    EntityType(arguments.entity_type[0]): arguments.search_term[0]
+                    EntityType(
+                        arguments.candidate_entity_type or arguments.entity_type[0]
+                    ): arguments.search_term[0]
                 }
             discovery = GoogleMapsCandidateDiscovery(
                 GoogleMapsCandidateDiscoveryAdapter(
@@ -1910,20 +3150,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MonotonicPlaceIdAllocator(
                     existing_ids=blocked_ids,
                     retired_ids=retired_ids,
+                    quarantined_ids=quarantined_ids,
                 ),
                 CanonicalReplacementProposalBatchWriter(arguments.summary_dir),
                 result_limit=arguments.result_limit,
                 max_detail_candidates=arguments.max_detail_candidates,
                 max_vacancies=arguments.max_vacancies,
+                candidate_entity_type=(
+                    EntityType(arguments.candidate_entity_type)
+                    if arguments.candidate_entity_type is not None
+                    else None
+                ),
                 search_terms=(
                     {
-                        (arguments.city_id[0], EntityType(arguments.entity_type[0])):
-                        tuple(arguments.search_term)
+                        (
+                            arguments.city_id[0],
+                            EntityType(arguments.entity_type[0]),
+                        ): tuple(arguments.search_term)
                     }
                     if arguments.search_term
                     else None
                 ),
-            ).run(vacancies, projection.identities, run_id=run_id)
+            ).run(
+                vacancies,
+                projection.identities,
+                run_id=run_id,
+                identity_projection_hash=projection.projection_hash,
+                review_correction_overlay_id=(
+                    review_correction.overlay_id
+                    if review_correction is not None
+                    else None
+                ),
+                review_correction_overlay_hash=(
+                    review_correction.overlay_hash
+                    if review_correction is not None
+                    else None
+                ),
+            )
         except (OSError, ValidationError, ValueError, RuntimeError) as error:
             print(f"Cannot propose canonical replacements: {error}", file=sys.stderr)
             return 2
@@ -1938,6 +3201,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(
                     f"proposal vacancy={result.vacancy.vacancy_id} "
                     f"place_id={result.proposal.proposed_place_id} "
+                    f"entity_type={result.proposal.candidate.entity_type.value} "
                     f"name={result.proposal.candidate.name}"
                 )
             elif result.error:
@@ -1972,20 +3236,48 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
 
+    if arguments.command == "approve-canonical-invalidation":
+        try:
+            manifest = read_canonical_identity_manifest(arguments.manifest)
+            approval = approve_canonical_invalidation(
+                manifest,
+                place_id=arguments.place_id,
+                observation_path=arguments.observation,
+                reason=CanonicalInvalidationReason(arguments.reason),
+                reviewer=arguments.reviewer,
+                identity_source_path=arguments.identity_source,
+            )
+            approval_path = CanonicalInvalidationWriter(arguments.output_dir).write(
+                approval
+            )
+        except (OSError, ValidationError, ValueError) as error:
+            print(
+                f"Cannot approve canonical invalidation: {error}",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"invalidation={approval_path}")
+        print(
+            f"approval_id={approval.approval_id} "
+            f"approval_hash={approval.approval_hash} "
+            f"place_id={approval.canonical_place_id} "
+            f"reason={approval.reason.value}"
+        )
+        return 0
+
     if arguments.command == "build-canonical-manifest":
         try:
             manifest, report = build_manifest_from_master(
                 arguments.master_dir,
                 arguments.decisions,
                 previous_manifest_path=arguments.previous_manifest,
-                include_tagged_duplicates=(
-                    not arguments.ignore_master_duplicate_tags
-                ),
+                include_tagged_duplicates=(not arguments.ignore_master_duplicate_tags),
                 approved_replacement_root=arguments.approved_replacement_dir,
+                approved_invalidation_root=arguments.approved_invalidation_dir,
             )
-            manifest_path = CanonicalIdentityManifestWriter(
-                arguments.output
-            ).write(manifest)
+            manifest_path = CanonicalIdentityManifestWriter(arguments.output).write(
+                manifest
+            )
             report_path = GoogleMapsRegistryWriter.write(report, arguments.report)
         except (OSError, ValidationError, ValueError) as error:
             print(f"Cannot build canonical manifest: {error}", file=sys.stderr)
@@ -1995,19 +3287,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             f"canonical={len(manifest.identities)} "
             f"retired={len(manifest.retired_place_ids)} "
-            f"vacant={sum(item.status.value == 'vacant' for item in manifest.vacancies)}"
+            f"vacant={sum(item.status.value == 'vacant' for item in manifest.vacancies)} "
+            f"quarantined={len(manifest.quarantined_identities)}"
         )
         return 0
 
     if arguments.command == "build-google-maps-registry":
         try:
             overrides = [_load_mapping(path) for path in arguments.override]
-            registry, report = GoogleMapsRegistryBuilder().build(
-                arguments.master_dir,
+            dataset = read_canonical_active_dataset(arguments.canonical_dataset)
+            base_mappings = (
+                load_google_maps_manifest(arguments.base_manifest)
+                if arguments.base_manifest is not None
+                and arguments.base_manifest.is_file()
+                else []
+            )
+            registry, report = GoogleMapsRegistryBuilder().build_from_canonical_dataset(
+                dataset,
+                base_mappings=base_mappings,
                 overrides=overrides,
             )
             registry_path = GoogleMapsRegistryWriter.write(registry, arguments.output)
             report_path = GoogleMapsRegistryWriter.write(report, arguments.report)
+            batch_manifest_path = None
+            if arguments.batch_manifest_output is not None:
+                manifest = GoogleMapsBatchManifestDocument(
+                    registry_file=_relative_artifact_reference(
+                        registry_path,
+                        arguments.batch_manifest_output,
+                    )
+                )
+                batch_manifest_path = GoogleMapsRegistryWriter.write(
+                    manifest,
+                    arguments.batch_manifest_output,
+                )
         except (
             OSError,
             ValidationError,
@@ -2018,14 +3331,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         print(f"registry={registry_path}")
         print(f"report={report_path}")
+        if batch_manifest_path is not None:
+            print(f"batch_manifest={batch_manifest_path}")
         print(
             f"mappings={report.mapping_count} overrides={report.overrides_applied} "
+            f"reused={report.reused_mapping_count} "
             f"duplicate_candidates={len(report.duplicate_identity_candidates)}"
         )
         return 0
 
     parser.print_help()
     return 0
+
+
+def _configure_utf8_standard_streams() -> None:
+    """Keep Vietnamese CLI output lossless on legacy Windows code pages."""
+
+    for stream in (sys.stdout, sys.stderr):
+        encoding = getattr(stream, "encoding", None)
+        if isinstance(encoding, str) and encoding.replace("-", "").casefold() == "utf8":
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (OSError, ValueError):
+            # In-memory/captured streams may be immutable; their owner is
+            # responsible for selecting an encoding.
+            continue
 
 
 if __name__ == "__main__":

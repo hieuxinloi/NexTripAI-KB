@@ -64,8 +64,8 @@ class V8RetrievalService(V6RetrievalService):
     manifest_version = "v8"
     response_model = V8QueryResponse
     place_fallback_strategy = "neo4j_graphrag_hybrid_evidence_v8"
-    fulltext_index = "v8_place_fulltext"
-    vector_index = "v8_place_embedding"
+    fulltext_index = "place_fulltext"
+    vector_index = "place_embedding"
 
     def query(
         self,
@@ -186,7 +186,8 @@ class V8RetrievalService(V6RetrievalService):
         )
         if not rows or rows[0]["status"] != "ready":
             raise RuntimeError(
-                "GraphRAG V8 projection is not ready; run the v8-project command."
+                "GraphRAG V8 is not ready; activate a gated canonical release "
+                "with v8-import-canonical --apply."
             )
 
     def _count_fact(

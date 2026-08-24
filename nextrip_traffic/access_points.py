@@ -10,6 +10,10 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from nextrip_pipeline.canonical.dataset import read_canonical_active_dataset
+from nextrip_pipeline.canonical.place_projection import (
+    project_canonical_dataset_places,
+)
 from nextrip_pipeline.schemas import (
     AccessPointRecord,
     AccessPointType,
@@ -21,10 +25,6 @@ from nextrip_pipeline.schemas import (
 
 from .errors import AccessPointNotFoundError
 
-
-DEFAULT_CURRENT_PLACE_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "current" / "place"
-)
 
 _VERIFIED_STATUSES = frozenset(
     {
@@ -83,11 +83,10 @@ class RegistryLoadReport:
 
 
 class AccessPointRegistry:
-    """In-memory routing endpoints derived from accepted current place data.
+    """In-memory routing endpoints derived from canonical place data.
 
-    Reloads are built in temporary dictionaries and swapped under a lock. A bad
-    JSON file therefore produces an audit issue without preventing valid places
-    from being routable or exposing callers to a half-built registry.
+    Reloads are built in temporary dictionaries and swapped under a lock so
+    callers never observe a half-built registry.
 
     An optional overrides file may be either a JSON list of access-point
     records or an object with ``access_points`` and ``aliases`` keys. Each
@@ -97,12 +96,12 @@ class AccessPointRegistry:
 
     def __init__(
         self,
-        current_place_dir: str | Path | None = None,
         *,
+        canonical_dataset_path: str | Path,
         overrides_path: str | Path | None = None,
         auto_reload: bool = True,
     ) -> None:
-        self.current_place_dir = Path(current_place_dir or DEFAULT_CURRENT_PLACE_DIR)
+        self.canonical_dataset_path = Path(canonical_dataset_path)
         self.overrides_path = Path(overrides_path) if overrides_path else None
         self._lock = RLock()
         self._records: dict[str, AccessPointRecord] = {}
@@ -127,90 +126,84 @@ class AccessPointRegistry:
         override_count = 0
         skipped = 0
 
-        if not self.current_place_dir.is_dir():
+        snapshot_inputs: list[tuple[CurrentPlaceSnapshot, Path | None]] = []
+        try:
+            dataset = read_canonical_active_dataset(self.canonical_dataset_path)
+            projected = project_canonical_dataset_places(dataset)
+            snapshot_inputs = [
+                (projected[place_id], self.canonical_dataset_path)
+                for place_id in sorted(projected)
+            ]
+            files_seen = len(snapshot_inputs)
+        except (OSError, UnicodeError, ValidationError, ValueError) as error:
             issues.append(
                 RegistryIssue(
-                    code="missing_current_place_directory",
-                    message="current-place directory does not exist",
-                    path=str(self.current_place_dir),
+                    code="invalid_canonical_dataset",
+                    message=str(error),
+                    path=str(self.canonical_dataset_path),
                 )
             )
-        else:
-            seen_place_ids: set[str] = set()
-            for path in sorted(self.current_place_dir.glob("*.json")):
-                files_seen += 1
-                try:
-                    snapshot = CurrentPlaceSnapshot.model_validate_json(
-                        path.read_text(encoding="utf-8-sig")
-                    )
-                except (OSError, UnicodeError, ValidationError, ValueError) as error:
-                    issues.append(
-                        RegistryIssue(
-                            code="invalid_current_place",
-                            message=str(error),
-                            path=str(path),
-                        )
-                    )
-                    skipped += 1
-                    continue
+            skipped += 1
 
-                if snapshot.place_id in seen_place_ids:
-                    issues.append(
-                        RegistryIssue(
-                            code="duplicate_place_id",
-                            message=f"duplicate place_id {snapshot.place_id!r}; record skipped",
-                            path=str(path),
-                            record_id=snapshot.place_id,
-                        )
+        seen_place_ids: set[str] = set()
+        for snapshot, path in snapshot_inputs:
+            if snapshot.place_id in seen_place_ids:
+                issues.append(
+                    RegistryIssue(
+                        code="duplicate_place_id",
+                        message=f"duplicate place_id {snapshot.place_id!r}; record skipped",
+                        path=str(path) if path is not None else None,
+                        record_id=snapshot.place_id,
                     )
-                    skipped += 1
-                    continue
-                seen_place_ids.add(snapshot.place_id)
-
-                if snapshot.location is None:
-                    issues.append(
-                        RegistryIssue(
-                            code="missing_location",
-                            message="current place has no routable location",
-                            path=str(path),
-                            record_id=snapshot.place_id,
-                            severity="warning",
-                        )
-                    )
-                    skipped += 1
-                    continue
-
-                access_point_id = f"place:{snapshot.place_id}:main"
-                record = AccessPointRecord(
-                    access_point_id=access_point_id,
-                    owner_entity_id=snapshot.place_id,
-                    access_type=AccessPointType.MAIN_ENTRANCE,
-                    name=snapshot.name,
-                    location=snapshot.location,
-                    supported_modes=_ROAD_ROUTING_MODES,
-                    source_record_ids=[snapshot.provenance.source_record_id],
-                    verification_status=snapshot.provenance.verification_status,
-                    updated_at=snapshot.updated_at,
                 )
-                if not self._add_generated_record(
-                    record,
-                    record_aliases=(snapshot.place_id,),
-                    origin="place",
-                    records=records,
-                    aliases=aliases,
-                    origins=origins,
-                    issues=issues,
-                    path=path,
-                ):
-                    skipped += 1
-                    continue
-                place_count += 1
+                skipped += 1
+                continue
+            seen_place_ids.add(snapshot.place_id)
 
-                if (
-                    snapshot.city_id
-                    and snapshot.provenance.verification_status in _VERIFIED_STATUSES
-                ):
-                    verified_by_city[snapshot.city_id].append(snapshot)
+            if snapshot.location is None:
+                issues.append(
+                    RegistryIssue(
+                        code="missing_location",
+                        message="place has no routable location",
+                        path=str(path) if path is not None else None,
+                        record_id=snapshot.place_id,
+                        severity="warning",
+                    )
+                )
+                skipped += 1
+                continue
+
+            access_point_id = f"place:{snapshot.place_id}:main"
+            record = AccessPointRecord(
+                access_point_id=access_point_id,
+                owner_entity_id=snapshot.place_id,
+                access_type=AccessPointType.MAIN_ENTRANCE,
+                name=snapshot.name,
+                location=snapshot.location,
+                supported_modes=_ROAD_ROUTING_MODES,
+                source_record_ids=[snapshot.provenance.source_record_id],
+                verification_status=snapshot.provenance.verification_status,
+                updated_at=snapshot.updated_at,
+            )
+            if not self._add_generated_record(
+                record,
+                record_aliases=(snapshot.place_id,),
+                origin="place",
+                records=records,
+                aliases=aliases,
+                origins=origins,
+                issues=issues,
+                path=path,
+            ):
+                skipped += 1
+                continue
+            place_count += 1
+
+            if (
+                snapshot.city_id
+                and snapshot.provenance.verification_status in _VERIFIED_STATUSES
+            ):
+                verified_by_city[snapshot.city_id].append(snapshot)
 
         for city_id in sorted(verified_by_city):
             snapshots = verified_by_city[city_id]
@@ -248,14 +241,14 @@ class AccessPointRegistry:
                         if snapshot.location is not None
                     ),
                     accuracy="derived_city_center_median",
-                    source="derived:verified-current-place-median",
+                    source="derived:verified-canonical-place-median",
                     verified_at=latest_verified,
                 ),
                 supported_modes=_ROAD_ROUTING_MODES,
                 # Keep provenance bounded: the marker states the deterministic
                 # method and population size without copying hundreds of IDs.
                 source_record_ids=[
-                    f"derived:median:current-place:{city_id}:count={len(snapshots)}"
+                    f"derived:median:canonical-place:{city_id}:count={len(snapshots)}"
                 ],
                 verification_status=VerificationStatus.AUTO_VERIFIED,
                 updated_at=latest_update,

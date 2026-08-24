@@ -17,7 +17,7 @@ COPY --chown=airflow:0 config ./config
 # ungated legacy crawl DAGs must not become active as a side effect.
 COPY --chown=airflow:0 dags/nextrip_traffic.py /opt/airflow/dags/nextrip_traffic.py
 
-RUN mkdir -p /opt/airflow/nextrip/data/current/place \
+RUN mkdir -p /opt/airflow/nextrip/data/canonical \
         /opt/airflow/nextrip/data/current/traffic \
     && chown -R airflow:0 /opt/airflow/nextrip /opt/airflow/dags \
     && chmod -R g=u /opt/airflow/nextrip /opt/airflow/dags

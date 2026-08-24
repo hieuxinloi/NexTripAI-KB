@@ -37,6 +37,11 @@ from nextrip_pipeline.validators import (
 
 
 NOW = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
+GOOGLE_TOKEN = "0x31421b00723d9291:0x46d9f1c4fa5c9f78"
+GOOGLE_URL = (
+    "https://www.google.com/maps/place/Cafe-One/"
+    f"data=!4m7!3m6!1s{GOOGLE_TOKEN}!8m2"
+)
 
 
 class RecordAdapter:
@@ -50,7 +55,7 @@ class RecordAdapter:
         raw_payload = {
             "page": {
                 "requested_url": "https://www.google.com/maps/search/Cafe-One",
-                "final_url": "https://www.google.com/maps/place/Cafe-One",
+                "final_url": GOOGLE_URL,
                 "title": "Cafe One - Google Maps",
                 "html": f"<title>Cafe One - Google Maps</title>Open now {coordinate_html}",
                 "used_master_coordinates_for_viewport": (
@@ -78,7 +83,7 @@ class RecordAdapter:
             raw_payload=raw_payload,
             content_hash=compute_content_hash(raw_payload),
             parser_version="1.0.0",
-            source_url="https://www.google.com/maps/place/Cafe-One",
+            source_url=GOOGLE_URL,
             http_status=200,
             content_type="text/html",
         )

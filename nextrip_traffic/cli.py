@@ -128,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     access_points = commands.add_parser(
         "list-access-points",
-        help="List canonical endpoints derived from current place data.",
+        help="List routing endpoints derived from the canonical dataset.",
     )
     access_points.add_argument(
         "--access-type",

@@ -3,20 +3,23 @@
 `dags/nextrip_hotel_prices.py` runs the hotel branch every five hours. It uses
 Trivago's remote MCP endpoint over HTTP; it does not launch Playwright and does
 not write to Neo4j. The public MCP currently needs no API key. NexTrip uses
-`trivago-accommodation-search` with the verified master name for discovery;
+`trivago-accommodation-search` with the canonical hotel name for discovery;
 after confirmation it uses the canonical Trivago name and city. Coordinates
 are supporting evidence only; the scheduled pipeline does not auto-confirm a
 different nearby hotel.
 
 Each Airflow run performs two ordered tasks:
 
-1. `build-trivago-registry` rebuilds all 73 hotel search targets from
-   `travel_data_verified/hotel_final.json`. The checked-in confirmed mapping and
-   mappings discovered by earlier runs are applied as overrides.
-2. `batch-trivago-availability` discovers or confirms the Trivago
-   accommodation, captures immutable raw evidence, records availability for the
-   exact full stay, normalizes and validates priced offers, and updates the
-   contextual current availability/current price stores. When an exact search
+1. `build-trivago-registry` rebuilds all active hotel search targets from the
+   immutable dataset selected by `NEXTRIP_CANONICAL_DATASET`. Confirmed mapping
+   overrides and mappings discovered by earlier runs are keyed to canonical
+   `place_id` values. No verified-seed or current-place fallback is allowed.
+2. `batch-trivago-availability` refreshes only accommodations with a confirmed
+   Trivago identity, captures immutable raw evidence, records availability for
+   the exact full stay, normalizes and validates priced offers, and updates the
+   contextual current availability/current price stores. Unresolved identity
+   research is opt-in through `--include-identity-discovery` and is not part of
+   the five-hour price schedule. When an exact search
    proves the stay unavailable, the default policy shifts the complete stay by
    one day and records both windows. `UNKNOWN` technical or identity results do
    not trigger fallback and are never presented as sold out. It does not
@@ -45,7 +48,12 @@ Required worker setting:
 
 ```text
 NEXTRIP_KB_ROOT=/opt/airflow/nextrip
+NEXTRIP_CANONICAL_DATASET=/opt/airflow/nextrip/data/canonical/datasets/dataset=<dataset-id>/canonical-active-dataset.json
 ```
+
+The selected canonical file must be mounted read-only at that exact path. The
+registry task fails before crawling if the setting is missing or the artifact
+does not validate.
 
 Optional settings and their defaults:
 
@@ -69,6 +77,7 @@ declarative policy, while Airflow provides the actual scheduling.
 
 ```powershell
 python -m nextrip_pipeline.cli build-trivago-registry `
+  --canonical-dataset $env:NEXTRIP_CANONICAL_DATASET `
   --override config/trivago-mapping.json
 
 python -m nextrip_pipeline.cli batch-trivago-availability `
@@ -78,3 +87,12 @@ python -m nextrip_pipeline.cli batch-trivago-availability `
 Omit `--max-requests` only after the bounded run succeeds. Explicit stay and
 occupancy values can be supplied with `--check-in`, `--check-out`, `--adults`,
 `--rooms`, `--children`, `--children-ages`, and `--lookahead-days`.
+Use `--include-identity-discovery` only for a bounded identity-research batch;
+provider-not-listed and identity-reverify terminal review states remain excluded.
+
+A confirmed Trivago ID is never replaced merely because a stay-date search
+returns another similarly named hotel. The result is persisted as
+`unknown/confirmed_listing_not_returned`, the confirmed mapping is retained,
+and the scheduled job may retry it later. Only an exact confirmed ID can
+publish a price; an external-ID change requires separately pinned review
+evidence.

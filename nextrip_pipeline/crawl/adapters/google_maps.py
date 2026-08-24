@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
-from urllib.parse import quote
+from inspect import signature
+from urllib.parse import quote, unquote_plus, urlsplit, urlunsplit
 from uuid import uuid4
 
 from nextrip_pipeline.crawl.browser import BrowserClient
@@ -16,6 +17,21 @@ from nextrip_pipeline.schemas import (
 from .playwright_common import extract_json_ld
 
 
+def _force_vietnamese_language(url: str) -> str:
+    """Set Google Maps ``hl=vi`` while preserving every other query token."""
+
+    parsed = urlsplit(url)
+    query_tokens = parsed.query.split("&") if parsed.query else []
+    retained_tokens = []
+    for token in query_tokens:
+        key, _, _ = token.partition("=")
+        if unquote_plus(key).casefold() == "hl":
+            continue
+        retained_tokens.append(token)
+    retained_tokens.append("hl=vi")
+    return urlunsplit(parsed._replace(query="&".join(retained_tokens)))
+
+
 class GoogleMapsPlaceAdapter:
     """Captures a public Google Maps place page without Places API credentials."""
 
@@ -27,6 +43,7 @@ class GoogleMapsPlaceAdapter:
         source_id: str = "google-maps-web",
         parser_version: str = "1.0.0",
         timeout_seconds: float = 45,
+        include_menu: bool = False,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.browser = browser
@@ -34,6 +51,7 @@ class GoogleMapsPlaceAdapter:
         self.source_id = source_id
         self.parser_version = parser_version
         self.timeout_seconds = timeout_seconds
+        self.include_menu = include_menu
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def fetch(
@@ -56,16 +74,17 @@ class GoogleMapsPlaceAdapter:
         elif centered_place_url:
             requested_url = (
                 "https://www.google.com/maps/search/"
-                f"{quote(query, safe='')}/@{latitude},{longitude},17z?hl=en"
+                f"{quote(query, safe='')}/@{latitude},{longitude},17z"
             )
         else:
-            requested_url = f"{self.base_url}/{quote(query, safe='')}?hl=en"
+            requested_url = f"{self.base_url}/{quote(query, safe='')}"
+        requested_url = _force_vietnamese_language(requested_url)
         detail_capture = getattr(self.browser, "capture_google_maps_place", None)
         if callable(detail_capture):
-            snapshot = detail_capture(
-                requested_url,
-                timeout_seconds=self.timeout_seconds,
-            )
+            capture_arguments = {"timeout_seconds": self.timeout_seconds}
+            if "include_menu" in signature(detail_capture).parameters:
+                capture_arguments["include_menu"] = self.include_menu
+            snapshot = detail_capture(requested_url, **capture_arguments)
         else:
             snapshot = self.browser.capture(
                 requested_url,

@@ -144,13 +144,10 @@ class GraphCandidateProvider:
         if self.ai_client is not None:
             sources["vector"] = self._query_places(
                 f"""
-                MATCH (node:Place)
-                SEARCH node IN (
-                  VECTOR INDEX {self.place_vector_index}
-                  FOR $embedding
-                  LIMIT $limit
+                CALL db.index.vector.queryNodes(
+                  '{self.place_vector_index}', $limit, $embedding
                 )
-                SCORE AS score
+                YIELD node, score
                 WHERE node.kb_version = $kb_version
                 RETURN node.id AS candidate_id,
                        node.name AS canonical_value,
