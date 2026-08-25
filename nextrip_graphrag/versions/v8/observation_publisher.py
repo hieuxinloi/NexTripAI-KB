@@ -26,6 +26,9 @@ from nextrip_pipeline.publishing.current_availability import (
 )
 from nextrip_pipeline.publishing.current_menu import CurrentMenuMetadata
 from nextrip_pipeline.publishing.current_price import CurrentHotelPriceSnapshot
+from nextrip_pipeline.quality.opening_status_approval import (
+    OpeningStatusReviewApproval,
+)
 from nextrip_pipeline.schemas import (
     HotelAvailabilityStatus,
     NexTripModel,
@@ -48,6 +51,7 @@ _INPUT_FAMILIES = {
     "current_menu_approval",
     "hotel_availability",
     "hotel_price",
+    "opening_status_approval",
 }
 
 
@@ -249,6 +253,7 @@ def build_v8_observation_plan(
     hotel_price_root: str | Path,
     hotel_availability_root: str | Path,
     current_menu_root: str | Path | None = None,
+    opening_approval_root: str | Path | None = None,
     built_at: datetime | None = None,
 ) -> V8ObservationPublishPlan:
     """Build a deterministic plan from canonical and contextual artifacts.
@@ -265,6 +270,7 @@ def build_v8_observation_plan(
         hotel_price_root=hotel_price_root,
         hotel_availability_root=hotel_availability_root,
         current_menu_root=current_menu_root,
+        opening_approval_root=opening_approval_root,
         built_at=built_at,
     )
 
@@ -275,6 +281,7 @@ def build_v8_observation_plan_for_dataset(
     hotel_price_root: str | Path,
     hotel_availability_root: str | Path,
     current_menu_root: str | Path | None = None,
+    opening_approval_root: str | Path | None = None,
     built_at: datetime | None = None,
 ) -> V8ObservationPublishPlan:
     """Variant accepting an already validated dataset for orchestration/tests."""
@@ -297,13 +304,37 @@ def build_v8_observation_plan_for_dataset(
         family="hotel_availability",
     )
     canonical_place_snapshots = _canonical_opening_snapshots(dataset)
+    opening_approvals, opening_approval_artifacts = _load_optional_artifacts(
+        opening_approval_root,
+        OpeningStatusReviewApproval,
+        family="opening_status_approval",
+    )
+    approvals_by_observation_id: dict[str, list[OpeningStatusReviewApproval]] = {}
+    approval_artifact_by_id: dict[str, V8ObservationInputArtifact] = {}
+    for approval, artifact in zip(
+        opening_approvals,
+        opening_approval_artifacts,
+        strict=True,
+    ):
+        approvals_by_observation_id.setdefault(
+            approval.source_observation_id,
+            [],
+        ).append(approval)
+        approval_artifact_by_id[approval.approval_id] = artifact
+    canonical_records = {record.place_id: record for record in dataset.records}
 
     observations: list[V8ObservationRow] = []
+    used_opening_approval_artifacts: list[V8ObservationInputArtifact] = []
     for snapshot in price_snapshots:
         observations.append(_price_row(snapshot, canonical_types))
     price_rows_by_source_id = _unique_price_rows_by_source_id(observations)
 
     for snapshot in availability_snapshots:
+        # UNKNOWN is a crawl/identity outcome retained in run audit only. Old
+        # current snapshots from pre-hardening releases must not block valid
+        # observations or become graph facts.
+        if snapshot.observation.status is HotelAvailabilityStatus.UNKNOWN:
+            continue
         observations.append(
             _availability_row(
                 snapshot,
@@ -312,8 +343,38 @@ def build_v8_observation_plan_for_dataset(
             )
         )
     for snapshot in canonical_place_snapshots:
-        if snapshot.opening is not None:
-            observations.append(_opening_row(snapshot, canonical_types))
+        if snapshot.opening is None:
+            continue
+        approval = _matching_opening_approval(
+            dataset,
+            canonical_records[snapshot.place_id].record_hash,
+            snapshot,
+            approvals_by_observation_id.get(
+                snapshot.opening.observation_id,
+                [],
+            ),
+        )
+        # Canonical datasets deliberately retain unresolved operational
+        # evidence for audit and later human review.  Those records must not be
+        # published as trusted observations, but they also must not prevent
+        # independently verified observations from being planned.
+        if (
+            snapshot.opening.verification_status
+            not in _PUBLISHABLE_VERIFICATION_STATUSES
+            and approval is None
+        ):
+            continue
+        observations.append(
+            _opening_row(
+                snapshot,
+                canonical_types,
+                approval=approval,
+            )
+        )
+        if approval is not None:
+            used_opening_approval_artifacts.append(
+                approval_artifact_by_id[approval.approval_id]
+            )
 
     menu_items: list[V8MenuItemRow] = []
     menu_artifacts: list[V8ObservationInputArtifact] = []
@@ -338,6 +399,7 @@ def build_v8_observation_plan_for_dataset(
         [
             *price_artifacts,
             *availability_artifacts,
+            *used_opening_approval_artifacts,
             *menu_artifacts,
         ],
         key=lambda item: (item.family, item.relative_path),
@@ -654,6 +716,54 @@ def _load_artifacts(
     return values, artifacts
 
 
+def _load_optional_artifacts(
+    root: str | Path | None,
+    model: type[NexTripModel],
+    *,
+    family: str,
+) -> tuple[list[Any], list[V8ObservationInputArtifact]]:
+    if root is None:
+        return [], []
+    directory = Path(root)
+    if not directory.exists():
+        return [], []
+    return _load_artifacts(directory, model, family=family)
+
+
+def _matching_opening_approval(
+    dataset: CanonicalActiveDataset,
+    canonical_record_hash: str,
+    snapshot: CurrentPlaceSnapshot,
+    candidates: list[OpeningStatusReviewApproval],
+) -> OpeningStatusReviewApproval | None:
+    observation = snapshot.opening
+    if observation is None:
+        return None
+    observation_hash = stable_sha256(observation.model_dump(mode="json"))
+    matches = [
+        approval
+        for approval in candidates
+        if (
+            approval.canonical_dataset_id == dataset.dataset_id
+            and approval.canonical_dataset_hash == dataset.dataset_hash
+            and approval.canonical_record_hash == canonical_record_hash
+            and approval.place_id == snapshot.place_id
+            and approval.entity_type is snapshot.entity_type
+            and approval.city_id == snapshot.city_id
+            and approval.source_observation_id == observation.observation_id
+            and approval.source_observation_hash == observation_hash
+            and approval.source_verification_status
+            is observation.verification_status
+            and approval.opening_status is observation.status
+            and approval.local_date == observation.local_date.isoformat()
+            and approval.observed_at == observation.observed_at
+        )
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: (item.approved_at, item.approval_id))
+
+
 def _new_observation_row(
     *,
     graph_id: str,
@@ -869,6 +979,8 @@ def _availability_row(
 def _opening_row(
     snapshot: CurrentPlaceSnapshot,
     canonical_types: dict[str, set[str]],
+    *,
+    approval: OpeningStatusReviewApproval | None = None,
 ) -> V8ObservationRow:
     observation = snapshot.opening
     if observation is None:  # pragma: no cover - guarded by caller
@@ -888,7 +1000,12 @@ def _opening_row(
         snapshot.entity_type.value,
         canonical_types,
     )
-    _require_publishable(observation.verification_status, "opening_status")
+    effective_verification_status = (
+        approval.approved_verification_status
+        if approval is not None
+        else observation.verification_status
+    )
+    _require_publishable(effective_verification_status, "opening_status")
     identity = {
         "source_observation_id": observation.observation_id,
         "place_id": observation.place_id,
@@ -896,6 +1013,11 @@ def _opening_row(
         "local_date": observation.local_date.isoformat(),
         "timezone": observation.timezone,
     }
+    if approval is not None:
+        # A later human approval is a new immutable review event even when it
+        # refers to the same source observation.  Keep auto-verified graph IDs
+        # stable while preventing approved revisions from content-conflicting.
+        identity["human_approval_id"] = approval.approval_id
     graph_id = _observation_graph_id(V8ObservationKind.OPENING_STATUS, identity)
     interval_payload = [
         item.model_dump(mode="json") for item in observation.opening_intervals
@@ -925,7 +1047,19 @@ def _opening_row(
             "next_open_at": _optional_datetime(observation.next_open_at),
             "next_close_at": _optional_datetime(observation.next_close_at),
             "observed_at": _iso_datetime(observation.observed_at),
-            "verification_status": observation.verification_status.value,
+            "verification_status": effective_verification_status.value,
+            "source_verification_status": (
+                observation.verification_status.value
+                if approval is not None
+                else None
+            ),
+            "human_approval_id": approval.approval_id if approval else None,
+            "human_approval_hash": approval.approval_hash if approval else None,
+            "human_approval_reviewer": approval.reviewer if approval else None,
+            "human_approval_approved_at": (
+                _iso_datetime(approval.approved_at) if approval else None
+            ),
+            "human_approval_reason": approval.reason if approval else None,
             "snapshot_updated_at": _iso_datetime(snapshot.updated_at),
             "stale_after": _optional_datetime(snapshot.stale_after),
         }

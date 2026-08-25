@@ -7,6 +7,7 @@ from .hotel_price import (
 from .google_maps import (
     GoogleMapsDecision,
     GoogleMapsDecisionGate,
+    GoogleMapsDecisionPolicy,
     GoogleMapsDecisionStatus,
     GoogleMapsDecisionWriter,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "HotelPriceDecision",
     "GoogleMapsDecision",
     "GoogleMapsDecisionGate",
+    "GoogleMapsDecisionPolicy",
     "GoogleMapsDecisionStatus",
     "GoogleMapsDecisionWriter",
     "HotelPriceDecisionGate",

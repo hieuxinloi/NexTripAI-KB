@@ -711,6 +711,10 @@ def _concept_rows(
     ):
         normalized = _normalized_dimension_value(value)
         identifier = _dimension_id(f"concept:{concept_type}", normalized)
+        domain = _concept_domain(concept_type)
+        semantic_text = (
+            f"Khái niệm: {value} | Loại: {concept_type} | Miền: {domain}"
+        )
         rows.append(
             {
                 "id": identifier,
@@ -722,7 +726,11 @@ def _concept_rows(
                     "canonical_name": value,
                     "normalized_name": normalized,
                     "concept_type": concept_type,
-                    "domain": _concept_domain(concept_type),
+                    "domain": domain,
+                    "semantic_text": semantic_text,
+                    "semantic_content_hash": stable_sha256(
+                        {"target": "concept", "text": semantic_text}
+                    ),
                     "kb_version": KB_VERSION,
                 },
             }
@@ -1113,6 +1121,9 @@ def _text_unit_row(
     text_unit_id: str,
 ) -> dict[str, Any]:
     text = _place_evidence_text(record)
+    semantic_content_hash = stable_sha256(
+        {"target": "text_unit", "text": text}
+    )
     content = {
         "canonical_place_id": record.place_id,
         "record_hash": record.record_hash,
@@ -1131,6 +1142,8 @@ def _text_unit_row(
             "canonical_place_id": record.place_id,
             "record_hash": record.record_hash,
             "content_hash": stable_sha256(content),
+            "semantic_content_hash": semantic_content_hash,
+            "semantic_text": text,
             "title": record.name,
             "text": text,
             "sequence": 0,
@@ -1250,6 +1263,9 @@ def _place_properties(
         description or "",
         *record.tags,
     ]
+    semantic_text = " | ".join(
+        part.strip() for part in search_parts if part.strip()
+    )
     properties = _safe_flat_properties(record.data)
     properties.update(_flatten_known_nested_fields(record.data))
     if record.primary_type.value == "hotel":
@@ -1284,11 +1300,11 @@ def _place_properties(
             "category": category,
             "category_name": category,
             "description": description,
-            "search_text": " | ".join(
-                part.strip() for part in search_parts if part.strip()
-            ),
-            "entity_profile": " | ".join(
-                part.strip() for part in search_parts if part.strip()
+            "search_text": semantic_text,
+            "entity_profile": semantic_text,
+            "semantic_text": semantic_text,
+            "semantic_content_hash": stable_sha256(
+                {"target": "place", "text": semantic_text}
             ),
             "record_hash": record.record_hash,
             "current_record_hash": record.record_hash,
@@ -2009,16 +2025,29 @@ UNWIND $rows AS row
 MATCH (place:CanonicalPlace {id: row.id, kb_version: $kb_version})
 WITH place, row,
      CASE
-       WHEN place.current_record_hash = row.properties.current_record_hash
+       WHEN place.semantic_content_hash = row.properties.semantic_content_hash
        THEN place.embedding
        ELSE null
-     END AS preserved_embedding
+     END AS preserved_embedding,
+     CASE
+       WHEN place.semantic_content_hash = row.properties.semantic_content_hash
+       THEN place.embedding_model
+       ELSE null
+     END AS preserved_embedding_model,
+     CASE
+       WHEN place.semantic_content_hash = row.properties.semantic_content_hash
+       THEN place.embedding_dimension
+       ELSE null
+     END AS preserved_embedding_dimension
 SET place = row.properties
 SET place:Place:Entity
 REMOVE place:ArchivedPlace
 FOREACH (
   ignored IN CASE WHEN preserved_embedding IS NULL THEN [] ELSE [1] END |
-  SET place.embedding = preserved_embedding
+  SET place.embedding = preserved_embedding,
+      place.embedding_model = preserved_embedding_model,
+      place.embedding_dimension = preserved_embedding_dimension,
+      place.embedding_content_hash = row.properties.semantic_content_hash
 )
 SET place.location = point({
   latitude: row.properties.lat,
@@ -2264,6 +2293,16 @@ def ensure_canonical_v8_schema(
         f"""
         CREATE VECTOR INDEX concept_embedding IF NOT EXISTS
         FOR (node:Concept) ON (node.embedding)
+        OPTIONS {{indexConfig: {{
+          `vector.dimensions`: {embedding_dimension},
+          `vector.similarity_function`: 'cosine'
+        }}}}
+        """
+    )
+    store.run(
+        f"""
+        CREATE VECTOR INDEX text_unit_embedding IF NOT EXISTS
+        FOR (node:TextUnit) ON (node.embedding)
         OPTIONS {{indexConfig: {{
           `vector.dimensions`: {embedding_dimension},
           `vector.similarity_function`: 'cosine'

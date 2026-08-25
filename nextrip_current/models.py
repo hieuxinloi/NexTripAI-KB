@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import AwareDatetime, Field, HttpUrl, field_validator, model_validator
 
@@ -15,6 +16,7 @@ from nextrip_pipeline.schemas import (
     OfferAvailability,
     VerificationStatus,
 )
+from nextrip_traffic.models import TransportRecommendationResponse
 
 
 class CurrentLookupStatus(StrEnum):
@@ -66,6 +68,18 @@ class PlaceBatchItem(NexTripModel):
 class PlaceBatchResponse(NexTripModel):
     evaluated_at: AwareDatetime
     items: list[PlaceBatchItem]
+
+
+class TripRouteLegRequest(NexTripModel):
+    origin_id: str = Field(min_length=1)
+    destination_id: str = Field(min_length=1)
+    departure_time: AwareDatetime
+
+    @model_validator(mode="after")
+    def distinct_endpoints(self) -> TripRouteLegRequest:
+        if self.origin_id == self.destination_id:
+            raise ValueError("trip route endpoints must be different")
+        return self
 
 
 class HotelOfferSearchRequest(NexTripModel):
@@ -410,6 +424,58 @@ class HotelAvailabilitySearchResponse(NexTripModel):
             for window in result.windows
         ):
             raise ValueError("result windows must match the search context")
+        return self
+
+
+class TripContextRequest(NexTripModel):
+    place_ids: list[str] = Field(min_length=1, max_length=100)
+    hotel_search: HotelAvailabilitySearchRequest | None = None
+    route_legs: list[TripRouteLegRequest] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> TripContextRequest:
+        if len(set(self.place_ids)) != len(self.place_ids):
+            raise ValueError("place_ids cannot contain duplicates")
+        scope = set(self.place_ids)
+        if self.hotel_search and not set(self.hotel_search.hotel_ids) <= scope:
+            raise ValueError("hotel_search hotel_ids must be included in place_ids")
+        route_ids = {
+            place_id
+            for leg in self.route_legs
+            for place_id in (leg.origin_id, leg.destination_id)
+        }
+        if not route_ids <= scope:
+            raise ValueError("route leg endpoints must be included in place_ids")
+        return self
+
+
+class TripContextRouteResult(NexTripModel):
+    origin_id: str
+    destination_id: str
+    status: Literal["available", "unavailable"]
+    recommendation: TransportRecommendationResponse | None = None
+    error_code: str | None = None
+
+    @model_validator(mode="after")
+    def validate_result(self) -> TripContextRouteResult:
+        if self.status == "available" and self.recommendation is None:
+            raise ValueError("available route requires a recommendation")
+        if self.status == "unavailable" and self.recommendation is not None:
+            raise ValueError("unavailable route cannot include a recommendation")
+        return self
+
+
+class TripContextResponse(NexTripModel):
+    evaluated_at: AwareDatetime
+    places: PlaceBatchResponse
+    hotel_availability: HotelAvailabilitySearchResponse | None = None
+    hotel_error_code: str | None = None
+    routes: list[TripContextRouteResult] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_hotel_result(self) -> TripContextResponse:
+        if self.hotel_availability is not None and self.hotel_error_code is not None:
+            raise ValueError("hotel result cannot include both data and an error")
         return self
 
 

@@ -221,6 +221,9 @@ def test_on_demand_refresh_runs_full_pipeline_for_one_exact_context(
     availability_payload = json.loads(availability_files[0].read_text(encoding="utf-8"))
     assert availability_payload["observation"]["status"] == "available"
     assert len(list(paths.summary_directory.glob("run=*.json"))) == 1
+    assert len(
+        list((tmp_path / "data" / "observations").rglob("observation=*.json"))
+    ) == 2
 
 
 def test_on_demand_refresh_respects_terminal_provider_review(tmp_path: Path) -> None:

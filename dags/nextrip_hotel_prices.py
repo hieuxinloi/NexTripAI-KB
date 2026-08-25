@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 
 
@@ -21,15 +22,45 @@ except ImportError:
     DAG = None
 
 
-def _registry_command() -> str:
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
+
+
+def _command_prefix() -> str:
     return (
-        'set -euo pipefail; KB_ROOT="${NEXTRIP_KB_ROOT:-/opt/airflow/nextrip}"; '
+        "set -euo pipefail; "
+        'KB_ROOT="${NEXTRIP_KB_ROOT:-/opt/airflow/nextrip}"; '
         'cd "$KB_ROOT"; '
-        ': "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"; '
+        'POINTER_PATH="${NEXTRIP_CANONICAL_DATASET_POINTER:-data/canonical/'
+        'active-dataset-pointer.json}"; '
+        'if [ -f "$POINTER_PATH" ]; then '
+        'RESOLVE_OUTPUT="$(python -m nextrip_pipeline.cli '
+        'resolve-active-canonical-dataset --pointer "$POINTER_PATH")"; '
+        'CANONICAL_DATASET="$(printf "%s\\n" "$RESOLVE_OUTPUT" '
+        "| sed -n 's/^dataset=//p' | tail -n 1)\"; "
+        'elif [ -n "${NEXTRIP_CANONICAL_DATASET:-}" ]; then '
+        'CANONICAL_DATASET="$NEXTRIP_CANONICAL_DATASET"; '
+        'else echo "No active canonical dataset pointer or legacy dataset is '
+        'configured" >&2; exit 2; fi; '
+        'test -n "$CANONICAL_DATASET"; '
+    )
+
+
+def _registry_command() -> str:
+    return _command_prefix() + (
         "python -m nextrip_pipeline.cli build-trivago-registry "
-        '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET" '
+        '--canonical-dataset "$CANONICAL_DATASET" '
         "--override config/trivago-mapping.json "
-        "--current-mapping-dir data/current/trivago_mappings "
+        "--current-mapping-dir "
+        '"${NEXTRIP_CURRENT_TRIVAGO_MAPPING_ROOT:-data/current/trivago_mappings}" '
         "--output config/generated/trivago-hotel-registry.json "
         "--report config/generated/trivago-registry-report.json"
     )
@@ -39,6 +70,9 @@ def _batch_command() -> str:
     return (
         'set -euo pipefail; KB_ROOT="${NEXTRIP_KB_ROOT:-/opt/airflow/nextrip}"; '
         'cd "$KB_ROOT"; '
+        "MAX_REQUEST_ARGS=(); "
+        'if [ -n "${NEXTRIP_TRIVAGO_MAX_REQUESTS:-}" ]; then '
+        'MAX_REQUEST_ARGS=(--max-requests "$NEXTRIP_TRIVAGO_MAX_REQUESTS"); fi; '
         "python -m nextrip_pipeline.cli batch-trivago-availability "
         "--registry config/generated/trivago-hotel-registry.json "
         '"--check-in-offset-days" "${NEXTRIP_HOTEL_CHECK_IN_OFFSET_DAYS:-1}" '
@@ -47,11 +81,29 @@ def _batch_command() -> str:
         '"--adults" "${NEXTRIP_HOTEL_ADULTS:-2}" '
         '"--rooms" "${NEXTRIP_HOTEL_ROOMS:-1}" '
         '"--currency" "${NEXTRIP_HOTEL_CURRENCY:-VND}" '
-        '"--max-requests" "${NEXTRIP_TRIVAGO_MAX_REQUESTS:-73}"'
+        '--raw-dir "${NEXTRIP_RAW_ROOT:-data/raw}" '
+        '--normalized-dir "${NEXTRIP_NORMALIZED_ROOT:-data/normalized}" '
+        "--accepted-observation-dir "
+        '"${NEXTRIP_ACCEPTED_OBSERVATION_ROOT:-data/observations}" '
+        '--quality-dir "${NEXTRIP_TRIVAGO_QUALITY_ROOT:-data/quality/trivago_mapping}" '
+        '--validation-dir "${NEXTRIP_VALIDATION_ROOT:-data/validation}" '
+        '--decision-dir "${NEXTRIP_DECISION_ROOT:-data/decisions}" '
+        "--current-mapping-dir "
+        '"${NEXTRIP_CURRENT_TRIVAGO_MAPPING_ROOT:-data/current/trivago_mappings}" '
+        "--current-price-dir "
+        '"${NEXTRIP_CURRENT_HOTEL_PRICE_ROOT:-data/current/hotel_price}" '
+        "--current-availability-dir "
+        '"${NEXTRIP_CURRENT_HOTEL_AVAILABILITY_ROOT:-data/current/hotel_availability}" '
+        '--stay-result-dir "${NEXTRIP_TRIVAGO_STAY_RESULT_ROOT:-data/runs/trivago_stay}" '
+        "--summary-dir "
+        '"${NEXTRIP_TRIVAGO_BATCH_SUMMARY_ROOT:-data/runs/trivago_availability_batch}" '
+        '"${MAX_REQUEST_ARGS[@]}"'
     )
 
 
-if DAG is not None:
+hotel_prices_dag = None
+
+if DAG is not None and _env_flag("NEXTRIP_HOTEL_PRICES_AIRFLOW_ENABLED"):
     common = {
         "owner": "nextrip-data",
         "depends_on_past": False,
@@ -79,5 +131,8 @@ if DAG is not None:
             task_id="refresh_trivago_availability",
             bash_command=_batch_command(),
             execution_timeout=timedelta(hours=2),
+            # The batch replaces current price and availability files. Keep that
+            # write window mutually exclusive with the Neo4j snapshot reader.
+            pool=os.getenv("NEXTRIP_CURRENT_DATA_POOL", "current_data_snapshot"),
         )
         build_trivago_registry >> refresh_trivago_availability

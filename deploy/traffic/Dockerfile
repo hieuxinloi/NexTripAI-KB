@@ -15,9 +15,13 @@ RUN pip install --no-cache-dir -r /tmp/traffic-requirements.txt
 
 COPY nextrip_pipeline ./nextrip_pipeline
 COPY nextrip_traffic ./nextrip_traffic
+COPY nextrip_current ./nextrip_current
 COPY config ./config
 
 RUN mkdir -p /app/data/canonical /app/data/current/traffic \
+        /app/data/current/hotel_price \
+        /app/data/current/hotel_availability \
+        /app/data/current/trivago_mappings \
     && chown -R 50000:0 /app \
     && chmod -R g=u /app
 

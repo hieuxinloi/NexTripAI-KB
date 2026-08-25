@@ -27,6 +27,9 @@ _DIRECT_STABLE_ID_PATTERN = re.compile(
     r")",
     re.IGNORECASE,
 )
+_GOOGLE_PLACE_COORDINATE_PATTERN = re.compile(
+    r"!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)"
+)
 
 
 def google_maps_search_placeholder(entity_id: str) -> str:
@@ -104,6 +107,25 @@ def google_maps_stable_place_url(value: object) -> str | None:
     if google_maps_stable_external_id(official_url) is None:
         return None
     return official_url
+
+
+def google_maps_place_coordinates(value: object) -> tuple[float, float] | None:
+    """Return provider place coordinates embedded in an official Maps URL.
+
+    Google detail URLs commonly carry both ``/@lat,lng`` (the map camera) and
+    ``!3dlat!4dlng`` (the selected listing).  Only the latter is place evidence.
+    """
+
+    official_url = google_maps_official_share_url(value)
+    if official_url is None:
+        return None
+    match = _GOOGLE_PLACE_COORDINATE_PATTERN.search(unquote(official_url))
+    if match is None:
+        return None
+    latitude, longitude = (float(match.group(1)), float(match.group(2)))
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+    return latitude, longitude
 
 
 def google_maps_stable_external_ids(*values: object) -> tuple[str, ...]:

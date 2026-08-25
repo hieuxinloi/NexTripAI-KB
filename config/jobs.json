@@ -9,15 +9,15 @@
     {
       "job_id": "opening-status-capture",
       "source_id": "google-maps-web",
-      "interval_minutes": 1440,
-      "max_requests_per_run": 32,
+      "interval_minutes": 10080,
+      "max_requests_per_run": 10000,
       "enabled": false
     },
     {
       "job_id": "google-maps-details-refresh",
       "source_id": "google-maps-web",
       "interval_minutes": 10080,
-      "max_requests_per_run": 32,
+      "max_requests_per_run": 10000,
       "enabled": false
     },
     {

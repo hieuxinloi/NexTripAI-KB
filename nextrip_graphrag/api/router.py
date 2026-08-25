@@ -131,6 +131,11 @@ def _store_health(store: Any) -> str:
         ):
             pass
         store.run("RETURN 1 AS ok")
+        runtime_readiness = getattr(store, "runtime_readiness", None)
+        if callable(runtime_readiness):
+            report = runtime_readiness()
+            if not report.get("ready"):
+                return "not_ready:ReleaseGate"
         return "ready"
     except Exception as exc:
         return f"not_ready:{exc.__class__.__name__}"

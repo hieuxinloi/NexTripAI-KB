@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from nextrip_pipeline.decision_gate import (
     GoogleMapsDecisionGate,
+    GoogleMapsDecisionPolicy,
     GoogleMapsDecisionStatus,
 )
 import pytest
@@ -107,6 +108,88 @@ def test_auto_matched_google_place_waits_for_human_review() -> None:
     assert decision.reason_codes == ["MAPPING_NEEDS_CONFIRMATION"]
 
 
+def test_trusted_scheduled_gate_quarantines_identity_warning_without_review() -> None:
+    mapping = _mapping(MappingStatus.AUTO_MATCHED)
+    observation = GoogleMapsPlaceNormalizer().normalize(_record(), mapping)
+    validations = GoogleMapsValidatorOrchestrator(clock=lambda: NOW).validate(
+        observation, mapping
+    )
+
+    decision = GoogleMapsDecisionGate(
+        clock=lambda: NOW,
+        policy=GoogleMapsDecisionPolicy.TRUSTED_SCHEDULED,
+    ).decide(observation, validations)
+
+    assert decision.status is GoogleMapsDecisionStatus.QUARANTINE
+    assert decision.reason_codes == ["MAPPING_NEEDS_CONFIRMATION"]
+
+
+def test_trusted_scheduled_gate_quarantines_missing_detail_warning() -> (
+    None
+):
+    mapping = _mapping(MappingStatus.CONFIRMED)
+    observation = GoogleMapsPlaceNormalizer().normalize(_record(), mapping)
+    validations = GoogleMapsValidatorOrchestrator(clock=lambda: NOW).validate(
+        observation, mapping
+    )
+    validations[3] = validations[3].model_copy(
+        update={
+            "status": ValidationStatus.WARN,
+            "reason_codes": ["BUSINESS_STATUS_UNVERIFIED"],
+        }
+    )
+
+    decision = GoogleMapsDecisionGate(
+        clock=lambda: NOW,
+        policy=GoogleMapsDecisionPolicy.TRUSTED_SCHEDULED,
+    ).decide(observation, validations)
+
+    assert decision.status is GoogleMapsDecisionStatus.QUARANTINE
+    assert decision.reason_codes == ["BUSINESS_STATUS_UNVERIFIED"]
+
+
+def test_trusted_scheduled_gate_quarantines_unknown_opening_without_retry() -> None:
+    record = _record().model_copy(
+        update={
+            "raw_payload": {
+                "page": {
+                    "html": "<title>Eo Gio - Google Maps</title>",
+                    "title": "Eo Gio - Google Maps",
+                    "final_url": "https://www.google.com/maps/place/eo-gio",
+                    "structured_data": {
+                        "name": "Eo Gio",
+                        "status_evidence_scoped": True,
+                        "business_status_text": None,
+                    },
+                }
+            }
+        }
+    )
+    mapping = _mapping(MappingStatus.CONFIRMED)
+    observation = GoogleMapsPlaceNormalizer().normalize(record, mapping)
+    validations = GoogleMapsValidatorOrchestrator(clock=lambda: NOW).validate(
+        observation,
+        mapping,
+    )
+
+    opening_validation = next(
+        item
+        for item in validations
+        if item.validator == "GoogleMapsOpeningStatusValidator"
+    )
+    decision = GoogleMapsDecisionGate(
+        clock=lambda: NOW,
+        policy=GoogleMapsDecisionPolicy.TRUSTED_SCHEDULED,
+    ).decide(observation, validations)
+
+    assert observation.business_status is BusinessStatus.ACTIVE
+    assert observation.opening.status is DailyOpeningStatus.UNKNOWN
+    assert opening_validation.status is ValidationStatus.WARN
+    assert opening_validation.reason_codes == ["OPENING_STATUS_UNAVAILABLE"]
+    assert decision.status is GoogleMapsDecisionStatus.QUARANTINE
+    assert decision.reason_codes == ["OPENING_STATUS_UNAVAILABLE"]
+
+
 def test_generic_google_maps_shell_is_rejected() -> None:
     record = _record().model_copy(
         update={
@@ -142,6 +225,38 @@ def test_master_coordinates_are_retained_when_maps_spa_omits_place_coordinates()
                     ),
                     "used_master_coordinates_for_viewport": True,
                     "structured_data": {"name": "Eo GiÃ³"},
+                }
+            }
+        }
+    )
+
+    observation = GoogleMapsPlaceNormalizer().normalize(
+        record, _mapping(MappingStatus.CONFIRMED)
+    )
+
+    assert observation.location is not None
+    assert observation.location.latitude == 13.8863066
+    assert observation.location.longitude == 109.292591
+    assert observation.location.accuracy == "verified_master_fallback"
+    assert observation.location.source == "verified-master-data"
+
+
+def test_search_shell_dom_coordinates_are_not_promoted_to_place_evidence() -> None:
+    record = _record().model_copy(
+        update={
+            "raw_payload": {
+                "page": {
+                    "html": (
+                        "<title>Kết quả - Google Maps</title>"
+                        "!3d16.0991295!4d108.2550616"
+                    ),
+                    "title": "Kết quả - Google Maps",
+                    "final_url": (
+                        "https://www.google.com/maps/search/Ho-Xanh/"
+                        "@16.097047,108.2675457,17z"
+                    ),
+                    "used_master_coordinates_for_viewport": True,
+                    "structured_data": {"name": "Kết quả", "detail_url": None},
                 }
             }
         }
@@ -231,7 +346,7 @@ def test_explicit_historical_plus_code_label_is_used_conservatively() -> None:
     assert observation.location.accuracy == "google_maps_plus_code_area_center"
 
 
-def test_resolved_place_url_coordinates_override_master_search_viewport() -> None:
+def test_place_coordinates_override_viewport_and_master_coordinates() -> None:
     record = _record().model_copy(
         update={
             "raw_payload": {
@@ -240,7 +355,8 @@ def test_resolved_place_url_coordinates_override_master_search_viewport() -> Non
                     "title": "Eo Gio - Google Maps",
                     "final_url": (
                         "https://www.google.com/maps/place/Eo-Gio/"
-                        "@13.887777,109.299999,17z"
+                        "@13.8863066,109.292591,17z/"
+                        "data=!4m2!3m1!1s0x123:0x456!8m2!3d13.887777!4d109.299999"
                     ),
                     "used_master_coordinates_for_viewport": True,
                     "structured_data": {"name": "Eo Gio"},
@@ -258,6 +374,36 @@ def test_resolved_place_url_coordinates_override_master_search_viewport() -> Non
     assert observation.location.longitude == 109.299999
     assert observation.location.accuracy == "google_maps_place_page"
     assert observation.location.source == "google-maps-web"
+
+
+def test_viewport_only_coordinates_are_not_place_evidence() -> None:
+    record = _record().model_copy(
+        update={
+            "raw_payload": {
+                "page": {
+                    "html": "<title>Eo Gio - Google Maps</title>Open now",
+                    "title": "Eo Gio - Google Maps",
+                    "final_url": (
+                        "https://www.google.com/maps/place/Eo-Gio/"
+                        "@13.887777,109.299999,17z/"
+                        "data=!4m2!3m1!1s0x123:0x456"
+                    ),
+                    "used_master_coordinates_for_viewport": True,
+                    "structured_data": {"name": "Eo Gio"},
+                }
+            }
+        }
+    )
+
+    observation = GoogleMapsPlaceNormalizer().normalize(
+        record, _mapping(MappingStatus.CONFIRMED)
+    )
+
+    assert observation.location is not None
+    assert observation.location.latitude == 13.8863066
+    assert observation.location.longitude == 109.292591
+    assert observation.location.accuracy == "verified_master_fallback"
+    assert observation.location.source == "verified-master-data"
 
 
 def test_resolved_scoped_listing_without_closure_badge_is_active() -> None:

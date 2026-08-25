@@ -60,6 +60,71 @@ CATALOG = {
 }
 
 
+class _RuntimeReadinessStore(V8GraphStore):
+    def __init__(self, release_rows: list[dict[str, Any]], place_count: int):
+        self.release_rows = release_rows
+        self.place_count = place_count
+        self.calls = 0
+
+    def run(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        assert params["kb_version"] == "v8"
+        self.calls += 1
+        if "CURRENT_RELEASE" in query:
+            return self.release_rows
+        return [{"place_count": self.place_count}]
+
+
+def test_v8_runtime_readiness_pins_release_dataset_and_place_count() -> None:
+    store = _RuntimeReadinessStore(
+        [
+            {
+                "catalog_dataset_id": "canonical-1",
+                "catalog_dataset_hash": "hash-1",
+                "expected_place_count": 692,
+                "semantic_index_status": "pending",
+                "release_id": "release-1",
+                "release_dataset_id": "canonical-1",
+                "release_dataset_hash": "hash-1",
+                "release_place_count": 692,
+            }
+        ],
+        692,
+    )
+
+    report = store.runtime_readiness()
+
+    assert report["ready"] is True
+    assert report["semantic_ready"] is False
+    assert report["place_count"] == 692
+
+
+def test_v8_runtime_readiness_fails_closed_on_dataset_conflict() -> None:
+    store = _RuntimeReadinessStore(
+        [
+            {
+                "catalog_dataset_id": "canonical-1",
+                "catalog_dataset_hash": "hash-1",
+                "expected_place_count": 692,
+                "semantic_index_status": "ready",
+                "release_id": "release-1",
+                "release_dataset_id": "canonical-other",
+                "release_dataset_hash": "hash-other",
+                "release_place_count": 692,
+            }
+        ],
+        691,
+    )
+
+    report = store.runtime_readiness()
+
+    assert report["ready"] is False
+    assert report["issues"] == [
+        "dataset_id_mismatch",
+        "dataset_hash_mismatch",
+        "active_place_count_mismatch",
+    ]
+
+
 class FakePlanner:
     def __init__(self, payload: dict[str, Any]):
         self.payload = payload

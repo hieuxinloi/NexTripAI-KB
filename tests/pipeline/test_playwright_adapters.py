@@ -143,7 +143,7 @@ def test_google_maps_adapter_forces_vi_on_external_url_and_retains_query() -> No
         }
     )
 
-    adapter.fetch(mapping, run_id="opening-run")
+    record = adapter.fetch(mapping, run_id="opening-run")
 
     requested_url = browser.requested_urls[0]
     query = parse_qs(urlsplit(requested_url).query)
@@ -154,6 +154,107 @@ def test_google_maps_adapter_forces_vi_on_external_url_and_retains_query() -> No
         "hl": ["vi"],
     }
     assert "hl=en" not in requested_url
+    assert record.raw_payload["request"]["force_search"] is False
+    assert record.raw_payload["page"]["force_search"] is False
+
+
+def test_google_maps_adapter_force_search_ignores_external_url() -> None:
+    browser = FixtureBrowser("google_maps_place.html")
+    adapter = GoogleMapsPlaceAdapter(
+        browser,
+        force_search=True,
+        clock=lambda: NOW,
+    )
+    mapping = _mapping(
+        "google-maps-web",
+        EntityType.CAFE,
+        external_id="stable-google-id",
+    ).model_copy(
+        update={
+            "external_url": "https://www.google.com/maps/place/Stale-Place?hl=en",
+            "attributes": {
+                "search_query": "Xom Meo Coffee Da Nang",
+                "master_latitude": 16.0462401,
+                "master_longitude": 108.2371618,
+            },
+        }
+    )
+
+    record = adapter.fetch(mapping, run_id="opening-run")
+
+    requested_url = browser.requested_urls[0]
+    assert "/maps/search/" in requested_url
+    assert "/maps/place/Stale-Place" not in requested_url
+    assert "Xom%20Meo%20Coffee%20Da%20Nang" in requested_url
+    assert "@16.0462401,108.2371618,17z" in requested_url
+    assert parse_qs(urlsplit(requested_url).query)["hl"] == ["vi"]
+    assert record.raw_payload["request"]["force_search"] is True
+    assert record.raw_payload["page"]["force_search"] is True
+    assert record.raw_payload["request"]["search_query_mode"] == "registry"
+    assert record.raw_payload["page"]["search_query_mode"] == "registry"
+    assert record.raw_payload["request"][
+        "used_master_coordinates_for_viewport"
+    ] is True
+
+
+def test_google_maps_adapter_name_query_mode_uses_master_name() -> None:
+    browser = FixtureBrowser("google_maps_place.html")
+    adapter = GoogleMapsPlaceAdapter(
+        browser,
+        force_search=True,
+        search_query_mode="name",
+        clock=lambda: NOW,
+    )
+    mapping = _mapping(
+        "google-maps-web",
+        EntityType.ATTRACTION,
+        external_id="stable-google-id",
+    ).model_copy(
+        update={
+            "external_url": "https://www.google.com/maps/place/Stale-Place?hl=en",
+            "attributes": {
+                "search_query": "Long registry query with stale address",
+                "google_place_name": "Google fallback name",
+                "master_name": "Cầu Rồng Đà Nẵng",
+                "master_latitude": 16.0611,
+                "master_longitude": 108.2271,
+            },
+        }
+    )
+
+    record = adapter.fetch(mapping, run_id="opening-run")
+
+    requested_url = browser.requested_urls[0]
+    assert "C%E1%BA%A7u%20R%E1%BB%93ng%20%C4%90%C3%A0%20N%E1%BA%B5ng" in requested_url
+    assert "Long%20registry%20query" not in requested_url
+    assert "@16.0611,108.2271,17z" in requested_url
+    assert record.raw_payload["request"]["query"] == "Cầu Rồng Đà Nẵng"
+    assert record.raw_payload["request"]["search_query_mode"] == "name"
+    assert record.raw_payload["page"]["search_query_mode"] == "name"
+
+
+def test_google_maps_adapter_name_query_mode_follows_fallback_order() -> None:
+    mapping = _mapping(
+        "google-maps-web",
+        EntityType.CAFE,
+    ).model_copy(
+        update={
+            "attributes": {
+                "google_place_name": "Google place name",
+                "search_query": "Registry query",
+            }
+        }
+    )
+    browser = FixtureBrowser("google_maps_place.html")
+
+    record = GoogleMapsPlaceAdapter(
+        browser,
+        search_query_mode="name",
+        clock=lambda: NOW,
+    ).fetch(mapping, run_id="opening-run")
+
+    assert record.raw_payload["request"]["query"] == "Google place name"
+    assert "Google%20place%20name" in browser.requested_urls[0]
 
 
 def test_browser_jobs_write_separate_raw_partitions(tmp_path: Path) -> None:

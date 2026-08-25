@@ -203,6 +203,37 @@ def test_lists_requested_unavailable_then_selects_next_available_window(
     assert result.windows[1].offers[0].total_amount == Decimal("1500000")
 
 
+def test_exact_hotel_lookup_does_not_scan_unrelated_nested_partitions(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    price = _price(repository.hotel_price_root, offset=0)
+    _availability(
+        repository.hotel_availability_root,
+        offset=0,
+        status=HotelAvailabilityStatus.AVAILABLE,
+        reason=HotelAvailabilityReason.OFFER_FOUND,
+        price_ids=[price.observation_id],
+    )
+    unrelated = (
+        repository.hotel_price_root
+        / "hotel=unrelated"
+        / "checkin=2099-01-01"
+        / "checkout=2099-01-02"
+    )
+    unrelated.mkdir(parents=True)
+    (unrelated / "corrupt.json").write_text("not-json", encoding="utf-8")
+
+    response = CurrentDataService(
+        repository, clock=lambda: NOW
+    ).search_hotel_availability(_request())
+
+    assert (
+        response.results[0].windows[0].availability
+        is HotelAvailabilityStatus.AVAILABLE
+    )
+
+
 def test_unknown_evidence_never_triggers_a_fallback_date(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
     _availability(

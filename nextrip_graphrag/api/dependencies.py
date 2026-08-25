@@ -14,22 +14,31 @@ from ..versions.registry import version_graph_store_class
 class KbServices:
     def __init__(self, settings: Settings):
         self.settings = settings
-        legacy_settings = (
-            settings.for_version("v1")
-            if "v1" in settings.configured_kb_versions
-            else settings
-        )
-        self.store = Neo4jGraphStore(legacy_settings)
+        configured = settings.configured_kb_versions
         self.version_stores = {
             version: version_graph_store_class(version)(
                 settings.for_version(version)
             )
-            for version in settings.configured_kb_versions
+            for version in configured
             if version != "v1"
         }
+        if "v1" in configured:
+            self.store = Neo4jGraphStore(settings.for_version("v1"))
+            self._store_is_version_store = False
+        elif settings.active_kb_version in self.version_stores:
+            # A V8-only deployment should not need a synthetic V1 connection.
+            # Keep legacy unversioned endpoints usable by pointing them at the
+            # active store without advertising an extra database version.
+            self.store = self.version_stores[settings.active_kb_version]
+            self._store_is_version_store = True
+        elif self.version_stores:
+            self.store = self.version_stores[configured[-1]]
+            self._store_is_version_store = True
+        else:
+            self.store = Neo4jGraphStore(settings)
+            self._store_is_version_store = False
         self._gemini: GeminiClient | None = None
         self._gemini_lock = Lock()
-        configured = settings.configured_kb_versions
         preferred = settings.active_kb_version
         self._active_version = (
             preferred
@@ -89,7 +98,8 @@ class KbServices:
             return current, target
 
     def close(self) -> None:
-        self.store.close()
+        if not self._store_is_version_store:
+            self.store.close()
         for store in self.version_stores.values():
             store.close()
         if self._gemini is not None:

@@ -161,7 +161,7 @@ python -m nextrip_graphrag load-evidence `
 ## Run KB API
 
 ```powershell
-uvicorn nextrip_graphrag.api.app:app --reload --port 8010
+uvicorn nextrip_graphrag.api.app:app --reload --port 8011
 ```
 
 Endpoints:

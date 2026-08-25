@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timezone
 from inspect import signature
+from typing import Literal
 from urllib.parse import quote, unquote_plus, urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -44,14 +45,20 @@ class GoogleMapsPlaceAdapter:
         parser_version: str = "1.0.0",
         timeout_seconds: float = 45,
         include_menu: bool = False,
+        force_search: bool = False,
+        search_query_mode: Literal["registry", "name"] = "registry",
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        if search_query_mode not in {"registry", "name"}:
+            raise ValueError("search_query_mode must be 'registry' or 'name'")
         self.browser = browser
         self.base_url = base_url.rstrip("/")
         self.source_id = source_id
         self.parser_version = parser_version
         self.timeout_seconds = timeout_seconds
         self.include_menu = include_menu
+        self.force_search = force_search
+        self.search_query_mode = search_query_mode
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def fetch(
@@ -62,13 +69,25 @@ class GoogleMapsPlaceAdapter:
     ) -> SourceRecord:
         if mapping.source_id != self.source_id:
             raise ValueError(f"mapping {mapping.mapping_id} belongs to another source")
-        query = str(mapping.attributes.get("search_query") or mapping.external_id)
+        if self.search_query_mode == "name":
+            query_value = (
+                mapping.attributes.get("master_name")
+                or mapping.attributes.get("google_place_name")
+                or mapping.attributes.get("search_query")
+            )
+            if not query_value:
+                raise ValueError(
+                    f"mapping {mapping.mapping_id} has no name-based search query"
+                )
+        else:
+            query_value = mapping.attributes.get("search_query") or mapping.external_id
+        query = str(query_value)
         latitude = mapping.attributes.get("master_latitude")
         longitude = mapping.attributes.get("master_longitude")
         centered_place_url = isinstance(latitude, (int, float)) and isinstance(
             longitude, (int, float)
         )
-        if mapping.external_url is not None:
+        if mapping.external_url is not None and not self.force_search:
             requested_url = str(mapping.external_url)
             centered_place_url = False
         elif centered_place_url:
@@ -94,6 +113,8 @@ class GoogleMapsPlaceAdapter:
             "request": {
                 "entity_id": mapping.entity_id,
                 "query": query,
+                "force_search": self.force_search,
+                "search_query_mode": self.search_query_mode,
                 "used_master_coordinates_for_viewport": centered_place_url,
             },
             "page": {
@@ -103,6 +124,8 @@ class GoogleMapsPlaceAdapter:
                 "html": snapshot.html,
                 "json_ld": extract_json_ld(snapshot.html),
                 "structured_data": snapshot.structured_data or {},
+                "force_search": self.force_search,
+                "search_query_mode": self.search_query_mode,
                 "used_master_coordinates_for_viewport": centered_place_url,
             },
         }

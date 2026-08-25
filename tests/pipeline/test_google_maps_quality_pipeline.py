@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from nextrip_pipeline.crawl import RawJsonWriter, compute_content_hash
 from nextrip_pipeline.decision_gate import (
     GoogleMapsDecisionGate,
+    GoogleMapsDecisionPolicy,
     GoogleMapsDecisionStatus,
     GoogleMapsDecisionWriter,
 )
@@ -13,7 +14,7 @@ from nextrip_pipeline.preprocessing import (
     GoogleMapsPlaceNormalizer,
     NormalizedGoogleMapsWriter,
 )
-from nextrip_pipeline.publishing import CurrentPlaceWriter
+from nextrip_pipeline.publishing import AcceptedObservationStore, CurrentPlaceWriter
 from nextrip_pipeline.quality import (
     CurrentGoogleMapsMappingWriter,
     GoogleMapsMappingResolutionWriter,
@@ -45,8 +46,14 @@ GOOGLE_URL = (
 
 
 class RecordAdapter:
-    def __init__(self, *, include_google_coordinates: bool) -> None:
+    def __init__(
+        self,
+        *,
+        include_google_coordinates: bool,
+        include_opening: bool = True,
+    ) -> None:
         self.include_google_coordinates = include_google_coordinates
+        self.include_opening = include_opening
 
     def fetch(self, mapping, *, run_id: str) -> SourceRecord:
         coordinate_html = (
@@ -57,7 +64,11 @@ class RecordAdapter:
                 "requested_url": "https://www.google.com/maps/search/Cafe-One",
                 "final_url": GOOGLE_URL,
                 "title": "Cafe One - Google Maps",
-                "html": f"<title>Cafe One - Google Maps</title>Open now {coordinate_html}",
+                "html": (
+                    "<title>Cafe One - Google Maps</title>"
+                    f"{'Open now' if self.include_opening else ''} "
+                    f"{coordinate_html}"
+                ),
                 "used_master_coordinates_for_viewport": (
                     not self.include_google_coordinates
                 ),
@@ -65,9 +76,13 @@ class RecordAdapter:
                     "name": "Cafe One",
                     "category": "Cafe",
                     "address": "1 Bach Dang, Da Nang, Vietnam",
-                    "aria_labels": [
-                        "Wednesday, Open 24 hours, Copy open hours"
-                    ],
+                    "aria_labels": (
+                        ["Wednesday, Open 24 hours, Copy open hours"]
+                        if self.include_opening
+                        else []
+                    ),
+                    "status_evidence_scoped": True,
+                    "business_status_text": None,
                     "image_urls": ["https://example.com/cover.jpg"],
                 },
             }
@@ -110,16 +125,28 @@ def _mapping() -> ExternalEntityMapping:
     )
 
 
-def _pipeline(tmp_path, *, include_google_coordinates: bool):
+def _pipeline(
+    tmp_path,
+    *,
+    include_google_coordinates: bool,
+    include_opening: bool = True,
+    decision_policy: GoogleMapsDecisionPolicy = GoogleMapsDecisionPolicy.STANDARD,
+):
     return GoogleMapsRefreshPipeline(
-        RecordAdapter(include_google_coordinates=include_google_coordinates),
+        RecordAdapter(
+            include_google_coordinates=include_google_coordinates,
+            include_opening=include_opening,
+        ),
         RawJsonWriter(tmp_path / "raw"),
         NormalizedGoogleMapsWriter(tmp_path / "normalized"),
         GoogleMapsValidationWriter(tmp_path / "validation"),
         GoogleMapsDecisionWriter(tmp_path / "decision"),
         normalizer=GoogleMapsPlaceNormalizer(),
         validator=GoogleMapsValidatorOrchestrator(clock=lambda: NOW),
-        decision_gate=GoogleMapsDecisionGate(clock=lambda: NOW),
+        decision_gate=GoogleMapsDecisionGate(
+            clock=lambda: NOW,
+            policy=decision_policy,
+        ),
         mapping_resolver=GoogleMapsMappingResolver(clock=lambda: NOW),
         resolution_writer=GoogleMapsMappingResolutionWriter(tmp_path / "resolution"),
         current_mapping_writer=CurrentGoogleMapsMappingWriter(
@@ -131,6 +158,9 @@ def _pipeline(tmp_path, *, include_google_coordinates: bool):
         ),
         current_place_writer=CurrentPlaceWriter(
             tmp_path / "current-place", clock=lambda: NOW
+        ),
+        accepted_observation_store=AcceptedObservationStore(
+            tmp_path / "observations"
         ),
     )
 
@@ -147,6 +177,8 @@ def test_strong_mapping_is_confirmed_and_published_current(tmp_path) -> None:
     assert result.current_place_path is not None
     assert result.current_mapping_path.exists()
     assert result.current_place_path.exists()
+    assert len(result.accepted_observation_paths) == 2
+    assert all(path.exists() for path in result.accepted_observation_paths)
     assert result.llm_review_receipt is None
 
 
@@ -160,8 +192,31 @@ def test_missing_google_geo_is_bounded_review_and_not_current(tmp_path) -> None:
     assert result.decision.status is GoogleMapsDecisionStatus.REVIEW
     assert result.current_mapping_path is None
     assert result.current_place_path is None
+    assert result.accepted_observation_paths == []
     assert result.llm_review_receipt is not None
     assert (
         result.llm_review_receipt.disposition
         is LLMReviewQueueDisposition.QUEUED
     )
+
+
+def test_scheduled_unknown_opening_is_quarantined_without_store_failure(
+    tmp_path,
+) -> None:
+    result = _pipeline(
+        tmp_path,
+        include_google_coordinates=True,
+        include_opening=False,
+        decision_policy=GoogleMapsDecisionPolicy.TRUSTED_SCHEDULED,
+    ).run(_mapping(), run_id="quality-opening-unknown")
+
+    assert result.decision is not None
+    assert result.decision.status is GoogleMapsDecisionStatus.QUARANTINE
+    assert result.decision.reason_codes == ["OPENING_STATUS_UNAVAILABLE"]
+    assert result.accepted_observation_paths == []
+    assert result.current_mapping_path is None
+    assert result.current_place_path is None
+    assert result.raw_path.exists()
+    assert result.normalized_path.exists()
+    assert result.decision_path is not None
+    assert result.decision_path.exists()

@@ -206,6 +206,27 @@ def _request(**updates):
     return HotelOfferSearchRequest(**values)
 
 
+def test_repository_readiness_cache_avoids_repeated_artifact_scan(tmp_path):
+    service, _, price_root, mapping_root = _service(tmp_path)
+    repository = service.repository
+
+    first = repository.readiness()
+    price_root.rmdir()
+    cached = repository.readiness()
+    uncached = CurrentDataRepository(
+        canonical_dataset_path=repository.canonical_dataset_path,
+        hotel_price_root=price_root,
+        hotel_availability_root=repository.hotel_availability_root,
+        trivago_mapping_root=mapping_root,
+        readiness_cache_seconds=0,
+    ).readiness()
+
+    assert first.ready is True
+    assert cached == first
+    assert uncached.ready is False
+    assert "current_hotel_price_root is not available" in uncached.issues
+
+
 def test_place_get_and_batch_keep_missing_explicit(tmp_path):
     service, place_root, _, _ = _service(tmp_path)
     _write_place(place_root)

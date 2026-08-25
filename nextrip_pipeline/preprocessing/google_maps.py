@@ -13,6 +13,7 @@ from nextrip_pipeline.google_maps_price import (
     google_maps_price_evidence_text,
     google_maps_price_level,
 )
+from nextrip_pipeline.google_maps_identity import google_maps_place_coordinates
 from nextrip_pipeline.google_maps_plus_code import (
     google_maps_plus_code_center,
     google_maps_plus_code_from_scoped_labels,
@@ -48,13 +49,12 @@ class GoogleMapsPlaceNormalizer:
     source_id = "google-maps-web"
     timezone_name = "Asia/Ho_Chi_Minh"
 
-    _coordinate_pattern = re.compile(
+    _place_coordinate_pattern = re.compile(
         r"!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)"
     )
-    _url_coordinate_pattern = re.compile(
+    _viewport_coordinate_pattern = re.compile(
         r"/@(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)"
     )
-
     def normalize(
         self,
         record: SourceRecord,
@@ -246,21 +246,61 @@ class GoogleMapsPlaceNormalizer:
         plus_code: str | None = None,
         suppress_search_viewport_coordinates: bool = False,
     ) -> GeoPoint | None:
-        pairs: list[tuple[str, str]] = []
+        # A Google Maps detail URL may contain both ``/@lat,lng`` (the map
+        # camera/viewport) and ``!3dlat!4dlng`` (the selected place).  The
+        # viewport is frequently copied from our search request and must never
+        # be promoted as provider evidence for the place itself.
+        url_place_coordinates: list[tuple[float, float]] = []
+        url_viewport_pairs: list[tuple[str, str]] = []
+        has_resolved_coordinate_url = False
         for coordinate_url in coordinate_urls:
             if not coordinate_url or (
                 suppress_search_viewport_coordinates
                 and self._is_maps_search_url(coordinate_url)
             ):
                 continue
-            pairs.extend(self._url_coordinate_pattern.findall(coordinate_url))
-        pairs.extend(self._coordinate_pattern.findall(raw_html))
-        coordinates = list(dict.fromkeys((float(a), float(b)) for a, b in pairs))
-        coordinates = [
-            item
-            for item in coordinates
-            if -90 <= item[0] <= 90 and -180 <= item[1] <= 180
-        ]
+            has_resolved_coordinate_url = True
+            place_coordinates = google_maps_place_coordinates(coordinate_url)
+            if place_coordinates is not None:
+                url_place_coordinates.append(place_coordinates)
+            elif not suppress_search_viewport_coordinates:
+                # Candidate-detail inputs can be exact Google-owned place
+                # links discovered independently and may omit !3d/!4d. Their
+                # viewport is acceptable only when it was not seeded from a
+                # master-coordinate search request.
+                url_viewport_pairs.extend(
+                    self._viewport_coordinate_pattern.findall(coordinate_url)
+                )
+        if url_place_coordinates:
+            # ``final_url`` is first and is the browser-resolved listing.  Do
+            # not bias this choice toward the old master coordinate: doing so
+            # would hide exactly the coordinate conflicts this refresh is
+            # meant to discover.
+            selected = url_place_coordinates[0]
+            return GeoPoint(
+                latitude=selected[0],
+                longitude=selected[1],
+                accuracy="google_maps_place_page",
+                source=self.source_id,
+            )
+
+        url_viewport_coordinates = self._valid_coordinates(url_viewport_pairs)
+        if url_viewport_coordinates:
+            selected = url_viewport_coordinates[0]
+            return GeoPoint(
+                latitude=selected[0],
+                longitude=selected[1],
+                accuracy="google_maps_place_page",
+                source=self.source_id,
+            )
+
+        pairs: list[tuple[str, str]] = []
+        # A Maps search shell contains viewport and nearby-card coordinates.
+        # They are not evidence for the requested place. Only inspect the DOM
+        # after the browser has resolved a non-search detail URL.
+        if not suppress_search_viewport_coordinates or has_resolved_coordinate_url:
+            pairs.extend(self._place_coordinate_pattern.findall(raw_html))
+        coordinates = self._valid_coordinates(pairs)
         expected = self._expected_coordinates(mapping)
         if not coordinates:
             plus_code_center = google_maps_plus_code_center(
@@ -297,6 +337,17 @@ class GoogleMapsPlaceNormalizer:
             accuracy="google_maps_place_page",
             source=self.source_id,
         )
+
+    @staticmethod
+    def _valid_coordinates(
+        pairs: list[tuple[str, str]],
+    ) -> list[tuple[float, float]]:
+        coordinates = list(dict.fromkeys((float(a), float(b)) for a, b in pairs))
+        return [
+            item
+            for item in coordinates
+            if -90 <= item[0] <= 90 and -180 <= item[1] <= 180
+        ]
 
     @staticmethod
     def _is_maps_search_url(value: str) -> bool:

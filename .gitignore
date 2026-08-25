@@ -36,5 +36,7 @@ enrichment_workspace/
 /data/cache/
 /data/crawl_artifacts/
 /data/current/
+/data/observations/
+/data/**/*.lock
 /state/
 /config/sources.local.json

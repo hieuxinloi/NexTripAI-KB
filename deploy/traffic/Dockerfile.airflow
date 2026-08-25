@@ -3,21 +3,50 @@ FROM apache/airflow:3.3.0-python3.11
 USER root
 
 ENV PYTHONPATH=/opt/airflow/nextrip \
-    NEXTRIP_KB_ROOT=/opt/airflow/nextrip
+    NEXTRIP_KB_ROOT=/opt/airflow/nextrip \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /opt/airflow/nextrip
 
-# Airflow 3.3.0's official Python 3.11 image already pins the versions of
-# httpx, pydantic and python-dotenv used by the traffic CLI. Copy only the
-# application code/config so the Airflow dependency set remains intact.
+# Install runtime libraries as the non-root Airflow user so Airflow's pinned
+# dependency set remains authoritative. Chromium system libraries and the
+# browser binary are installed afterwards as root into a shared path.
+USER airflow
+
+RUN python -m pip install --no-cache-dir \
+        "beautifulsoup4>=4.12.0" \
+        "google-genai>=2.14.0,<3" \
+        "loguru>=0.7.2" \
+        "neo4j>=5.20.0,<7" \
+        "playwright>=1.46.0,<2"
+
+USER root
+
+RUN PYTHONPATH=/home/airflow/.local/lib/python3.11/site-packages \
+        python -m playwright install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright
+
 COPY --chown=airflow:0 nextrip_pipeline ./nextrip_pipeline
 COPY --chown=airflow:0 nextrip_traffic ./nextrip_traffic
+COPY --chown=airflow:0 nextrip_graphrag ./nextrip_graphrag
 COPY --chown=airflow:0 config ./config
-# This deployment intentionally contains only the gated traffic DAG. The
-# ungated legacy crawl DAGs must not become active as a side effect.
 COPY --chown=airflow:0 dags/nextrip_traffic.py /opt/airflow/dags/nextrip_traffic.py
+COPY --chown=airflow:0 dags/nextrip_hotel_prices.py /opt/airflow/dags/nextrip_hotel_prices.py
+COPY --chown=airflow:0 dags/nextrip_google_maps.py /opt/airflow/dags/nextrip_google_maps.py
+COPY --chown=airflow:0 dags/nextrip_neo4j_v8.py /opt/airflow/dags/nextrip_neo4j_v8.py
+COPY --chown=airflow:0 dags/nextrip_canonical_rollout.py /opt/airflow/dags/nextrip_canonical_rollout.py
 
 RUN mkdir -p /opt/airflow/nextrip/data/canonical \
+        /opt/airflow/nextrip/data/raw \
+        /opt/airflow/nextrip/data/normalized \
+        /opt/airflow/nextrip/data/observations \
+        /opt/airflow/nextrip/data/validation \
+        /opt/airflow/nextrip/data/quality \
+        /opt/airflow/nextrip/data/decisions \
+        /opt/airflow/nextrip/data/current \
+        /opt/airflow/nextrip/data/runs \
+        /opt/airflow/nextrip/data/neo4j \
+        /opt/airflow/nextrip/data/crawl_artifacts \
         /opt/airflow/nextrip/data/current/traffic \
     && chown -R airflow:0 /opt/airflow/nextrip /opt/airflow/dags \
     && chmod -R g=u /opt/airflow/nextrip /opt/airflow/dags

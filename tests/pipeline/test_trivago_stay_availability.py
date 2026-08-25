@@ -22,6 +22,7 @@ from nextrip_pipeline.preprocessing import (
     TrivagoMcpPriceNormalizer,
 )
 from nextrip_pipeline.publishing import (
+    AcceptedObservationStore,
     CurrentHotelAvailabilityWriter,
     CurrentHotelPriceWriter,
 )
@@ -159,6 +160,21 @@ def _context(*, nights: int = 3) -> TrivagoPriceBatchContext:
     )
 
 
+def test_accepted_store_requires_deterministic_price_quality_gate(tmp_path) -> None:
+    with pytest.raises(ValueError, match="accepted observation storage requires"):
+        TrivagoStayAvailabilityRunner(
+            SequenceAdapter([]),
+            RawJsonWriter(tmp_path / "raw"),
+            NormalizedHotelPriceWriter(tmp_path / "normalized"),
+            TrivagoDiscoveryAuditWriter(tmp_path / "quality"),
+            CurrentTrivagoMappingWriter(tmp_path / "mapping"),
+            CurrentHotelAvailabilityWriter(tmp_path / "availability"),
+            accepted_observation_store=AcceptedObservationStore(
+                tmp_path / "observations"
+            ),
+        )
+
+
 def test_generic_no_accommodations_error_is_unknown_and_does_not_fallback(
     tmp_path,
 ) -> None:
@@ -194,7 +210,9 @@ def test_generic_no_accommodations_error_is_unknown_and_does_not_fallback(
         (date(2026, 8, 21), date(2026, 8, 24))
     ]
     assert all(call[3] is TrivagoSearchStrategy.NAME for call in adapter.calls)
-    assert len(list((tmp_path / "current" / "hotel_availability").rglob("*.json"))) == 1
+    assert not list(
+        (tmp_path / "current" / "hotel_availability").rglob("*.json")
+    )
 
     summary_path = TrivagoStayAvailabilityResultWriter(tmp_path / "runs").write(result)
     assert summary_path.name == "run=stay-search.json"
@@ -486,7 +504,9 @@ def test_capture_error_is_persisted_as_unknown_and_never_triggers_fallback(
     assert attempt.error_stage == "capture"
     assert attempt.availability.status is HotelAvailabilityStatus.UNKNOWN
     assert attempt.availability.reason is HotelAvailabilityReason.CRAWL_ERROR
-    assert len(list((tmp_path / "current" / "hotel_availability").rglob("*.json"))) == 1
+    assert not list(
+        (tmp_path / "current" / "hotel_availability").rglob("*.json")
+    )
 
 
 def test_available_stay_can_run_existing_quality_and_current_price_gate(
@@ -509,6 +529,9 @@ def test_available_stay_can_run_existing_quality_and_current_price_gate(
             tmp_path / "current" / "hotel_price",
             clock=lambda: NOW,
         ),
+        accepted_observation_store=AcceptedObservationStore(
+            tmp_path / "observations"
+        ),
         resolver=TrivagoDiscoveryResolver(clock=lambda: NOW),
         clock=lambda: NOW,
     )
@@ -524,6 +547,8 @@ def test_available_stay_can_run_existing_quality_and_current_price_gate(
     assert len(list((tmp_path / "validation").rglob("*.json"))) == 4
     assert len(list((tmp_path / "decision").rglob("*.json"))) == 1
     assert len(list((tmp_path / "current" / "hotel_price").rglob("*.json"))) == 1
+    accepted = list((tmp_path / "observations").rglob("observation=*.json"))
+    assert len(accepted) == 2
 
 
 def test_runner_rejects_price_captured_under_a_different_mapping(tmp_path) -> None:

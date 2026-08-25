@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, feature/graphrag-kb]
+    branches: [main, feature/graphrag-kb, feature/data-traffic-pipeline]
 
 jobs:
   test:

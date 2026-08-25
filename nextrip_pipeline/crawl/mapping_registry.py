@@ -130,6 +130,7 @@ class GoogleMapsBatchManifestDocument(NexTripModel):
     """Minimal immutable input document consumed by the existing batch loader."""
 
     registry_file: str = Field(min_length=1)
+    resolved_mapping_dir: str | None = Field(default=None, min_length=1)
 
 
 class GoogleMapsRegistryBuilder:

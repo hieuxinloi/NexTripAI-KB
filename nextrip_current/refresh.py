@@ -33,6 +33,7 @@ from nextrip_pipeline.jobs.trivago_stay_availability import (
 )
 from nextrip_pipeline.preprocessing import NormalizedHotelPriceWriter
 from nextrip_pipeline.publishing import (
+    AcceptedObservationStore,
     CurrentHotelAvailabilityWriter,
     CurrentHotelPriceWriter,
 )
@@ -71,6 +72,7 @@ class TrivagoRefreshPaths:
     current_price_directory: Path
     current_availability_directory: Path
     summary_directory: Path
+    accepted_observation_directory: Path | None = None
 
     @classmethod
     def from_kb_root(
@@ -105,6 +107,7 @@ class TrivagoRefreshPaths:
                 kb_root / "data" / "current" / "hotel_availability"
             ),
             summary_directory=kb_root / "data" / "runs" / "trivago_mcp",
+            accepted_observation_directory=kb_root / "data" / "observations",
         )
 
 
@@ -202,6 +205,10 @@ class TrivagoOnDemandPriceRefresher:
                 current_price_writer=CurrentHotelPriceWriter(
                     self.paths.current_price_directory,
                     clock=self.clock,
+                ),
+                accepted_observation_store=AcceptedObservationStore(
+                    self.paths.accepted_observation_directory
+                    or self.paths.evidence_root / "data" / "observations"
                 ),
                 validator=HotelPriceValidatorOrchestrator(clock=self.clock),
                 decision_gate=HotelPriceDecisionGate(clock=self.clock),

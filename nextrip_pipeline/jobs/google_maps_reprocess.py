@@ -19,6 +19,7 @@ from nextrip_pipeline.decision_gate import (
     GoogleMapsDecisionStatus,
     GoogleMapsDecisionWriter,
 )
+from nextrip_pipeline.google_maps_identity import google_maps_place_coordinates
 from nextrip_pipeline.preprocessing import NormalizedGoogleMapsWriter
 from nextrip_pipeline.publishing import CurrentPlaceWriter
 from nextrip_pipeline.quality import (
@@ -441,7 +442,24 @@ class GoogleMapsQualityReprocessor:
     ) -> tuple[GoogleMapsPlaceObservation, bool]:
         location = source.location
         fallback_applied = False
-        if location is None:
+        url_coordinates = google_maps_place_coordinates(source.source_url)
+        if url_coordinates is not None and (
+            location is None
+            or location.source != cls.source_id
+            or abs(location.latitude - url_coordinates[0]) > 1e-7
+            or abs(location.longitude - url_coordinates[1]) > 1e-7
+        ):
+            # Parser upgrades must be able to supersede immutable normalized
+            # artifacts without crawling Google again.  The source record and
+            # observed_at remain pinned; only the derived observation receives
+            # the provider's explicit !3d/!4d place coordinate.
+            location = GeoPoint(
+                latitude=url_coordinates[0],
+                longitude=url_coordinates[1],
+                accuracy="google_maps_place_url",
+                source=cls.source_id,
+            )
+        elif location is None:
             latitude = mapping.attributes.get("master_latitude")
             longitude = mapping.attributes.get("master_longitude")
             if cls._coordinate(latitude, -90, 90) and cls._coordinate(

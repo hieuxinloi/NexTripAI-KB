@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from nextrip_pipeline.schemas import (
+    DailyOpeningStatus,
     ExternalEntityMapping,
     GoogleMapsPlaceObservation,
     MappingStatus,
@@ -25,7 +26,7 @@ from nextrip_pipeline.quality import (
 
 
 class GoogleMapsValidatorOrchestrator:
-    validator_version = "1.0.0"
+    validator_version = "1.1.0"
 
     def __init__(
         self,
@@ -62,6 +63,7 @@ class GoogleMapsValidatorOrchestrator:
             self._identity(observation, mapping, now, mapping_resolution),
             self._coordinates(observation, mapping, now),
             self._business_status(observation, now),
+            self._opening_status(observation, now),
             self._detail_integrity(observation, now),
             self._freshness(observation, now),
         ]
@@ -308,6 +310,38 @@ class GoogleMapsValidatorOrchestrator:
                     source_record_id=observation.source_record_id,
                     observed_value={
                         "business_status": status.value,
+                        "raw_status_text": observation.opening.raw_status_text,
+                    },
+                    expected_value={"status_is_explicit": True},
+                )
+            ],
+        )
+
+    def _opening_status(self, observation, now):
+        """Treat missing daily hours as a non-publishable data gap.
+
+        ``unknown`` means that the crawl completed without enough provider
+        evidence to assert open or closed.  Returning WARN lets the scheduled
+        decision policy quarantine this one observation before the immutable
+        accepted store is reached.  Raw/normalized evidence remains available,
+        while the last accepted opening value stays active.
+        """
+
+        status = observation.opening.status
+        verified = status is not DailyOpeningStatus.UNKNOWN
+        return self._result(
+            observation,
+            "GoogleMapsOpeningStatusValidator",
+            ValidationStatus.PASS if verified else ValidationStatus.WARN,
+            now,
+            reason_code=None if verified else "OPENING_STATUS_UNAVAILABLE",
+            score=1.0 if verified else 0.5,
+            evidence=[
+                ValidationEvidence(
+                    code="OPENING_STATUS",
+                    source_record_id=observation.source_record_id,
+                    observed_value={
+                        "opening_status": status.value,
                         "raw_status_text": observation.opening.raw_status_text,
                     },
                     expected_value={"status_is_explicit": True},

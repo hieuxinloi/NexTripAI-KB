@@ -296,6 +296,7 @@ def test_new_canonical_cli_defaults_are_safe() -> None:
     assert not hasattr(registry, "master_dir")
     assert registry.base_manifest is None
     assert registry.batch_manifest_output is None
+    assert registry.resolved_mapping_dir is None
     assert registry.output == Path(
         "config/generated/canonical-google-maps-mapping-registry.json"
     )
@@ -303,6 +304,8 @@ def test_new_canonical_cli_defaults_are_safe() -> None:
         "config/generated/canonical-google-maps-registry-report.json"
     )
     assert maps_batch.backlog is None
+    assert maps_batch.force_search is False
+    assert maps_batch.search_query_mode == "registry"
     assert trivago_batch.backlog is None
     assert maps_batch.claim_dir == Path("data/runs/canonical_crawl_claims")
     assert trivago_batch.claim_dir == Path("data/runs/canonical_crawl_claims")
@@ -517,7 +520,10 @@ def test_canonical_registry_is_active_non_hotel_and_batch_manifest_is_loadable(
         item.entity_id for item in load_google_maps_manifest(batch_manifest_path)
     ] == ["cafe_dn_active"]
     manifest_document = json.loads(batch_manifest_path.read_text(encoding="utf-8"))
-    assert manifest_document == {"registry_file": "canonical-registry.json"}
+    assert manifest_document == {
+        "registry_file": "canonical-registry.json",
+        "resolved_mapping_dir": None,
+    }
     report_document = json.loads(report_path.read_text(encoding="utf-8"))
     assert report_document["mapping_count"] == 1
     assert report_document["reused_mapping_count"] == 1

@@ -94,7 +94,8 @@ def _observation(
         place_id=place_id,
         source_record_ids=[source_record_id],
         local_date=date(2026, 8, 19),
-        status=DailyOpeningStatus.UNKNOWN,
+        status=DailyOpeningStatus.OPEN_TODAY,
+        open_now=True,
         observed_at=observed_at,
     )
     return GoogleMapsPlaceObservation(
@@ -217,6 +218,48 @@ def test_reprocess_selects_latest_and_publishes_confirmed_with_fallback(
             observations=[latest],
             run_id="quality-reprocess-1",
         )
+
+
+def test_reprocess_corrects_stale_viewport_coordinate_from_place_url(
+    tmp_path,
+) -> None:
+    source_url = (
+        "https://www.google.com/maps/place/Cafe-Test/"
+        "@16.0601,108.2201,17z/"
+        f"data=!4m7!3m6!1s{GOOGLE_TOKEN}!8m2!3d16.0615!4d108.2225"
+    )
+    source = GoogleMapsPlaceObservation.model_validate(
+        {
+            **_observation(
+                "cafe-1",
+                "Cafe Latest",
+                source_record_id="source-stale-coordinate",
+                location=GeoPoint(
+                    latitude=16.0601,
+                    longitude=108.2201,
+                    source="google-maps-web",
+                    accuracy="google_maps_place_page",
+                ),
+            ).model_dump(),
+            "source_url": source_url,
+        }
+    )
+
+    summary = _processor(tmp_path).run(
+        [_mapping("cafe-1", "Cafe Latest")],
+        observations=[source],
+        run_id="quality-reprocess-coordinate-parser-v2",
+    ).summary
+
+    assert summary.succeeded_count == 1
+    derived = GoogleMapsPlaceObservation.model_validate_json(
+        Path(summary.items[0].normalized_path).read_text(encoding="utf-8")
+    )
+    assert derived.location is not None
+    assert derived.location.latitude == 16.0615
+    assert derived.location.longitude == 108.2225
+    assert derived.location.source == "google-maps-web"
+    assert derived.location.accuracy == "google_maps_place_url"
 
 
 def test_reprocess_ignores_output_from_an_earlier_reprocess_run(tmp_path) -> None:
@@ -511,6 +554,8 @@ def test_reprocess_cli_parser_has_local_only_defaults() -> None:
     assert not hasattr(arguments, "current_place_dir")
     assert arguments.summary_dir == Path("data/runs/google_maps_reprocess")
     assert arguments.entity_type == []
+    assert arguments.entity_id == []
+    assert arguments.observation == []
     assert arguments.disable_llm_review_queue is False
     assert not hasattr(arguments, "headed")
     assert not hasattr(arguments, "raw_dir")
@@ -579,6 +624,7 @@ def test_reprocess_cli_filters_default_entities_and_fails_on_item_failure(
     assert exit_code == 1
     assert [mapping.entity_id for mapping in captured["mappings"]] == ["cafe-1"]
     assert captured["run_kwargs"]["observation_root"] == Path("data/normalized")
+    assert captured["run_kwargs"]["observation_paths"] == []
     assert captured["constructor_args"][5] is None
     assert "selected=1 processed=1 succeeded=0 failed=1" in captured_output.out
     assert "failed place_id=cafe-1" in captured_output.err

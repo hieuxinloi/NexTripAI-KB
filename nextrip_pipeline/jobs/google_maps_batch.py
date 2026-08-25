@@ -25,6 +25,12 @@ class GoogleMapsBatchMode(StrEnum):
     MENU = "menu"
 
 
+class GoogleMapsBatchItemStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    NO_UPDATE = "no_update"
+    FAILED = "failed"
+
+
 MENU_ENTITY_TYPES = {
     EntityType.CAFE,
     EntityType.NIGHTLIFE,
@@ -35,7 +41,7 @@ MENU_ENTITY_TYPES = {
 class GoogleMapsBatchItem(NexTripModel):
     mapping_id: str = Field(min_length=1)
     entity_id: str = Field(min_length=1)
-    status: str = Field(pattern=r"^(succeeded|failed)$")
+    status: GoogleMapsBatchItemStatus
     decision_status: str | None = None
     artifact_paths: list[str] = Field(default_factory=list)
     error: str | None = None
@@ -49,6 +55,7 @@ class GoogleMapsBatchSummary(NexTripModel):
     eligible_count: int = Field(ge=0)
     selected_count: int = Field(ge=0)
     succeeded_count: int = Field(ge=0)
+    no_update_count: int = Field(default=0, ge=0)
     failed_count: int = Field(ge=0)
     items: list[GoogleMapsBatchItem] = Field(default_factory=list)
 
@@ -63,6 +70,9 @@ class GoogleMapsBatchRunner:
         mode: GoogleMapsBatchMode,
         max_requests: int = 32,
         offset: int | None = None,
+        item_error_status: GoogleMapsBatchItemStatus = (
+            GoogleMapsBatchItemStatus.FAILED
+        ),
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if max_requests < 1:
@@ -73,6 +83,9 @@ class GoogleMapsBatchRunner:
         if offset is not None and offset < 0:
             raise ValueError("offset cannot be negative")
         self.offset = offset
+        if item_error_status is GoogleMapsBatchItemStatus.SUCCEEDED:
+            raise ValueError("item_error_status cannot be succeeded")
+        self.item_error_status = item_error_status
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def run(
@@ -106,11 +119,23 @@ class GoogleMapsBatchRunner:
                     )
                     if (value := getattr(result, field, None)) is not None
                 ]
+                paths.extend(
+                    str(value)
+                    for value in getattr(result, "validation_paths", ())
+                )
+                paths.extend(
+                    str(value)
+                    for value in getattr(
+                        result,
+                        "accepted_observation_paths",
+                        (),
+                    )
+                )
                 items.append(
                     GoogleMapsBatchItem(
                         mapping_id=mapping.mapping_id,
                         entity_id=mapping.entity_id,
-                        status="succeeded",
+                        status=GoogleMapsBatchItemStatus.SUCCEEDED,
                         decision_status=(
                             decision.status.value if decision is not None else None
                         ),
@@ -122,11 +147,17 @@ class GoogleMapsBatchRunner:
                     GoogleMapsBatchItem(
                         mapping_id=mapping.mapping_id,
                         entity_id=mapping.entity_id,
-                        status="failed",
+                        status=self.item_error_status,
                         error=f"{type(error).__name__}: {error}",
                     )
                 )
-        succeeded = sum(item.status == "succeeded" for item in items)
+        succeeded = sum(
+            item.status is GoogleMapsBatchItemStatus.SUCCEEDED for item in items
+        )
+        no_update = sum(
+            item.status is GoogleMapsBatchItemStatus.NO_UPDATE for item in items
+        )
+        failed = sum(item.status is GoogleMapsBatchItemStatus.FAILED for item in items)
         return GoogleMapsBatchSummary(
             run_id=run_id,
             mode=self.mode,
@@ -135,7 +166,8 @@ class GoogleMapsBatchRunner:
             eligible_count=len(eligible),
             selected_count=len(selected),
             succeeded_count=succeeded,
-            failed_count=len(items) - succeeded,
+            no_update_count=no_update,
+            failed_count=failed,
             items=items,
         )
 
@@ -165,6 +197,33 @@ class GoogleMapsBatchRunner:
             start = self.offset % len(mappings)
         rotated = list(mappings[start:]) + list(mappings[:start])
         return rotated[: self.max_requests]
+
+
+def google_maps_batch_requires_retry(
+    summary: GoogleMapsBatchSummary,
+    *,
+    max_no_update_ratio: float,
+) -> bool:
+    """Return whether an isolated batch should be retried as a system failure.
+
+    A scheduled place crawl may fail to resolve a small number of individual
+    listings. Those items are ``no_update`` and the canonical patch preserves
+    their last accepted values. At least one such item is tolerated regardless
+    of batch size; a larger correlated failure set trips the ratio guard so a
+    parser outage or provider block cannot be mistaken for a healthy refresh.
+    """
+
+    if not 0 <= max_no_update_ratio <= 1:
+        raise ValueError("max_no_update_ratio must be between 0 and 1")
+    if summary.failed_count:
+        return True
+    if not summary.selected_count or not summary.no_update_count:
+        return False
+    allowed_no_updates = max(
+        1,
+        int(summary.selected_count * max_no_update_ratio),
+    )
+    return summary.no_update_count > allowed_no_updates
 
 
 def load_google_maps_manifest(path: str | Path) -> list[ExternalEntityMapping]:

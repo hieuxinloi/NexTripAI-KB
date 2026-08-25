@@ -23,8 +23,11 @@ def test_hotel_dag_module_is_safe_without_airflow_and_uses_mcp_cli() -> None:
     registry_command = module._registry_command()
     batch_command = module._batch_command()
     assert "build-trivago-registry" in registry_command
-    assert "NEXTRIP_CANONICAL_DATASET:?" in registry_command
-    assert '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET"' in registry_command
+    assert "NEXTRIP_CANONICAL_DATASET_POINTER" in registry_command
+    assert "resolve-active-canonical-dataset" in registry_command
+    assert 'elif [ -n "${NEXTRIP_CANONICAL_DATASET:-}" ]' in registry_command
+    assert '--canonical-dataset "$CANONICAL_DATASET"' in registry_command
+    assert "NEXTRIP_CURRENT_TRIVAGO_MAPPING_ROOT" in registry_command
     assert "--master-file" not in registry_command
     assert "travel_data_verified" not in registry_command
     assert "--override config/trivago-mapping.json" in registry_command
@@ -34,9 +37,34 @@ def test_hotel_dag_module_is_safe_without_airflow_and_uses_mcp_cli() -> None:
     assert "NEXTRIP_HOTEL_LOOKAHEAD_DAYS:-1" in batch_command
     assert "NEXTRIP_HOTEL_ADULTS:-2" in batch_command
     assert "NEXTRIP_HOTEL_ROOMS:-1" in batch_command
+    assert "NEXTRIP_ACCEPTED_OBSERVATION_ROOT:-data/observations" in batch_command
+    assert "NEXTRIP_RAW_ROOT:-data/raw" in batch_command
+    assert "NEXTRIP_NORMALIZED_ROOT:-data/normalized" in batch_command
+    assert "NEXTRIP_VALIDATION_ROOT:-data/validation" in batch_command
+    assert "NEXTRIP_DECISION_ROOT:-data/decisions" in batch_command
+    assert "NEXTRIP_CURRENT_HOTEL_PRICE_ROOT" in batch_command
+    assert "NEXTRIP_CURRENT_HOTEL_AVAILABILITY_ROOT" in batch_command
+    assert "NEXTRIP_TRIVAGO_MAX_REQUESTS:-73" not in batch_command
+    assert 'if [ -n "${NEXTRIP_TRIVAGO_MAX_REQUESTS:-}" ]' in batch_command
+    assert '"${MAX_REQUEST_ARGS[@]}"' in batch_command
     assert "--include-identity-discovery" not in batch_command
     assert "playwright" not in batch_command.casefold()
     assert "neo4j" not in batch_command.casefold()
+
+
+def test_hotel_airflow_gate_is_strict_and_disabled_by_default(monkeypatch) -> None:
+    module = _load_dag_module()
+
+    monkeypatch.delenv("TEST_HOTEL_AIRFLOW_FLAG", raising=False)
+    assert module._env_flag("TEST_HOTEL_AIRFLOW_FLAG") is False
+    monkeypatch.setenv("TEST_HOTEL_AIRFLOW_FLAG", "YES")
+    assert module._env_flag("TEST_HOTEL_AIRFLOW_FLAG") is True
+
+
+def test_hotel_current_snapshot_writer_uses_the_shared_airflow_pool() -> None:
+    source = (ROOT / "dags" / "nextrip_hotel_prices.py").read_text("utf-8")
+
+    assert 'NEXTRIP_CURRENT_DATA_POOL", "current_data_snapshot"' in source
 
 
 def test_trivago_source_and_five_hour_job_are_enabled_only_for_hotel() -> None:

@@ -47,15 +47,26 @@ def _publish_observations_command() -> str:
         'case "${NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED:-false}" in '
         "1|true|TRUE|yes|YES|on|ON) ;; *) "
         'echo "Neo4j V8 observation publishing disabled"; exit 0 ;; esac; '
-        ': "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"; '
         ': "${NEO4J_V8_URI:?set NEO4J_V8_URI}"; '
         ': "${NEO4J_V8_USER:?set NEO4J_V8_USER}"; '
         ': "${NEO4J_V8_PASSWORD:?set NEO4J_V8_PASSWORD}"; '
         ': "${NEO4J_V8_DATABASE:?set NEO4J_V8_DATABASE}"; '
         'KB_ROOT="${NEXTRIP_KB_ROOT:-/opt/airflow/nextrip}"; '
         'cd "$KB_ROOT"; '
-        "python -m nextrip_graphrag v8-publish-observations "
-        '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET" '
+        'POINTER_PATH="${NEXTRIP_CANONICAL_DATASET_POINTER:-data/canonical/'
+        'active-dataset-pointer.json}"; '
+        'if [ -f "$POINTER_PATH" ]; then '
+        'RESOLVE_OUTPUT="$(python -m nextrip_pipeline.cli '
+        'resolve-active-canonical-dataset --pointer "$POINTER_PATH")"; '
+        'CANONICAL_DATASET="$(printf "%s\\n" "$RESOLVE_OUTPUT" '
+        "| sed -n 's/^dataset=//p' | tail -n 1)\"; "
+        'elif [ -n "${NEXTRIP_CANONICAL_DATASET:-}" ]; then '
+        'CANONICAL_DATASET="$NEXTRIP_CANONICAL_DATASET"; '
+        'else echo "No active canonical dataset pointer or legacy dataset is '
+        'configured" >&2; exit 2; fi; '
+        'test -n "$CANONICAL_DATASET"; '
+        "python -m nextrip_graphrag.observation_cli "
+        '--canonical-dataset "$CANONICAL_DATASET" '
         '--hotel-price-root "${NEXTRIP_CURRENT_HOTEL_PRICE_ROOT:-data/current/hotel_price}" '
         '--hotel-availability-root "${NEXTRIP_CURRENT_HOTEL_AVAILABILITY_ROOT:-data/current/hotel_availability}" '
         '--menu-root "${NEXTRIP_CURRENT_MENU_ROOT:-data/current/menu}" '
@@ -95,4 +106,7 @@ if DAG is not None and _env_flag("NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED"):
             task_id="publish_current_observations",
             bash_command=_publish_observations_command(),
             execution_timeout=timedelta(minutes=30),
+            # Do not read the current JSON roots while a scheduled crawler is
+            # replacing a related price/availability snapshot.
+            pool=os.getenv("NEXTRIP_CURRENT_DATA_POOL", "current_data_snapshot"),
         )

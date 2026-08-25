@@ -19,6 +19,13 @@ from .storage import (
     GoogleMapsMappingResolutionWriter,
     OlderResolvedMappingError,
 )
+from .google_maps_approval import (
+    GoogleMapsMappingApproval,
+    GoogleMapsMappingApprovalError,
+    GoogleMapsMappingApprovalWriter,
+    apply_google_maps_mapping_approval,
+    approve_google_maps_mapping,
+)
 from .trivago_mapping import (
     CurrentTrivagoMappingWriter,
     TrivagoCandidateEvidence,
@@ -33,10 +40,19 @@ from .trivago_mapping import (
     apply_trivago_resolution,
     compute_trivago_resolution_evidence_hash,
 )
+from .opening_status_approval import (
+    OpeningStatusApprovalError,
+    OpeningStatusReviewApproval,
+    OpeningStatusReviewApprovalWriter,
+    build_opening_status_review_approvals,
+)
 
 __all__ = [
     "GoogleMapsMappingResolution",
     "GoogleMapsMappingResolver",
+    "GoogleMapsMappingApproval",
+    "GoogleMapsMappingApprovalError",
+    "GoogleMapsMappingApprovalWriter",
     "GoogleMapsMappingResolutionWriter",
     "LLMMappingReviewRequest",
     "LLMMappingReviewResponse",
@@ -49,6 +65,8 @@ __all__ = [
     "OlderResolvedMappingError",
     "PlaceIdentityEvidence",
     "apply_auto_confirmation",
+    "apply_google_maps_mapping_approval",
+    "approve_google_maps_mapping",
     "apply_rejected_resolution",
     "CurrentTrivagoMappingWriter",
     "TrivagoCandidateEvidence",
@@ -62,4 +80,8 @@ __all__ = [
     "approve_trivago_review",
     "apply_trivago_resolution",
     "compute_trivago_resolution_evidence_hash",
+    "OpeningStatusApprovalError",
+    "OpeningStatusReviewApproval",
+    "OpeningStatusReviewApprovalWriter",
+    "build_opening_status_review_approvals",
 ]

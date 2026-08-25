@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
+from threading import RLock
+from time import monotonic
 from urllib.parse import quote
 
 from pydantic import ValidationError
@@ -40,7 +42,10 @@ class CurrentDataRepository:
         hotel_price_root: str | Path,
         trivago_mapping_root: str | Path,
         hotel_availability_root: str | Path | None = None,
+        readiness_cache_seconds: float = 60.0,
     ) -> None:
+        if readiness_cache_seconds < 0:
+            raise ValueError("readiness_cache_seconds must be non-negative")
         self.canonical_dataset_path = Path(canonical_dataset_path)
         try:
             dataset = read_canonical_active_dataset(self.canonical_dataset_path)
@@ -57,6 +62,9 @@ class CurrentDataRepository:
             if hotel_availability_root is not None
             else self.hotel_price_root.parent / "hotel_availability"
         )
+        self._readiness_cache_seconds = readiness_cache_seconds
+        self._readiness_cache: tuple[float, RepositoryReadiness] | None = None
+        self._readiness_lock = RLock()
 
     def get_place(self, place_id: str) -> CurrentPlaceSnapshot | None:
         place = self._canonical_places.get(place_id)
@@ -108,7 +116,14 @@ class CurrentDataRepository:
         # Legacy and contextual paths may temporarily coexist. Retain only the
         # newest snapshot for each exact seller/offer identity.
         deduplicated: dict[tuple[object, ...], CurrentHotelPriceSnapshot] = {}
-        for path in self.hotel_price_root.rglob("*.json"):
+        for path in self._exact_price_paths(
+            hotel_ids=requested,
+            check_in=check_in,
+            check_out=check_out,
+            occupancy=occupancy,
+            children_ages=children_ages,
+            currency=currency,
+        ):
             if path.name.startswith("."):
                 continue
             snapshot = self._read_price(path)
@@ -183,7 +198,15 @@ class CurrentDataRepository:
             return results
 
         normalized_ages = sorted(children_ages)
-        for path in self.hotel_availability_root.rglob("*.json"):
+        for path in self._exact_availability_paths(
+            hotel_ids=requested,
+            check_in=check_in,
+            check_out=check_out,
+            occupancy=occupancy,
+            children_ages=children_ages,
+            currency=currency,
+            source_id=source_id,
+        ):
             if path.name.startswith("."):
                 continue
             snapshot = self._read_availability(path)
@@ -214,7 +237,135 @@ class CurrentDataRepository:
                 results[snapshot.hotel_id] = snapshot
         return results
 
+    def _exact_price_paths(
+        self,
+        *,
+        hotel_ids: set[str],
+        check_in: date,
+        check_out: date,
+        occupancy: Occupancy,
+        children_ages: list[int],
+        currency: str | None,
+    ) -> list[Path]:
+        """Resolve only partitions that can contain the requested stay.
+
+        Current price artifacts are partitioned by their complete lookup
+        context. Scanning the entire append-only store for every hotel makes a
+        cache read prohibitively slow through a Docker bind mount. The flat
+        root is retained as a bounded fallback for pre-partitioned artifacts.
+        """
+
+        occupancy_key = (
+            f"{occupancy.adults}a-{occupancy.children}c-{occupancy.rooms}r"
+        )
+        ages_key = (
+            "none"
+            if not children_ages
+            else "-".join(str(age) for age in sorted(children_ages))
+        )
+        paths: dict[Path, None] = {}
+        for hotel_id in hotel_ids:
+            context = (
+                self.hotel_price_root
+                / f"hotel={quote(hotel_id, safe='-_.')}"
+                / f"checkin={check_in.isoformat()}"
+                / f"checkout={check_out.isoformat()}"
+                / f"occupancy={occupancy_key}"
+            )
+            child_context = context / f"children_ages={ages_key}"
+            directories = [context, child_context]
+            if currency is not None:
+                directories.insert(
+                    0,
+                    child_context
+                    / f"currency={quote(currency.upper(), safe='-_.')}",
+                )
+            else:
+                directories.extend(
+                    path
+                    for path in child_context.glob("currency=*")
+                    if path.is_dir()
+                )
+            for directory in directories:
+                if not directory.is_dir():
+                    continue
+                for path in directory.glob("*.json"):
+                    paths[path] = None
+
+        # Old tests and early releases stored snapshots directly under the
+        # root. This fallback is intentionally non-recursive.
+        for path in self.hotel_price_root.glob("*.json"):
+            paths[path] = None
+        return list(paths)
+
+    def _exact_availability_paths(
+        self,
+        *,
+        hotel_ids: set[str],
+        check_in: date,
+        check_out: date,
+        occupancy: Occupancy,
+        children_ages: list[int],
+        currency: str | None,
+        source_id: str | None,
+    ) -> list[Path]:
+        """Resolve exact availability partitions without a store-wide scan."""
+
+        occupancy_key = (
+            f"{occupancy.adults}a-{occupancy.children}c-{occupancy.rooms}r"
+        )
+        ages_key = (
+            "none"
+            if not children_ages
+            else "-".join(str(age) for age in sorted(children_ages))
+        )
+        nights = (check_out - check_in).days
+        paths: dict[Path, None] = {}
+        for hotel_id in hotel_ids:
+            context = (
+                self.hotel_availability_root
+                / f"hotel={quote(hotel_id, safe='-_.')}"
+                / f"checkin={check_in.isoformat()}"
+                / f"checkout={check_out.isoformat()}"
+                / f"nights={nights}"
+                / f"occupancy={occupancy_key}"
+                / f"children_ages={ages_key}"
+            )
+            currency_contexts = (
+                [context / f"currency={quote(currency.upper(), safe='-_.')}"]
+                if currency is not None
+                else [path for path in context.glob("currency=*") if path.is_dir()]
+            )
+            for directory in currency_contexts:
+                if not directory.is_dir():
+                    continue
+                if source_id is not None:
+                    path = directory / f"source={quote(source_id, safe='-_.')}.json"
+                    if path.is_file():
+                        paths[path] = None
+                else:
+                    for path in directory.glob("*.json"):
+                        paths[path] = None
+
+        for path in self.hotel_availability_root.glob("*.json"):
+            paths[path] = None
+        return list(paths)
+
     def readiness(self) -> RepositoryReadiness:
+        now = monotonic()
+        with self._readiness_lock:
+            cached = self._readiness_cache
+            if (
+                cached is not None
+                and now - cached[0] < self._readiness_cache_seconds
+            ):
+                return cached[1].model_copy(deep=True)
+
+            readiness = self._calculate_readiness()
+            self._readiness_cache = (monotonic(), readiness)
+            return readiness.model_copy(deep=True)
+
+    def _calculate_readiness(self) -> RepositoryReadiness:
         roots: dict[str, Path] = {
             "current_hotel_price_root": self.hotel_price_root,
             "current_trivago_mapping_root": self.trivago_mapping_root,

@@ -32,6 +32,7 @@ from nextrip_pipeline.preprocessing import (
     TrivagoMcpPriceNormalizer,
 )
 from nextrip_pipeline.publishing import (
+    AcceptedObservationStore,
     CurrentHotelAvailabilityWriter,
     CurrentHotelPriceWriter,
 )
@@ -243,6 +244,7 @@ class TrivagoStayAvailabilityRunner:
         normalizer: TrivagoMcpPriceNormalizer | None = None,
         validator: HotelPriceValidatorOrchestrator | None = None,
         decision_gate: HotelPriceDecisionGate | None = None,
+        accepted_observation_store: AcceptedObservationStore | None = None,
         identity_retry_limit: int = 2,
         include_radius_identity_retry: bool = False,
         clock: Callable[[], datetime] | None = None,
@@ -259,6 +261,13 @@ class TrivagoStayAvailabilityRunner:
                 "validation, decision, and current-price writers must be "
                 "configured together"
             )
+        if accepted_observation_store is not None and not all(
+            writer is not None for writer in quality_writers
+        ):
+            raise ValueError(
+                "accepted observation storage requires validation, decision, "
+                "and current-price writers"
+            )
         if not 0 <= identity_retry_limit <= self.max_identity_retry_limit:
             raise ValueError(
                 "identity_retry_limit must be between 0 and "
@@ -273,6 +282,7 @@ class TrivagoStayAvailabilityRunner:
         self.validation_writer = validation_writer
         self.decision_writer = decision_writer
         self.current_price_writer = current_price_writer
+        self.accepted_observation_store = accepted_observation_store
         self.identity_retry_limit = identity_retry_limit
         self.include_radius_identity_retry = include_radius_identity_retry
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -667,6 +677,10 @@ class TrivagoStayAvailabilityRunner:
             decision = self.decision_gate.decide(observation, validations)
             artifacts.append(str(self.decision_writer.write(decision)))
             if decision.status is HotelPriceDecisionStatus.PASS:
+                if self.accepted_observation_store is not None:
+                    artifacts.append(
+                        str(self.accepted_observation_store.write(observation))
+                    )
                 artifacts.append(
                     str(self.current_price_writer.publish(observation, decision))
                 )
@@ -761,10 +775,13 @@ class TrivagoStayAvailabilityRunner:
             observed_at=observed_at,
             verification_status=VerificationStatus.AUTO_VERIFIED,
         )
-        artifacts = [
-            *artifact_paths,
-            str(self.availability_writer.publish(observation)),
-        ]
+        artifacts = list(artifact_paths)
+        if status is not HotelAvailabilityStatus.UNKNOWN:
+            if self.accepted_observation_store is not None:
+                artifacts.append(
+                    str(self.accepted_observation_store.write(observation))
+                )
+            artifacts.append(str(self.availability_writer.publish(observation)))
         return TrivagoStayWindowAttempt(
             attempt_run_id=attempt_run_id,
             fallback_offset_days=fallback_offset_days,

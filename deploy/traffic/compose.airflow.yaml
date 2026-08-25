@@ -17,7 +17,59 @@ x-airflow-common: &airflow-common
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     NEXTRIP_KB_ROOT: /opt/airflow/nextrip
-    NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"
+    NEXTRIP_CANONICAL_DATASET_POINTER: "${NEXTRIP_CANONICAL_DATASET_POINTER:-data/canonical/active-dataset-pointer.json}"
+    NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:-}"
+    NEXTRIP_HOTEL_PRICES_AIRFLOW_ENABLED: "${NEXTRIP_HOTEL_PRICES_AIRFLOW_ENABLED:-false}"
+    NEXTRIP_GOOGLE_MAPS_AIRFLOW_ENABLED: "${NEXTRIP_GOOGLE_MAPS_AIRFLOW_ENABLED:-false}"
+    NEXTRIP_GOOGLE_MAPS_TRUSTED_SCHEDULED: "${NEXTRIP_GOOGLE_MAPS_TRUSTED_SCHEDULED:-false}"
+    NEXTRIP_GOOGLE_MAPS_SCHEDULE: "${NEXTRIP_GOOGLE_MAPS_SCHEDULE:-0 2 * * 1}"
+    NEXTRIP_MAPS_WEEKLY_LIMIT: "${NEXTRIP_MAPS_WEEKLY_LIMIT:-10000}"
+    NEXTRIP_MAPS_MAX_NO_UPDATE_RATIO: "${NEXTRIP_MAPS_MAX_NO_UPDATE_RATIO:-0.20}"
+    NEXTRIP_GOOGLE_MAPS_POOL: "${NEXTRIP_GOOGLE_MAPS_POOL:-google_maps_web}"
+    NEXTRIP_GOOGLE_MAPS_POOL_SLOTS: "${NEXTRIP_GOOGLE_MAPS_POOL_SLOTS:-1}"
+    NEXTRIP_CURRENT_DATA_POOL: "${NEXTRIP_CURRENT_DATA_POOL:-current_data_snapshot}"
+    NEXTRIP_CURRENT_DATA_POOL_SLOTS: "${NEXTRIP_CURRENT_DATA_POOL_SLOTS:-1}"
+    NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED: "${NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED:-false}"
+    NEXTRIP_NEO4J_V8_OBSERVATIONS_SCHEDULE: "${NEXTRIP_NEO4J_V8_OBSERVATIONS_SCHEDULE:-*/15 * * * *}"
+    NEXTRIP_CANONICAL_ROLLOUT_AIRFLOW_ENABLED: "${NEXTRIP_CANONICAL_ROLLOUT_AIRFLOW_ENABLED:-false}"
+    NEXTRIP_CANONICAL_ROLLOUT_POOL: "${NEXTRIP_CANONICAL_ROLLOUT_POOL:-canonical_release_rollout}"
+    NEXTRIP_CANONICAL_ROLLOUT_POOL_SLOTS: "${NEXTRIP_CANONICAL_ROLLOUT_POOL_SLOTS:-1}"
+    NEXTRIP_CANONICAL_ROLLOUT_RUN_ROOT: "${NEXTRIP_CANONICAL_ROLLOUT_RUN_ROOT:-data/runs/canonical_rollout}"
+    NEXTRIP_V8_EMBEDDING_ENABLED: "${NEXTRIP_V8_EMBEDDING_ENABLED:-false}"
+    NEXTRIP_V8_EMBEDDING_DIMENSION: "${NEXTRIP_V8_EMBEDDING_DIMENSION:-1536}"
+    NEXTRIP_V8_EMBEDDING_BATCH_SIZE: "${NEXTRIP_V8_EMBEDDING_BATCH_SIZE:-16}"
+    NEXTRIP_V8_EMBEDDING_REQUEST_DELAY: "${NEXTRIP_V8_EMBEDDING_REQUEST_DELAY:-2}"
+    NEXTRIP_V8_EMBEDDING_MAX_RETRIES: "${NEXTRIP_V8_EMBEDDING_MAX_RETRIES:-5}"
+    NEXTRIP_V8_EMBEDDING_CACHE_ROOT: "${NEXTRIP_V8_EMBEDDING_CACHE_ROOT:-data/cache/v8_embeddings}"
+    NEXTRIP_V8_EMBEDDING_RUN_ROOT: "${NEXTRIP_V8_EMBEDDING_RUN_ROOT:-data/neo4j/v8/embedding_runs}"
+    GEMINI_EMBEDDING_MODEL: "${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}"
+    GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+    GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+    NEXTRIP_CANONICAL_ROOT: data/canonical
+    NEXTRIP_NEO4J_V8_RELEASE_ROOT: data/neo4j/v8/releases
+    NEXTRIP_NEO4J_V8_IMPORT_BATCH_SIZE: "${NEXTRIP_NEO4J_V8_IMPORT_BATCH_SIZE:-500}"
+    NEXTRIP_RAW_ROOT: data/raw
+    NEXTRIP_NORMALIZED_ROOT: data/normalized
+    NEXTRIP_ACCEPTED_OBSERVATION_ROOT: data/observations
+    NEXTRIP_VALIDATION_ROOT: data/validation
+    NEXTRIP_DECISION_ROOT: data/decisions
+    NEXTRIP_CRAWL_ARTIFACT_ROOT: data/crawl_artifacts
+    NEXTRIP_MAPS_NORMALIZED_ROOT: data/normalized
+    NEXTRIP_MAPS_DECISION_ROOT: data/decisions
+    NEXTRIP_MAPS_QUALITY_ROOT: data/quality/google_maps_mapping
+    NEXTRIP_MAPS_SUMMARY_ROOT: data/runs/google_maps
+    NEXTRIP_TRIVAGO_QUALITY_ROOT: data/quality/trivago_mapping
+    NEXTRIP_CURRENT_TRIVAGO_MAPPING_ROOT: data/current/trivago_mappings
+    NEXTRIP_CURRENT_HOTEL_PRICE_ROOT: data/current/hotel_price
+    NEXTRIP_CURRENT_HOTEL_AVAILABILITY_ROOT: data/current/hotel_availability
+    NEXTRIP_CURRENT_MENU_ROOT: data/current/menu
+    NEXTRIP_TRIVAGO_STAY_RESULT_ROOT: data/runs/trivago_stay
+    NEXTRIP_TRIVAGO_BATCH_SUMMARY_ROOT: data/runs/trivago_availability_batch
+    NEXTRIP_NEO4J_V8_OBSERVATION_RUN_ROOT: data/neo4j/v8/observation_runs
+    NEO4J_V8_URI: "${NEO4J_V8_URI:-}"
+    NEO4J_V8_USER: "${NEO4J_V8_USER:-}"
+    NEO4J_V8_PASSWORD: "${NEO4J_V8_PASSWORD:-}"
+    NEO4J_V8_DATABASE: "${NEO4J_V8_DATABASE:-neo4j}"
     NEXTRIP_TRAFFIC_AIRFLOW_ENABLED: "${NEXTRIP_TRAFFIC_AIRFLOW_ENABLED:-false}"
     NEXTRIP_TRAFFIC_PREWARM_ENABLED: "${NEXTRIP_TRAFFIC_PREWARM_ENABLED:-false}"
     NEXTRIP_TRAFFIC_MAINTENANCE_SCHEDULE: "${NEXTRIP_TRAFFIC_MAINTENANCE_SCHEDULE:-17 * * * *}"
@@ -39,15 +91,16 @@ x-airflow-common: &airflow-common
     TRAFFIC_CIRCUIT_COOLDOWN_SECONDS: "${TRAFFIC_CIRCUIT_COOLDOWN_SECONDS:-60}"
   volumes:
     - type: bind
-      source: ../../data/canonical
-      target: /opt/airflow/nextrip/data/canonical
-      read_only: true
+      source: "${NEXTRIP_DATA_ROOT:-../../data}"
+      target: /opt/airflow/nextrip/data
+    - type: bind
+      source: ../../config/generated
+      target: /opt/airflow/nextrip/config/generated
     - traffic_cache:/opt/airflow/nextrip/data/current/traffic
     - airflow_logs:/opt/airflow/logs
+  shm_size: "1gb"
   depends_on:
     airflow-db:
-      condition: service_healthy
-    valhalla:
       condition: service_healthy
 
 services:
@@ -78,15 +131,29 @@ services:
       _AIRFLOW_WWW_USER_CREATE: "true"
       _AIRFLOW_WWW_USER_USERNAME: "${AIRFLOW_ADMIN_USERNAME:-airflow}"
       _AIRFLOW_WWW_USER_PASSWORD: "${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD}"
-    command: version
+    command:
+      - bash
+      - -c
+      - >-
+        airflow pools set
+        "$${NEXTRIP_GOOGLE_MAPS_POOL:-google_maps_web}"
+        "$${NEXTRIP_GOOGLE_MAPS_POOL_SLOTS:-1}"
+        "Rate limit Google Maps Playwright crawls"
+        && airflow pools set
+        "$${NEXTRIP_CURRENT_DATA_POOL:-current_data_snapshot}"
+        "$${NEXTRIP_CURRENT_DATA_POOL_SLOTS:-1}"
+        "Serialize current JSON writers and Neo4j snapshot readers"
+        && airflow pools set
+        "$${NEXTRIP_CANONICAL_ROLLOUT_POOL:-canonical_release_rollout}"
+        "$${NEXTRIP_CANONICAL_ROLLOUT_POOL_SLOTS:-1}"
+        "Serialize canonical graph activation and pointer promotion"
+        && airflow version
 
   airflow-api-server:
     <<: *airflow-common
     command: api-server
     depends_on:
       airflow-db:
-        condition: service_healthy
-      valhalla:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
@@ -104,8 +171,6 @@ services:
     command: scheduler
     depends_on:
       airflow-db:
-        condition: service_healthy
-      valhalla:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
@@ -125,8 +190,6 @@ services:
     command: dag-processor
     depends_on:
       airflow-db:
-        condition: service_healthy
-      valhalla:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully

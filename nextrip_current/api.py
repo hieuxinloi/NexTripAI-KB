@@ -35,6 +35,8 @@ from .models import (
     HotelOfferSearchResponse,
     PlaceBatchRequest,
     PlaceBatchResponse,
+    TripContextRequest,
+    TripContextResponse,
 )
 from .runtime import CurrentDataServiceFactory, build_current_data_service
 from .service import CurrentDataService
@@ -130,8 +132,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
-        yield
-        factory.close()
+        # Fail closed before accepting traffic and populate the readiness cache.
+        # Recursive counts are expensive on a Windows bind mount, so probes must
+        # not rediscover every operational JSON artifact on every request.
+        factory.get().readiness()
+        try:
+            yield
+        finally:
+            factory.close()
 
     application = FastAPI(
         title="NexTrip Current Data Service",
@@ -337,6 +345,18 @@ def _register_routes(application: FastAPI) -> None:
         service: ServiceDependency,
     ) -> TransportRecommendationResponse:
         return service.recommend_transport(payload)
+
+    @application.post(
+        "/api/current/trip-context",
+        response_model=TripContextResponse,
+        responses={502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+        dependencies=protected,
+    )
+    def build_trip_context(
+        payload: TripContextRequest,
+        service: ServiceDependency,
+    ) -> TripContextResponse:
+        return service.build_trip_context(payload)
 
 
 app = create_app()

@@ -1,3 +1,4 @@
 {
-  "registry_file": "canonical-google-maps-mapping-registry.json"
+  "registry_file": "canonical-google-maps-mapping-registry.json",
+  "resolved_mapping_dir": null
 }

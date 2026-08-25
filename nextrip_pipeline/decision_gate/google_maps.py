@@ -23,6 +23,18 @@ class GoogleMapsDecisionStatus(StrEnum):
     QUARANTINE = "quarantine"
 
 
+class GoogleMapsDecisionPolicy(StrEnum):
+    """Controls how deterministic warnings are handled by the gate.
+
+    Scheduled crawls must never create an unbounded human-review queue.  They
+    may accept a small, explicit set of non-destructive missing-detail warnings;
+    identity and location ambiguity still fail closed into quarantine.
+    """
+
+    STANDARD = "standard"
+    TRUSTED_SCHEDULED = "trusted_scheduled"
+
+
 class GoogleMapsDecision(NexTripModel):
     decision_id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
@@ -35,8 +47,19 @@ class GoogleMapsDecision(NexTripModel):
 
 
 class GoogleMapsDecisionGate:
-    def __init__(self, clock: Callable[[], datetime] | None = None) -> None:
+    # Unattended execution removes the REVIEW outcome; it does not weaken data
+    # quality. Any warning is quarantined and retried while the last accepted
+    # value remains active.
+    _SCHEDULED_PASS_WARNING_CODES: frozenset[str] = frozenset()
+
+    def __init__(
+        self,
+        clock: Callable[[], datetime] | None = None,
+        *,
+        policy: GoogleMapsDecisionPolicy = GoogleMapsDecisionPolicy.STANDARD,
+    ) -> None:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.policy = policy
 
     def decide(
         self,
@@ -47,15 +70,6 @@ class GoogleMapsDecisionGate:
             item.record_id != observation.observation_id for item in validations
         ):
             raise ValueError("validations are missing or belong to another observation")
-        if any(
-            item.status in {ValidationStatus.FAIL, ValidationStatus.ERROR}
-            for item in validations
-        ):
-            status = GoogleMapsDecisionStatus.QUARANTINE
-        elif any(item.status is ValidationStatus.WARN for item in validations):
-            status = GoogleMapsDecisionStatus.REVIEW
-        else:
-            status = GoogleMapsDecisionStatus.PASS
         reasons = sorted(
             {
                 code
@@ -64,6 +78,24 @@ class GoogleMapsDecisionGate:
                 for code in item.reason_codes
             }
         )
+        if any(
+            item.status in {ValidationStatus.FAIL, ValidationStatus.ERROR}
+            for item in validations
+        ):
+            status = GoogleMapsDecisionStatus.QUARANTINE
+        elif any(item.status is ValidationStatus.WARN for item in validations):
+            if (
+                self.policy is GoogleMapsDecisionPolicy.TRUSTED_SCHEDULED
+                and reasons
+                and set(reasons) <= self._SCHEDULED_PASS_WARNING_CODES
+            ):
+                status = GoogleMapsDecisionStatus.PASS
+            elif self.policy is GoogleMapsDecisionPolicy.TRUSTED_SCHEDULED:
+                status = GoogleMapsDecisionStatus.QUARANTINE
+            else:
+                status = GoogleMapsDecisionStatus.REVIEW
+        else:
+            status = GoogleMapsDecisionStatus.PASS
         return GoogleMapsDecision(
             decision_id=f"{observation.observation_id}:decision",
             run_id=observation.run_id,

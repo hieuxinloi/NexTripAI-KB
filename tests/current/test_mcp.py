@@ -69,6 +69,13 @@ class FakeCurrentDataService:
             "request": request.model_dump(mode="json"),
         }
 
+    def build_trip_context(self, request: Any) -> dict[str, Any]:
+        self.calls.append(("build_trip_context", request))
+        return {
+            "place_ids": request.place_ids,
+            "route_count": len(request.route_legs),
+        }
+
     def close(self) -> None:
         self.closed = True
 
@@ -91,6 +98,7 @@ def test_factory_registers_current_data_and_traffic_tools() -> None:
         "search_hotel_availability",
         "calculate_route",
         "recommend_transport",
+        "build_trip_context",
     }
 
     assert server.tools["get_current_place"]("place-1") == {
@@ -134,6 +142,22 @@ def test_factory_registers_current_data_and_traffic_tools() -> None:
     recommendation_result = server.tools["recommend_transport"](recommendation_payload)
     assert recommendation_result["recommended_mode"] == "walk"
     assert recommendation_result["request"]["objective"] == "balanced"
+    context_result = server.tools["build_trip_context"](
+        {
+            "place_ids": ["place-1", "place-2"],
+            "route_legs": [
+                {
+                    "origin_id": "place-1",
+                    "destination_id": "place-2",
+                    "departure_time": "2026-09-01T08:00:00+07:00",
+                }
+            ],
+        }
+    )
+    assert context_result == {
+        "place_ids": ["place-1", "place-2"],
+        "route_count": 1,
+    }
 
     assert service.calls[0] == ("get_place", "place-1")
     assert service.calls[1][0] == "get_places"
@@ -145,6 +169,7 @@ def test_factory_registers_current_data_and_traffic_tools() -> None:
     assert service.calls[4][1].origin_id == "place-1"
     assert service.calls[5][0] == "recommend_transport"
     assert service.calls[5][1].objective.value == "balanced"
+    assert service.calls[6][0] == "build_trip_context"
 
 
 def test_model_validation_happens_before_service_delegation() -> None:
@@ -185,10 +210,12 @@ def test_official_sdk_in_memory_call_returns_structured_content() -> None:
     availability_schema = schemas["search_hotel_availability"]
     route_schema = schemas["calculate_route"]
     recommendation_schema = schemas["recommend_transport"]
+    context_schema = schemas["build_trip_context"]
     assert "HotelOfferSearchRequest" in hotel_schema["$defs"]
     assert "HotelAvailabilitySearchRequest" in availability_schema["$defs"]
     assert "TrafficRouteRequest" in route_schema["$defs"]
     assert "TransportRecommendationRequest" in recommendation_schema["$defs"]
+    assert "TripContextRequest" in context_schema["$defs"]
 
 
 def test_scalar_service_response_is_rejected() -> None:

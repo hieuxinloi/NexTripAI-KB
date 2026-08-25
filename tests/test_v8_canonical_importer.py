@@ -273,6 +273,12 @@ def test_prepare_is_deterministic_and_never_assumes_692_places(
     }
     assert first.documents[0]["properties"]["content_hash"]
     assert first.text_units[0]["properties"]["content_hash"]
+    assert first.text_units[0]["properties"]["semantic_content_hash"]
+    assert first.text_units[0]["properties"]["semantic_text"]
+    assert first.places[0]["properties"]["semantic_content_hash"]
+    assert first.places[0]["properties"]["semantic_text"]
+    assert first.concepts[0]["properties"]["semantic_content_hash"]
+    assert first.concepts[0]["properties"]["semantic_text"]
     text = first.text_units[0]["properties"]["text"]
     assert text.splitlines()[:7] == [
         "Tên: First Cafe",
@@ -377,6 +383,7 @@ def test_schema_creates_empty_semantic_indexes_without_embedding_calls() -> None
     source = "\n".join(queries)
     assert "CREATE VECTOR INDEX place_embedding" in source
     assert "CREATE VECTOR INDEX concept_embedding" in source
+    assert "CREATE VECTOR INDEX text_unit_embedding" in source
     assert "v8_place_embedding" not in source
     assert "v8_concept_embedding" not in source
     assert "`vector.dimensions`: 768" in source

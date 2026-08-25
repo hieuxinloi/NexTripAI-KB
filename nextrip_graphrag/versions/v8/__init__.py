@@ -1,4 +1,11 @@
-"""GraphRAG V8 retrieval and canonical dataset publication."""
+"""GraphRAG V8 retrieval and canonical dataset publication.
+
+Retrieval dependencies are loaded lazily so the scheduled observation publisher
+can use the Neo4j driver without installing the full GraphRAG/embedding stack in
+the Airflow image.
+"""
+
+from typing import Any
 
 from .canonical_importer import (
     CanonicalV8ImportPlan,
@@ -10,8 +17,6 @@ from .canonical_importer import (
     ensure_canonical_v8_schema,
     prepare_canonical_v8_import,
 )
-from .retrieval import V8RetrievalService
-
 __all__ = [
     "CanonicalV8ImportPlan",
     "CanonicalV8ImportResult",
@@ -23,3 +28,11 @@ __all__ = [
     "ensure_canonical_v8_schema",
     "prepare_canonical_v8_import",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "V8RetrievalService":
+        from .retrieval import V8RetrievalService
+
+        return V8RetrievalService
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

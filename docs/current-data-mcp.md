@@ -21,6 +21,24 @@ $env:CURRENT_DATA_TRIVAGO_REFRESH_ENABLED = "true"
 python -m uvicorn nextrip_current.api:app --host 127.0.0.1 --port 8020
 ```
 
+For the packaged local runtime, use the existing traffic image for both the
+Traffic and Current Data processes. The Current Data container waits for the
+Traffic API readiness check, mounts the shared data root read/write for
+append-only observations, and exposes only loopback port `8020` by default:
+
+```powershell
+Set-Location deploy/traffic
+docker compose --env-file .env up -d --build valhalla traffic-api current-data-api
+docker compose --env-file .env ps
+Invoke-RestMethod http://127.0.0.1:8020/ready
+```
+
+`CURRENT_DATA_API_KEY` in `deploy/traffic/.env` must equal the value configured
+in `NexTripAI-BE/.env`. The traffic credential remains separate and is never
+exposed to BE. Keep `CURRENT_DATA_TRIVAGO_REFRESH_ENABLED=false` for cache-only
+serving; set it to `true` only when this process is allowed to append raw,
+normalized, decision, and current hotel artifacts to `NEXTRIP_DATA_ROOT`.
+
 `NEXTRIP_CANONICAL_DATASET` is mandatory and is the sole authority for place
 identity and static facts. The HTTP/MCP service does not accept a legacy place
 root and fails closed when canonical loading fails. Hotel price and
@@ -36,6 +54,13 @@ remain unauthenticated for local health checks. The available operations are:
 - `POST /api/current/hotel-availability/search`
 - `POST /api/current/traffic/routes`
 - `POST /api/current/traffic/recommendations`
+- `POST /api/current/trip-context`
+
+`trip-context` is the stable BE/model boundary for one grounded planning
+context. Its `place_ids` define the canonical scope; optional hotel search IDs
+and every route endpoint must belong to that scope. Hotel failures are exposed
+as `hotel_error_code`; route failures are returned per leg as
+`status=unavailable`. Neither discards the canonical place results.
 
 Hotel offers are matched by exact check-in, check-out, adults, children,
 rooms, child ages, currency, and optional seller. Stale offers are hidden by
@@ -138,6 +163,7 @@ stdout when using `stdio`, because stdout carries protocol messages.
 | `search_hotel_availability` | `request: object` | `search_hotel_availability(HotelOfferSearchRequest.model_validate(request))` |
 | `calculate_route` | `payload: object` | `route(TrafficRouteRequest.model_validate(payload))` |
 | `recommend_transport` | `payload: object` | `recommend_transport(TransportRecommendationRequest.model_validate(payload))` |
+| `build_trip_context` | `payload: object` | `build_trip_context(TripContextRequest.model_validate(payload))` |
 
 Request dictionaries are validated with the same strict Pydantic contracts as
 the HTTP boundary before delegation. This includes hotel

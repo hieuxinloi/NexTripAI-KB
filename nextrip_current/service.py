@@ -45,6 +45,9 @@ from .models import (
     PlaceBatchRequest,
     PlaceBatchResponse,
     RepositoryReadiness,
+    TripContextRequest,
+    TripContextResponse,
+    TripContextRouteResult,
 )
 from .repository import CurrentDataRepository
 from .traffic import TrafficHttpClient
@@ -205,6 +208,56 @@ class CurrentDataService:
                 "traffic API integration is not configured"
             )
         return self.traffic_client.recommend_transport(request)
+
+    def build_trip_context(
+        self, request: TripContextRequest | Mapping[str, object]
+    ) -> TripContextResponse:
+        request = TripContextRequest.model_validate(request)
+        places = self.get_places(request.place_ids)
+        hotel_availability = None
+        hotel_error_code = None
+        if request.hotel_search is not None:
+            try:
+                hotel_availability = self.search_hotel_availability(
+                    request.hotel_search
+                )
+            except Exception as error:
+                hotel_error_code = type(error).__name__
+        routes = []
+        for leg in request.route_legs:
+            try:
+                recommendation = self.recommend_transport(
+                    TransportRecommendationRequest(
+                        origin_id=leg.origin_id,
+                        destination_id=leg.destination_id,
+                        departure_time=leg.departure_time,
+                    )
+                )
+            except Exception as error:
+                routes.append(
+                    TripContextRouteResult(
+                        origin_id=leg.origin_id,
+                        destination_id=leg.destination_id,
+                        status="unavailable",
+                        error_code=type(error).__name__,
+                    )
+                )
+                continue
+            routes.append(
+                TripContextRouteResult(
+                    origin_id=leg.origin_id,
+                    destination_id=leg.destination_id,
+                    status="available",
+                    recommendation=recommendation,
+                )
+            )
+        return TripContextResponse(
+            evaluated_at=self._now(),
+            places=places,
+            hotel_availability=hotel_availability,
+            hotel_error_code=hotel_error_code,
+            routes=routes,
+        )
 
     def _search_hotel_offers(
         self, request: HotelOfferSearchRequest

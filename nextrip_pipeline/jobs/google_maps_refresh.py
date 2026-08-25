@@ -14,7 +14,7 @@ from nextrip_pipeline.preprocessing import (
     GoogleMapsPlaceNormalizer,
     NormalizedGoogleMapsWriter,
 )
-from nextrip_pipeline.publishing import CurrentPlaceWriter
+from nextrip_pipeline.publishing import AcceptedObservationStore, CurrentPlaceWriter
 from nextrip_pipeline.quality import (
     CurrentGoogleMapsMappingWriter,
     GoogleMapsMappingResolution,
@@ -44,6 +44,7 @@ class GoogleMapsRefreshResult:
     resolution_path: Path | None = None
     current_mapping_path: Path | None = None
     current_place_path: Path | None = None
+    accepted_observation_paths: list[Path] = field(default_factory=list)
     llm_review_receipt: LLMReviewQueueReceipt | None = None
 
 
@@ -66,6 +67,7 @@ class GoogleMapsRefreshPipeline:
         current_mapping_writer: CurrentGoogleMapsMappingWriter | None = None,
         llm_review_writer: LLMReviewRequestWriter | None = None,
         current_place_writer: CurrentPlaceWriter | None = None,
+        accepted_observation_store: AcceptedObservationStore | None = None,
     ) -> None:
         self.adapter = adapter
         self.raw_writer = raw_writer
@@ -80,6 +82,7 @@ class GoogleMapsRefreshPipeline:
         self.current_mapping_writer = current_mapping_writer
         self.llm_review_writer = llm_review_writer
         self.current_place_writer = current_place_writer
+        self.accepted_observation_store = accepted_observation_store
 
     def run(
         self, mapping: ExternalEntityMapping, *, run_id: str
@@ -92,6 +95,7 @@ class GoogleMapsRefreshPipeline:
         current_mapping_path = None
         llm_review_receipt = None
         effective_mapping = mapping
+        mapping_to_publish: ExternalEntityMapping | None = None
         if self.mapping_resolver is not None:
             resolution, effective_mapping = self.mapping_resolver.resolve_and_update(
                 mapping,
@@ -107,18 +111,14 @@ class GoogleMapsRefreshPipeline:
                 resolution.status is MappingResolutionStatus.AUTO_CONFIRM
                 and self.current_mapping_writer is not None
             ):
-                current_mapping_path = self.current_mapping_writer.publish(
-                    effective_mapping
-                )
+                mapping_to_publish = effective_mapping
                 observation = self.normalizer.normalize(record, effective_mapping)
             elif (
                 resolution.status is MappingResolutionStatus.REJECT
                 and self.current_mapping_writer is not None
             ):
                 effective_mapping = apply_rejected_resolution(mapping, resolution)
-                current_mapping_path = self.current_mapping_writer.publish(
-                    effective_mapping
-                )
+                mapping_to_publish = effective_mapping
             elif (
                 resolution.status is MappingResolutionStatus.REVIEW
                 and mapping.status.value == "auto_matched"
@@ -138,6 +138,34 @@ class GoogleMapsRefreshPipeline:
         decision = self.decision_gate.decide(observation, validations)
         decision_path = self.decision_writer.write(decision)
         current_place_path = None
+        accepted_observation_paths: list[Path] = []
+        if (
+            decision.status.value == "pass"
+            and self.accepted_observation_store is not None
+        ):
+            # Persist accepted history before updating any mutable projection.
+            # If this write fails, the current/canonical publish cannot advance.
+            accepted_observation_paths = self.accepted_observation_store.write_many(
+                [observation, observation.opening]
+            )
+        if mapping_to_publish is not None and (
+            (
+                resolution is not None
+                and resolution.status is MappingResolutionStatus.AUTO_CONFIRM
+                and decision.status.value == "pass"
+            )
+            or (
+                resolution is not None
+                and resolution.status is MappingResolutionStatus.REJECT
+                and decision.status.value == "quarantine"
+            )
+        ):
+            # For an accepted identity, do not advance the mutable mapping until
+            # the immutable accepted observation has been durably persisted.
+            assert self.current_mapping_writer is not None
+            current_mapping_path = self.current_mapping_writer.publish(
+                mapping_to_publish
+            )
         if (
             decision.status.value == "pass"
             and self.current_place_writer is not None
@@ -158,5 +186,6 @@ class GoogleMapsRefreshPipeline:
             resolution_path=resolution_path,
             current_mapping_path=current_mapping_path,
             current_place_path=current_place_path,
+            accepted_observation_paths=accepted_observation_paths,
             llm_review_receipt=llm_review_receipt,
         )

@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0.0",
+  "approved_by": "Oanhh",
+  "approved_at": "2026-08-23T10:03:58.724660+07:00",
+  "reason": "Replace 14 active hotels whose exact Trivago listings returned no bookable price with distinct, equivalent hotels that returned a complete live offer. Preserve only the public NexTrip IDs; replace the physical identities and invalidate every current projection owned by the old identities.",
+  "proposal_artifacts": [
+    {
+      "path": "data/review/hotel_replacements/dn_a-proposals.json",
+      "file_sha256": "95b739df62cf6efab360b3c1a4647b1038f883dcfc252bf64e971a41209834c7"
+    },
+    {
+      "path": "data/review/hotel_replacements/dn_b-proposals.json",
+      "file_sha256": "739d5ef25bb583f21a6778d26e5a56f199a3e6ad2b8a0afd1d35bfaf54b56d17"
+    },
+    {
+      "path": "data/review/hotel_replacements/qn-proposals.json",
+      "file_sha256": "5b0c58722d355657c3dca637c5518a0c6d0653492c4c3fb1ef837144f8473bdb"
+    }
+  ],
+  "expected_target_ids": [
+    "hotel_dn_001",
+    "hotel_dn_004",
+    "hotel_dn_006",
+    "hotel_dn_007",
+    "hotel_dn_008",
+    "hotel_dn_011",
+    "hotel_dn_029",
+    "hotel_dn_038",
+    "hotel_dn_043",
+    "hotel_qn_012",
+    "hotel_qn_015",
+    "hotel_qn_018",
+    "hotel_qn_029",
+    "hotel_qn_030"
+  ]
+}

@@ -5,11 +5,13 @@ from .hotel_price_refresh import HotelPriceRefreshPipeline, HotelPriceRefreshRes
 from .google_maps_refresh import GoogleMapsRefreshPipeline, GoogleMapsRefreshResult
 from .google_maps_batch import (
     GoogleMapsBatchItem,
+    GoogleMapsBatchItemStatus,
     GoogleMapsBatchMode,
     GoogleMapsBatchRunner,
     GoogleMapsBatchSummary,
     GoogleMapsBatchSummaryWriter,
     MENU_ENTITY_TYPES,
+    google_maps_batch_requires_retry,
     load_google_maps_manifest,
 )
 from .google_maps_reprocess import (
@@ -77,10 +79,12 @@ __all__ = [
     "GoogleMapsRefreshPipeline",
     "GoogleMapsRefreshResult",
     "GoogleMapsBatchItem",
+    "GoogleMapsBatchItemStatus",
     "GoogleMapsBatchMode",
     "GoogleMapsBatchRunner",
     "GoogleMapsBatchSummary",
     "GoogleMapsBatchSummaryWriter",
+    "google_maps_batch_requires_retry",
     "GoogleMapsQualityReprocessor",
     "GoogleMapsReprocessError",
     "GoogleMapsReprocessItem",

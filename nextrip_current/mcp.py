@@ -17,6 +17,7 @@ from nextrip_current.models import (
     HotelAvailabilitySearchRequest,
     HotelOfferSearchRequest,
     PlaceBatchRequest,
+    TripContextRequest,
 )
 from nextrip_traffic.models import (
     TrafficRouteRequest,
@@ -148,6 +149,18 @@ def create_mcp_server(
     ) -> dict[str, Any]:
         request = TransportRecommendationRequest.model_validate(payload)
         return _as_structured_dict(service.recommend_transport(request))
+
+    @server.tool(
+        name="build_trip_context",
+        description=(
+            "Return canonical places, contextual hotel availability, and "
+            "fail-soft transport recommendations in one grounded response."
+        ),
+        structured_output=True,
+    )
+    def build_trip_context(payload: TripContextRequest) -> dict[str, Any]:
+        request = TripContextRequest.model_validate(payload)
+        return _as_structured_dict(service.build_trip_context(request))
 
     return server
 

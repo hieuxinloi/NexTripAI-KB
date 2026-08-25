@@ -626,6 +626,7 @@ def cmd_v8_publish_observations(args: argparse.Namespace) -> None:
         hotel_price_root=args.hotel_price_root,
         hotel_availability_root=args.hotel_availability_root,
         current_menu_root=args.menu_root,
+        opening_approval_root=args.opening_approval_root,
     )
     output_root = Path(args.output_root)
     plan_path = write_v8_observation_plan(
@@ -1191,6 +1192,13 @@ def build_parser() -> argparse.ArgumentParser:
     v8_publish_observations.add_argument(
         "--menu-root",
         default="data/current/menu",
+    )
+    v8_publish_observations.add_argument(
+        "--opening-approval-root",
+        default="data/approvals/opening_status",
+        help=(
+            "Immutable human approvals for canonical pending opening reviews."
+        ),
     )
     v8_publish_observations.add_argument(
         "--output-root",

@@ -82,7 +82,7 @@ def test_valhalla_deployment_uses_official_immutable_image_and_local_data() -> N
     assert "http://127.0.0.1:8002/status" in compose
     assert "traffic_cache:/app/data/current/traffic" in compose
     assert 'NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?' in compose
-    assert "source: ../../data/canonical" in compose
+    assert 'source: "${NEXTRIP_DATA_ROOT:-../../data}/canonical"' in compose
     assert "target: /app/data/canonical" in compose
     assert "data/current/place" not in compose
     assert "TRAFFIC_API_KEY:?set TRAFFIC_API_KEY" in compose
@@ -105,6 +105,19 @@ def test_airflow_overlay_is_pinned_and_disabled_by_default() -> None:
         "COPY --chown=airflow:0 dags/nextrip_traffic.py "
         "/opt/airflow/dags/nextrip_traffic.py"
     ) in dockerfile
+    for dag in (
+        "nextrip_hotel_prices.py",
+        "nextrip_google_maps.py",
+        "nextrip_neo4j_v8.py",
+        "nextrip_canonical_rollout.py",
+    ):
+        assert f"dags/{dag}" in dockerfile
+    assert "COPY --chown=airflow:0 nextrip_graphrag" in dockerfile
+    # The canonical rollout performs Gemini embeddings in the Airflow image.
+    assert '"google-genai>=2.14.0,<3"' in dockerfile
+    assert "neo4j-graphrag" not in dockerfile
+    assert "playwright install --with-deps chromium" in dockerfile
+    assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
     assert "COPY --chown=airflow:0 dags ./dags" not in dockerfile
     assert "_PIP_ADDITIONAL_REQUIREMENTS" not in compose
     assert "NEXTRIP_TRAFFIC_AIRFLOW_ENABLED:-false" in compose
@@ -114,9 +127,24 @@ def test_airflow_overlay_is_pinned_and_disabled_by_default() -> None:
     assert "command: scheduler" in compose
     assert "command: dag-processor" in compose
     assert "traffic_cache:/opt/airflow/nextrip/data/current/traffic" in compose
-    assert 'NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?' in compose
-    assert "source: ../../data/canonical" in compose
-    assert "target: /opt/airflow/nextrip/data/canonical" in compose
+    assert "NEXTRIP_CANONICAL_DATASET_POINTER" in compose
+    assert 'NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:-}"' in compose
+    assert 'source: "${NEXTRIP_DATA_ROOT:-../../data}"' in compose
+    assert "target: /opt/airflow/nextrip/data" in compose
+    assert "read_only: true" not in compose
+    assert "    valhalla:\n      condition: service_healthy" not in compose
+    assert "source: ../../config/generated" in compose
+    assert "NEXTRIP_ACCEPTED_OBSERVATION_ROOT: data/observations" in compose
+    assert "NEXTRIP_GOOGLE_MAPS_AIRFLOW_ENABLED:-false" in compose
+    assert "NEXTRIP_HOTEL_PRICES_AIRFLOW_ENABLED:-false" in compose
+    assert "NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED:-false" in compose
+    assert "NEXTRIP_GOOGLE_MAPS_POOL:-google_maps_web" in compose
+    assert "NEXTRIP_CURRENT_DATA_POOL:-current_data_snapshot" in compose
+    assert "NEXTRIP_CURRENT_DATA_POOL_SLOTS:-1" in compose
+    assert "NEXTRIP_CANONICAL_ROLLOUT_AIRFLOW_ENABLED:-false" in compose
+    assert "NEXTRIP_CANONICAL_ROLLOUT_POOL:-canonical_release_rollout" in compose
+    assert "NEXTRIP_CANONICAL_ROLLOUT_POOL_SLOTS:-1" in compose
+    assert "airflow pools set" in compose
     assert "data/current/place" not in compose
     assert "/opt/airflow/nextrip/data/canonical" in dockerfile
     assert "data/current/place" not in dockerfile
@@ -142,6 +170,8 @@ def test_environment_template_uses_the_documented_dotenv_name() -> None:
     ignores = (ROOT / "deploy" / "traffic" / ".gitignore").read_text("utf-8")
 
     assert "deploy/traffic/.env" in template
+    assert "NEXTRIP_DATA_ROOT=../../data" in template
+    assert "F:\\nextrip-runtime\\data" in template
     assert "NEXTRIP_CANONICAL_DATASET=data/canonical/datasets/" in template
     assert "TRAFFIC_API_KEY=replace-with-a-long-random-secret" in template
     assert ".env" in ignores.splitlines()

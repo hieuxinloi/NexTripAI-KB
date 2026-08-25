@@ -27,9 +27,11 @@ def test_v8_observation_dag_is_disabled_by_default_and_command_is_bounded(
     assert module.neo4j_v8_observations_dag is None
     command = module._publish_observations_command()
     assert "NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED:-false" in command
-    assert "v8-publish-observations" in command
-    assert '--canonical-dataset "$NEXTRIP_CANONICAL_DATASET"' in command
-    assert "NEXTRIP_CANONICAL_DATASET:?" in command
+    assert "python -m nextrip_graphrag.observation_cli" in command
+    assert "NEXTRIP_CANONICAL_DATASET_POINTER" in command
+    assert "resolve-active-canonical-dataset" in command
+    assert 'elif [ -n "${NEXTRIP_CANONICAL_DATASET:-}" ]' in command
+    assert '--canonical-dataset "$CANONICAL_DATASET"' in command
     assert "data/current/hotel_price" in command
     assert "data/current/hotel_availability" in command
     assert "data/current/place" not in command
@@ -77,3 +79,4 @@ def test_v8_observation_schedule_is_configurable_without_a_dataset_default() -> 
     assert "canonical-active-" not in source
     assert "schedule=None" not in source
     assert "publish_current_observations" in source
+    assert 'NEXTRIP_CURRENT_DATA_POOL", "current_data_snapshot"' in source

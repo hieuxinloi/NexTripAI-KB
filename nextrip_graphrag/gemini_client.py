@@ -162,3 +162,30 @@ class GeminiClient:
             output_tokens,
             thinking_tokens,
         )
+
+
+class GeminiEmbeddingClient(GeminiClient):
+    """Embedding-only Gemini client that does not require a planner model."""
+
+    def __init__(self, settings: Settings):
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise RuntimeError(
+                "Missing google-genai. Install dependencies with: "
+                "pip install -r requirements.txt"
+            ) from exc
+
+        self.settings = settings
+        self.types = types
+        self._query_embedding_lock = Lock()
+        self._query_embedding_cache = (
+            Path(settings.query_embedding_cache)
+            / f"{settings.embedding_model.replace('/', '_')}-{settings.embedding_dim}"
+        )
+        self.client = self._create_client(genai)
+        self.structured_client = self.client
+
+    def close(self) -> None:
+        self.client.close()

@@ -24,6 +24,75 @@ class V8GraphStore(V5GraphStore):
     place_vector_index = "place_embedding"
     concept_vector_index = "concept_embedding"
 
+    def runtime_readiness(self) -> dict[str, Any]:
+        """Verify the active canonical release, not only Neo4j connectivity."""
+
+        release_rows = self.run(
+            """
+            MATCH (catalog:CanonicalTravelCatalog:TravelCatalog {
+              id: 'v8:canonical-travel-catalog',
+              kb_version: $kb_version,
+              status: 'ready'
+            })-[:CURRENT_RELEASE]->(release:DatasetRelease {
+              kb_version: $kb_version,
+              status: 'active'
+            })
+            RETURN catalog.dataset_id AS catalog_dataset_id,
+                   catalog.dataset_hash AS catalog_dataset_hash,
+                   coalesce(catalog.place_count, release.place_count)
+                     AS expected_place_count,
+                   catalog.semantic_index_status AS semantic_index_status,
+                   release.id AS release_id,
+                   release.dataset_id AS release_dataset_id,
+                   release.dataset_hash AS release_dataset_hash,
+                   release.place_count AS release_place_count
+            """,
+            kb_version=self.kb_version,
+        )
+        issues: list[str] = []
+        if len(release_rows) != 1:
+            return {
+                "ready": False,
+                "semantic_index_status": "unknown",
+                "issues": ["active_release_count"],
+            }
+        release = release_rows[0]
+        if release.get("catalog_dataset_id") != release.get("release_dataset_id"):
+            issues.append("dataset_id_mismatch")
+        if release.get("catalog_dataset_hash") != release.get("release_dataset_hash"):
+            issues.append("dataset_hash_mismatch")
+        expected = int(release.get("expected_place_count") or -1)
+        release_count = int(release.get("release_place_count") or -1)
+        if expected < 1 or expected != release_count:
+            issues.append("release_place_count_mismatch")
+
+        count_rows = self.run(
+            """
+            MATCH (place:Place {kb_version: $kb_version})
+            RETURN count(place) AS place_count
+            """,
+            kb_version=self.kb_version,
+        )
+        actual = int(count_rows[0].get("place_count", -1)) if count_rows else -1
+        if actual != expected:
+            issues.append("active_place_count_mismatch")
+        semantic_status = str(
+            release.get("semantic_index_status") or "pending"
+        )
+        if semantic_status not in {"pending", "ready"}:
+            issues.append("semantic_index_status_invalid")
+        return {
+            "ready": not issues,
+            "release_id": release.get("release_id"),
+            "dataset_id": release.get("catalog_dataset_id"),
+            "place_count": actual,
+            "expected_place_count": expected,
+            "release_place_count": release_count,
+            "semantic_index_status": semantic_status,
+            "semantic_ready": semantic_status == "ready",
+            "issues": issues,
+        }
+
     def personalized_candidates(
         self,
         *,

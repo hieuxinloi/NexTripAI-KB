@@ -30,6 +30,10 @@ from nextrip_pipeline.publishing.current_availability import (
 )
 from nextrip_pipeline.publishing.current_menu import CurrentMenuMetadata
 from nextrip_pipeline.publishing.current_price import CurrentHotelPriceSnapshot
+from nextrip_pipeline.quality.opening_status_approval import (
+    OpeningStatusReviewApprovalWriter,
+    build_opening_status_review_approvals,
+)
 from nextrip_pipeline.schemas import (
     BusinessStatus,
     DailyOpeningStatus,
@@ -227,6 +231,142 @@ def test_plan_reads_current_artifacts_and_builds_deterministic_ids(
         "current_menu_approval",
     }
     assert not any("traffic" in item.relative_path for item in first.input_artifacts)
+
+
+def test_plan_skips_pending_review_opening_without_blocking_verified_inputs(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    dataset = _dataset(
+        tmp_path / "canonical",
+        opening_verification_status=VerificationStatus.PENDING_REVIEW,
+    )
+
+    plan = build_v8_observation_plan_for_dataset(
+        dataset,
+        **roots,
+        built_at=NOW,
+    )
+
+    assert plan.counts["opening_status"] == 0
+    assert plan.counts["hotel_price"] == 1
+    assert plan.counts["hotel_availability"] == 1
+    assert plan.counts["menu_snapshot"] == 1
+    assert plan.counts["total_observations"] == 3
+    assert all(
+        row.source_observation_id != "source-opening-1"
+        for row in plan.observations
+    )
+
+
+def test_plan_skips_legacy_unknown_availability_as_audit_only(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    availability_path = next(
+        Path(roots["hotel_availability_root"]).rglob("*.json")
+    )
+    snapshot = CurrentHotelAvailabilitySnapshot.model_validate_json(
+        availability_path.read_bytes()
+    )
+    snapshot.observation = snapshot.observation.model_copy(
+        update={
+            "status": HotelAvailabilityStatus.UNKNOWN,
+            "reason": HotelAvailabilityReason.NO_PRICE,
+            "offer_count": 0,
+            "price_observation_ids": [],
+        }
+    )
+    availability_path.write_text(
+        snapshot.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        built_at=NOW,
+    )
+
+    assert plan.counts["hotel_availability"] == 0
+    assert all(
+        row.kind is not V8ObservationKind.HOTEL_AVAILABILITY
+        for row in plan.observations
+    )
+
+
+def test_plan_publishes_exactly_approved_pending_opening_with_provenance(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    dataset = _dataset(
+        tmp_path / "canonical",
+        opening_verification_status=VerificationStatus.PENDING_REVIEW,
+    )
+    approval_root = tmp_path / "opening-approvals"
+    approvals = build_opening_status_review_approvals(
+        dataset,
+        reviewer="oanh",
+        approved_at=NOW + timedelta(hours=1),
+    )
+    OpeningStatusReviewApprovalWriter(approval_root).write_many(approvals)
+
+    plan = build_v8_observation_plan_for_dataset(
+        dataset,
+        **roots,
+        opening_approval_root=approval_root,
+        built_at=NOW + timedelta(hours=1),
+    )
+
+    assert plan.counts["opening_status"] == 1
+    opening = next(
+        row
+        for row in plan.observations
+        if row.kind is V8ObservationKind.OPENING_STATUS
+    )
+    assert opening.properties["verification_status"] == "human_verified"
+    assert opening.properties["source_verification_status"] == "pending_review"
+    assert opening.properties["human_approval_id"] == approvals[0].approval_id
+    assert opening.properties["human_approval_reviewer"] == "oanh"
+    assert any(
+        item.family == "opening_status_approval"
+        for item in plan.input_artifacts
+    )
+
+
+def test_later_opening_approval_has_a_distinct_immutable_graph_id(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    dataset = _dataset(
+        tmp_path / "canonical",
+        opening_verification_status=VerificationStatus.PENDING_REVIEW,
+    )
+
+    graph_ids = []
+    for hour in (1, 2):
+        approval_root = tmp_path / f"opening-approvals-{hour}"
+        approvals = build_opening_status_review_approvals(
+            dataset,
+            reviewer="oanh",
+            approved_at=NOW + timedelta(hours=hour),
+        )
+        OpeningStatusReviewApprovalWriter(approval_root).write_many(approvals)
+        plan = build_v8_observation_plan_for_dataset(
+            dataset,
+            **roots,
+            opening_approval_root=approval_root,
+            built_at=NOW + timedelta(hours=hour),
+        )
+        graph_ids.append(
+            next(
+                row.graph_id
+                for row in plan.observations
+                if row.kind is V8ObservationKind.OPENING_STATUS
+            )
+        )
+
+    assert graph_ids[0] != graph_ids[1]
 
 
 def test_cli_rejects_removed_current_place_input() -> None:
@@ -520,7 +660,13 @@ def test_same_observation_identity_with_changed_price_has_new_content_hash(
     assert first.plan_hash != second.plan_hash
 
 
-def _dataset(root: Path) -> CanonicalActiveDataset:
+def _dataset(
+    root: Path,
+    *,
+    opening_verification_status: VerificationStatus = (
+        VerificationStatus.AUTO_VERIFIED
+    ),
+) -> CanonicalActiveDataset:
     opening = OpeningStatusObservation(
         observation_id="source-opening-1",
         run_id="maps-run-1",
@@ -535,7 +681,7 @@ def _dataset(root: Path) -> CanonicalActiveDataset:
             )
         ],
         observed_at=NOW,
-        verification_status=VerificationStatus.AUTO_VERIFIED,
+        verification_status=opening_verification_status,
     )
     dataset_path = write_canonical_dataset(
         root,

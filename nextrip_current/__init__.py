@@ -12,6 +12,8 @@ from .models import (
     HotelStayWindowResult,
     PlaceBatchRequest,
     PlaceBatchResponse,
+    TripContextRequest,
+    TripContextResponse,
 )
 from .repository import CurrentDataRepository
 from .runtime import build_current_data_service
@@ -32,5 +34,7 @@ __all__ = [
     "HotelPriceRefresher",
     "PlaceBatchRequest",
     "PlaceBatchResponse",
+    "TripContextRequest",
+    "TripContextResponse",
     "build_current_data_service",
 ]

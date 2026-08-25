@@ -129,11 +129,14 @@ from nextrip_pipeline.crawl.adapters import (
     TrivagoPriceRequest,
 )
 from nextrip_pipeline.decision_gate import (
+    GoogleMapsDecisionGate,
+    GoogleMapsDecisionPolicy,
     GoogleMapsDecisionWriter,
     HotelPriceDecisionWriter,
     MenuDecisionWriter,
 )
 from nextrip_pipeline.jobs import (
+    GoogleMapsBatchItemStatus,
     GoogleMapsBatchMode,
     GoogleMapsBatchRunner,
     GoogleMapsBatchSummaryWriter,
@@ -151,6 +154,7 @@ from nextrip_pipeline.jobs import (
     TrivagoStayAvailabilityResultWriter,
     TrivagoStayAvailabilityRunner,
     TrivagoStayBatchSummaryWriter,
+    google_maps_batch_requires_retry,
     load_google_maps_manifest,
     MenuRefreshPipeline,
 )
@@ -166,6 +170,7 @@ from nextrip_pipeline.preprocessing import (
     RapidOcrEngine,
 )
 from nextrip_pipeline.publishing import (
+    AcceptedObservationStore,
     CurrentHotelAvailabilitySnapshot,
     CurrentHotelAvailabilityWriter,
     CurrentHotelPriceSnapshot,
@@ -180,13 +185,25 @@ from nextrip_pipeline.crawl.adapters.google_maps_discovery import (
 from nextrip_pipeline.quality import (
     CurrentGoogleMapsMappingWriter,
     CurrentTrivagoMappingWriter,
+    GoogleMapsMappingApprovalError,
+    GoogleMapsMappingApprovalWriter,
     GoogleMapsMappingResolutionWriter,
     GoogleMapsMappingResolver,
     LLMReviewQueueConfig,
     LLMReviewRequestWriter,
+    OpeningStatusApprovalError,
+    OpeningStatusReviewApprovalWriter,
     TrivagoDiscoveryAuditWriter,
     TrivagoMappingApprovalWriter,
+    approve_google_maps_mapping,
     approve_trivago_review,
+    build_opening_status_review_approvals,
+)
+from nextrip_pipeline.canonical.active_pointer import (
+    ACTIVE_DATASET_POINTER_FILENAME,
+    CanonicalActivePointerError,
+    promote_canonical_active_dataset,
+    resolve_active_canonical_dataset,
 )
 from nextrip_pipeline.review import MenuReviewQueue
 from nextrip_pipeline.review.trivago_mapping import (
@@ -382,6 +399,86 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("data/current/trivago_mappings"),
     )
 
+    approve_google_maps_mapping_parser = subparsers.add_parser(
+        "approve-google-maps-mapping",
+        help=(
+            "Human-approve one source-pinned Google Maps identity resolution "
+            "and decision."
+        ),
+    )
+    approve_google_maps_mapping_parser.add_argument(
+        "--canonical-dataset",
+        type=Path,
+        required=True,
+    )
+    approve_google_maps_mapping_parser.add_argument(
+        "--observation",
+        type=Path,
+        required=True,
+    )
+    approve_google_maps_mapping_parser.add_argument(
+        "--resolution",
+        type=Path,
+        required=True,
+    )
+    approve_google_maps_mapping_parser.add_argument(
+        "--decision",
+        type=Path,
+        required=True,
+    )
+    approve_google_maps_mapping_parser.add_argument("--reviewer", required=True)
+    approve_google_maps_mapping_parser.add_argument(
+        "--approval-output-dir",
+        type=Path,
+        default=Path("data/approvals/google_maps_mapping"),
+    )
+    approve_google_maps_mapping_parser.add_argument(
+        "--current-mapping-dir",
+        type=Path,
+        default=Path("data/current/google_maps_mappings"),
+    )
+
+    approve_opening_reviews = subparsers.add_parser(
+        "approve-opening-status-reviews",
+        help=(
+            "Human-approve pending opening observations pinned to one "
+            "canonical dataset; use explicit --all-pending with --expected-count "
+            "for a bulk approval."
+        ),
+    )
+    approve_opening_reviews.add_argument(
+        "--canonical-dataset",
+        type=Path,
+        required=True,
+    )
+    approve_opening_reviews.add_argument("--reviewer", required=True)
+    approve_opening_reviews.add_argument(
+        "--place-id",
+        action="append",
+        default=[],
+        help="Approve one pending place; repeat as needed.",
+    )
+    approve_opening_reviews.add_argument(
+        "--all-pending",
+        action="store_true",
+        help="Explicitly authorize approving every pending opening review.",
+    )
+    approve_opening_reviews.add_argument(
+        "--expected-count",
+        type=int,
+        default=None,
+        help="Fail unless the selected pending review count exactly matches this value.",
+    )
+    approve_opening_reviews.add_argument(
+        "--reason",
+        default="human_approved_pending_opening_review",
+    )
+    approve_opening_reviews.add_argument(
+        "--approval-output-dir",
+        type=Path,
+        default=Path("data/approvals/opening_status"),
+    )
+
     build_trivago_review = subparsers.add_parser(
         "build-trivago-review-batch",
         help=(
@@ -570,6 +667,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("data/current/hotel_availability"),
     )
     batch_availability.add_argument(
+        "--accepted-observation-dir",
+        type=Path,
+        default=Path("data/observations"),
+        help=(
+            "Append-only JSON history written after deterministic quality "
+            "acceptance and before current/Neo4j publication."
+        ),
+    )
+    batch_availability.add_argument(
         "--stay-result-dir",
         type=Path,
         default=Path("data/runs/trivago_stay"),
@@ -587,6 +693,23 @@ def build_parser() -> argparse.ArgumentParser:
     _add_browser_arguments(refresh_maps)
     refresh_maps.add_argument("--mapping", type=Path, required=True)
     refresh_maps.add_argument(
+        "--force-search",
+        action="store_true",
+        help=(
+            "Ignore a stored Google Maps place URL and recrawl from the mapping "
+            "search query and master-coordinate viewport."
+        ),
+    )
+    refresh_maps.add_argument(
+        "--search-query-mode",
+        choices=["registry", "name"],
+        default="registry",
+        help=(
+            "Select the registry query or retry with the canonical place name; "
+            "the default remains registry."
+        ),
+    )
+    refresh_maps.add_argument(
         "--normalized-dir", type=Path, default=Path("data/normalized")
     )
     refresh_maps.add_argument(
@@ -594,6 +717,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     refresh_maps.add_argument(
         "--decision-dir", type=Path, default=Path("data/decisions")
+    )
+    refresh_maps.add_argument(
+        "--accepted-observation-dir",
+        type=Path,
+        default=Path("data/observations"),
     )
     _add_google_quality_arguments(refresh_maps)
 
@@ -665,6 +793,23 @@ def build_parser() -> argparse.ArgumentParser:
     _add_browser_arguments(batch_maps)
     batch_maps.add_argument("--manifest", type=Path, required=True)
     batch_maps.add_argument(
+        "--force-search",
+        action="store_true",
+        help=(
+            "Ignore stored Google Maps place URLs and recrawl from mapping "
+            "search queries and master-coordinate viewports."
+        ),
+    )
+    batch_maps.add_argument(
+        "--search-query-mode",
+        choices=["registry", "name"],
+        default="registry",
+        help=(
+            "Select registry queries or retry with canonical place names; the "
+            "default remains registry."
+        ),
+    )
+    batch_maps.add_argument(
         "--canonical-dataset",
         type=Path,
         default=(
@@ -693,6 +838,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode", choices=[item.value for item in GoogleMapsBatchMode], required=True
     )
     batch_maps.add_argument("--max-requests", type=int, default=32)
+    batch_maps.add_argument(
+        "--max-no-update-ratio",
+        type=float,
+        default=float(os.getenv("NEXTRIP_MAPS_MAX_NO_UPDATE_RATIO", "0.20")),
+        help=(
+            "Maximum tolerated fraction of isolated NO_UPDATE items for a "
+            "trusted scheduled crawl. At least one isolated item is always "
+            "tolerated; exceeding the guard makes Airflow retry the task."
+        ),
+    )
     batch_maps.add_argument(
         "--run-id",
         default=None,
@@ -753,6 +908,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data/current/menu"),
     )
+    batch_maps.add_argument(
+        "--accepted-observation-dir",
+        type=Path,
+        default=Path("data/observations"),
+    )
     _add_google_quality_arguments(batch_maps)
 
     reprocess_maps = subparsers.add_parser(
@@ -760,6 +920,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-run Google Maps quality gates from normalized JSON without crawling.",
     )
     reprocess_maps.add_argument("--manifest", type=Path, required=True)
+    reprocess_maps.add_argument(
+        "--observation",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Reprocess one exact immutable observation; repeat as needed. "
+            "When supplied, the default observation root is not scanned."
+        ),
+    )
     reprocess_maps.add_argument(
         "--observation-root",
         type=Path,
@@ -788,6 +958,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Only reprocess selected entity types; repeat as needed. "
             "Defaults to attraction, cafe, nightlife, and restaurant."
         ),
+    )
+    reprocess_maps.add_argument(
+        "--entity-id",
+        action="append",
+        default=[],
+        help="Only reprocess selected entity IDs; repeat as needed.",
     )
     _add_google_quality_arguments(reprocess_maps)
 
@@ -1211,6 +1387,50 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data/decisions"),
     )
+
+    promote_canonical = subparsers.add_parser(
+        "promote-canonical-dataset",
+        help=(
+            "Validate a canonical dataset/readiness pair, write an immutable "
+            "promotion audit, and atomically update the active pointer."
+        ),
+    )
+    promote_canonical.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/canonical"),
+    )
+    promote_canonical.add_argument("--dataset", type=Path, required=True)
+    promote_canonical.add_argument("--readiness", type=Path, required=True)
+
+    resolve_canonical = subparsers.add_parser(
+        "resolve-active-canonical-dataset",
+        help="Resolve and integrity-check the active canonical dataset pointer.",
+    )
+    resolve_canonical.add_argument(
+        "--pointer",
+        type=Path,
+        default=Path("data/canonical") / ACTIVE_DATASET_POINTER_FILENAME,
+    )
+    apply_google_refresh.add_argument(
+        "--mapping-approval-root",
+        type=Path,
+        default=None,
+        help=(
+            "Optional immutable Google Maps mapping approvals that may publish "
+            "their exact reviewed REVIEW/QUARANTINE evidence."
+        ),
+    )
+    build_maps_registry.add_argument(
+        "--resolved-mapping-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional current confirmed/rejected mapping overlay referenced by "
+            "the generated batch manifest. Canonical place data remains the "
+            "only content authority; this directory stores provider identity."
+        ),
+    )
     apply_google_refresh.add_argument(
         "--entity-type",
         action="append",
@@ -1552,6 +1772,23 @@ def _add_google_quality_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Run deterministic quality gates without adding LLM review requests.",
     )
+    parser.add_argument(
+        "--trusted-scheduled-crawl",
+        action="store_true",
+        help=(
+            "Use the unattended Airflow decision policy: deterministic PASS "
+            "is published, optional missing-detail warnings may pass, and "
+            "identity/location ambiguity is quarantined instead of reviewed."
+        ),
+    )
+
+
+def _canonical_promotion_input(path: Path) -> Path:
+    """Accept absolute, repository-relative, or canonical-root-relative input."""
+
+    if path.is_absolute() or not path.is_file():
+        return path
+    return path.resolve()
 
 
 def _load_mapping(path: Path) -> ExternalEntityMapping:
@@ -1659,20 +1896,37 @@ def _google_maps_refresh_pipeline(
     browser: PlaywrightBrowserClient,
 ) -> GoogleMapsRefreshPipeline:
     return GoogleMapsRefreshPipeline(
-        GoogleMapsPlaceAdapter(browser),
+        GoogleMapsPlaceAdapter(
+            browser,
+            force_search=arguments.force_search,
+            search_query_mode=arguments.search_query_mode,
+        ),
         RawJsonWriter(arguments.raw_dir),
         NormalizedGoogleMapsWriter(arguments.normalized_dir),
         GoogleMapsValidationWriter(arguments.validation_dir),
         GoogleMapsDecisionWriter(arguments.decision_dir),
         validator=GoogleMapsValidatorOrchestrator(),
+        decision_gate=GoogleMapsDecisionGate(
+            policy=(
+                GoogleMapsDecisionPolicy.TRUSTED_SCHEDULED
+                if arguments.trusted_scheduled_crawl
+                else GoogleMapsDecisionPolicy.STANDARD
+            )
+        ),
         mapping_resolver=GoogleMapsMappingResolver(),
         resolution_writer=GoogleMapsMappingResolutionWriter(arguments.quality_dir),
         current_mapping_writer=CurrentGoogleMapsMappingWriter(
             arguments.current_mapping_dir
         ),
+        accepted_observation_store=AcceptedObservationStore(
+            arguments.accepted_observation_dir
+        ),
         llm_review_writer=(
             None
-            if arguments.disable_llm_review_queue
+            if (
+                arguments.disable_llm_review_queue
+                or arguments.trusted_scheduled_crawl
+            )
             else LLMReviewRequestWriter(
                 LLMReviewQueueConfig(
                     root_directory=arguments.mapping_review_dir,
@@ -1857,6 +2111,88 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             f"entity_id={mapping.entity_id} external_id={mapping.external_id} "
             f"approval_id={approval.approval_id}"
+        )
+        return 0
+
+    if arguments.command == "approve-google-maps-mapping":
+        try:
+            approval, mapping, approval_path, mapping_path = (
+                approve_google_maps_mapping(
+                    arguments.canonical_dataset,
+                    arguments.observation,
+                    arguments.resolution,
+                    arguments.decision,
+                    reviewer=arguments.reviewer,
+                    approval_writer=GoogleMapsMappingApprovalWriter(
+                        arguments.approval_output_dir
+                    ),
+                    mapping_writer=CurrentGoogleMapsMappingWriter(
+                        arguments.current_mapping_dir
+                    ),
+                )
+            )
+        except (
+            OSError,
+            ValidationError,
+            GoogleMapsMappingApprovalError,
+            ValueError,
+        ) as error:
+            print(f"Cannot approve Google Maps mapping: {error}", file=sys.stderr)
+            return 2
+        print(f"approval={approval_path}")
+        print(f"mapping={mapping_path}")
+        print(
+            f"place_id={mapping.entity_id} external_id={mapping.external_id} "
+            f"approval_id={approval.approval_id}"
+        )
+        return 0
+
+    if arguments.command == "approve-opening-status-reviews":
+        try:
+            if arguments.place_id and arguments.all_pending:
+                raise OpeningStatusApprovalError(
+                    "use either --place-id or --all-pending, not both"
+                )
+            if not arguments.place_id and not arguments.all_pending:
+                raise OpeningStatusApprovalError(
+                    "bulk approval requires explicit --all-pending"
+                )
+            if arguments.all_pending and arguments.expected_count is None:
+                raise OpeningStatusApprovalError(
+                    "bulk approval requires --expected-count"
+                )
+            if arguments.expected_count is not None and arguments.expected_count < 1:
+                raise OpeningStatusApprovalError("--expected-count must be positive")
+            dataset = read_canonical_active_dataset(arguments.canonical_dataset)
+            approvals = build_opening_status_review_approvals(
+                dataset,
+                reviewer=arguments.reviewer,
+                place_ids=arguments.place_id,
+                reason=arguments.reason,
+            )
+            if (
+                arguments.expected_count is not None
+                and len(approvals) != arguments.expected_count
+            ):
+                raise OpeningStatusApprovalError(
+                    "pending opening review count differs from --expected-count: "
+                    f"found {len(approvals)}, expected {arguments.expected_count}"
+                )
+            paths = OpeningStatusReviewApprovalWriter(
+                arguments.approval_output_dir
+            ).write_many(approvals)
+        except (
+            OSError,
+            ValidationError,
+            OpeningStatusApprovalError,
+            ValueError,
+        ) as error:
+            print(f"Cannot approve opening reviews: {error}", file=sys.stderr)
+            return 2
+        print(f"approval_root={arguments.approval_output_dir}")
+        print(
+            f"dataset_id={dataset.dataset_id} approved={len(paths)} "
+            f"reviewer={arguments.reviewer.strip()}"
         )
         return 0
 
@@ -2079,6 +2415,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 current_price_writer=CurrentHotelPriceWriter(
                     arguments.current_price_dir
                 ),
+                accepted_observation_store=AcceptedObservationStore(
+                    arguments.accepted_observation_dir
+                ),
                 validator=HotelPriceValidatorOrchestrator(),
                 identity_retry_limit=arguments.identity_retry_limit,
                 include_radius_identity_retry=(arguments.include_radius_identity_retry),
@@ -2196,6 +2535,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"current_mapping={result.current_mapping_path}")
         if result.current_place_path is not None:
             print(f"current_place={result.current_place_path}")
+        for accepted_path in result.accepted_observation_paths:
+            print(f"accepted_observation={accepted_path}")
         if result.llm_review_receipt is not None:
             print(f"llm_review={result.llm_review_receipt.disposition.value}")
         return 0
@@ -2209,11 +2550,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 EntityType.NIGHTLIFE.value,
                 EntityType.RESTAURANT.value,
             }
+            selected_ids = set(arguments.entity_id)
             mappings = [
                 mapping
                 for mapping in mappings
                 if mapping.entity_type is not None
                 and mapping.entity_type.value in selected_types
+                and (not selected_ids or mapping.entity_id in selected_ids)
             ]
             processor = GoogleMapsQualityReprocessor(
                 NormalizedGoogleMapsWriter(arguments.normalized_dir),
@@ -2237,7 +2580,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             result = processor.run(
                 mappings,
-                observation_root=arguments.observation_root,
+                observation_paths=arguments.observation,
+                observation_root=(
+                    None if arguments.observation else arguments.observation_root
+                ),
                 run_id=_new_google_reprocess_run_id(),
             )
         except (
@@ -2563,6 +2909,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mode=mode,
                 max_requests=arguments.max_requests,
                 offset=arguments.offset,
+                item_error_status=(
+                    GoogleMapsBatchItemStatus.NO_UPDATE
+                    if arguments.trusted_scheduled_crawl
+                    else GoogleMapsBatchItemStatus.FAILED
+                ),
             ).run(mappings, run_id=run_id)
             summary_path = GoogleMapsBatchSummaryWriter(arguments.summary_dir).write(
                 summary
@@ -2580,18 +2931,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"summary={summary_path}")
         print(
             f"selected={summary.selected_count} succeeded={summary.succeeded_count} "
-            f"failed={summary.failed_count}"
+            f"no_update={summary.no_update_count} failed={summary.failed_count}"
         )
         for item in summary.items:
-            if item.status == "failed":
+            if item.status is GoogleMapsBatchItemStatus.NO_UPDATE:
+                print(
+                    f"no_update entity_id={item.entity_id} error={item.error}",
+                    file=sys.stderr,
+                )
+            elif item.status is GoogleMapsBatchItemStatus.FAILED:
                 print(
                     f"failed entity_id={item.entity_id} error={item.error}",
                     file=sys.stderr,
                 )
+        retry_required = google_maps_batch_requires_retry(
+            summary,
+            max_no_update_ratio=arguments.max_no_update_ratio,
+        )
+        if retry_required:
+            print(
+                "batch_retry_required "
+                f"no_update={summary.no_update_count} "
+                f"failed={summary.failed_count} "
+                f"max_no_update_ratio={arguments.max_no_update_ratio}",
+                file=sys.stderr,
+            )
         # Keep this as the final stdout line. Airflow's BashOperator XCom uses
         # it to source-pin the downstream canonical refresh patch.
         print(f"run_id={summary.run_id}")
-        return 1 if summary.failed_count else 0
+        return 1 if retry_required else 0
 
     if arguments.command == "apply-canonical-replacements":
         try:
@@ -2689,6 +3057,53 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"cover={overlay.cover_count} "
             f"missing_cover={overlay.enrichment_count - overlay.cover_count}"
         )
+        return 0
+
+    if arguments.command == "promote-canonical-dataset":
+        try:
+            pointer = promote_canonical_active_dataset(
+                arguments.canonical_root,
+                _canonical_promotion_input(arguments.dataset),
+                _canonical_promotion_input(arguments.readiness),
+            )
+            resolved = resolve_active_canonical_dataset(arguments.canonical_root)
+        except (
+            CanonicalActivePointerError,
+            CanonicalDatasetNotReadyError,
+            OSError,
+            ValidationError,
+            ValueError,
+        ) as error:
+            print(f"Cannot promote canonical dataset: {error}", file=sys.stderr)
+            return 2
+        print(f"pointer={resolved.pointer_path}")
+        print(f"promotion={resolved.promotion_path}")
+        print(f"dataset={resolved.dataset_path}")
+        print(f"readiness={resolved.readiness_path}")
+        print(
+            f"dataset_id={pointer.dataset_id} "
+            f"promotion_id={pointer.promotion_id}"
+        )
+        return 0
+
+    if arguments.command == "resolve-active-canonical-dataset":
+        try:
+            pointer_path = arguments.pointer
+            if pointer_path.name != ACTIVE_DATASET_POINTER_FILENAME:
+                raise CanonicalActivePointerError(
+                    f"pointer filename must be {ACTIVE_DATASET_POINTER_FILENAME}"
+                )
+            resolved = resolve_active_canonical_dataset(pointer_path.parent)
+        except (
+            CanonicalActivePointerError,
+            CanonicalDatasetNotReadyError,
+            OSError,
+            ValidationError,
+            ValueError,
+        ) as error:
+            print(f"Cannot resolve canonical dataset: {error}", file=sys.stderr)
+            return 2
+        print(f"dataset={resolved.dataset_path}")
         return 0
 
     if arguments.command == "materialize-canonical-dataset":
@@ -2796,6 +3211,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.decision_root,
                 entity_types=entity_types,
                 source_run_ids=arguments.run_id,
+                mapping_approval_root=arguments.mapping_approval_root,
             )
             patch_path = CanonicalGoogleMapsPatchWriter(
                 arguments.patch_output_dir
@@ -2857,7 +3273,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         dispositions = {
             value: sum(item.disposition.value == value for item in patch.deferred)
-            for value in ("missing", "review", "quarantine")
+            for value in ("missing", "no_update", "review", "quarantine")
         }
         permanent_closed = sum(
             item.business_status.value == "permanently_closed" for item in patch.records
@@ -2873,7 +3289,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"menu_backlog={menu_backlog_path}")
         print(
             f"target={patch.target_count} refreshed={len(patch.records)} "
+            f"human_approved={patch.human_approved_count} "
             f"deferred={len(patch.deferred)} missing={dispositions['missing']} "
+            f"no_update={dispositions['no_update']} "
             f"review={dispositions['review']} "
             f"quarantine={dispositions['quarantine']}"
         )
@@ -3315,7 +3733,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     registry_file=_relative_artifact_reference(
                         registry_path,
                         arguments.batch_manifest_output,
-                    )
+                    ),
+                    resolved_mapping_dir=(
+                        _relative_artifact_reference(
+                            arguments.resolved_mapping_dir,
+                            arguments.batch_manifest_output,
+                        )
+                        if arguments.resolved_mapping_dir is not None
+                        else None
+                    ),
                 )
                 batch_manifest_path = GoogleMapsRegistryWriter.write(
                     manifest,

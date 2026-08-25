@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 from nextrip_pipeline.google_maps_identity import (
@@ -78,6 +81,147 @@ def _google_maps_price_text_from_scoped_labels(values: object) -> str | None:
         if evidence := google_maps_price_evidence_text(value):
             return evidence
     return None
+
+
+_GOOGLE_SEARCH_STOP_WORDS = {
+    "at",
+    "da",
+    "dia",
+    "duong",
+    "nam",
+    "phuong",
+    "quan",
+    "tai",
+    "thanh",
+    "tinh",
+    "viet",
+}
+
+
+def _google_maps_search_query(url: str) -> str | None:
+    """Extract the human query from a public Maps ``/search/`` URL."""
+
+    path = unquote(urlsplit(url).path)
+    marker = "/maps/search/"
+    if marker not in path:
+        return None
+    query = path.split(marker, 1)[1].split("/@", 1)[0].strip("/")
+    cleaned = " ".join(query.replace("+", " ").split())
+    return cleaned or None
+
+
+def _google_maps_identity_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = unicodedata.normalize("NFKD", value.casefold()).replace("đ", "d")
+    ascii_like = "".join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character)
+    )
+    return " ".join(re.findall(r"[a-z0-9]+", ascii_like))
+
+
+def _google_maps_place_name_from_url(value: object) -> str | None:
+    """Read the visible place slug when Maps omits an anchor aria-label."""
+
+    if not isinstance(value, str):
+        return None
+    path = unquote(urlsplit(value).path)
+    marker = "/maps/place/"
+    if marker not in path:
+        return None
+    slug = path.split(marker, 1)[1].split("/", 1)[0]
+    name = " ".join(slug.replace("+", " ").split())
+    return name or None
+
+
+def _google_maps_search_result_score(
+    query: str,
+    *,
+    name: object,
+    card_text: object,
+) -> float:
+    """Rank rendered Maps results without treating the first card as truth."""
+
+    expected_name = _google_maps_identity_text(query.split(",", 1)[0])
+    observed_name = _google_maps_identity_text(name)
+    if not expected_name or not observed_name:
+        return 0.0
+    name_similarity = SequenceMatcher(None, expected_name, observed_name).ratio()
+    expected_name_tokens = set(expected_name.split())
+    observed_name_tokens = set(observed_name.split())
+    name_recall = len(expected_name_tokens & observed_name_tokens) / max(
+        1, len(expected_name_tokens)
+    )
+
+    query_tokens = {
+        token
+        for token in _google_maps_identity_text(query).split()
+        if len(token) > 1 and token not in _GOOGLE_SEARCH_STOP_WORDS
+    }
+    card_tokens = set(_google_maps_identity_text(card_text).split())
+    card_recall = (
+        len(query_tokens & card_tokens) / len(query_tokens) if query_tokens else 0.0
+    )
+    return round(
+        0.55 * name_similarity + 0.30 * name_recall + 0.15 * card_recall,
+        6,
+    )
+
+
+def _select_google_maps_search_result(
+    requested_url: str,
+    values: object,
+    *,
+    minimum_score: float = 0.60,
+) -> dict[str, object] | None:
+    """Choose the best rendered listing or fail closed when none matches.
+
+    Google Maps can put a sponsored or merely nearby card first. Selection is
+    based on the requested place name plus card evidence. The caller keeps the
+    search page when no candidate clears the threshold, allowing downstream
+    quality gates to receive fallback evidence instead of a false identity.
+    """
+
+    if not 0 <= minimum_score <= 1:
+        raise ValueError("minimum_score must be between zero and one")
+    query = _google_maps_search_query(requested_url)
+    if query is None or not isinstance(values, (list, tuple)):
+        return None
+    candidates: list[tuple[float, int, str, dict[str, object]]] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, dict):
+            continue
+        candidate_url = value.get("url")
+        if not isinstance(candidate_url, str) or "/maps/place/" not in candidate_url:
+            continue
+        candidate_name = value.get("name") or _google_maps_place_name_from_url(
+            candidate_url
+        )
+        score = _google_maps_search_result_score(
+            query,
+            name=candidate_name,
+            card_text=value.get("card_text"),
+        )
+        candidates.append(
+            (
+                score,
+                -index,
+                candidate_url,
+                {**value, "name": candidate_name},
+            )
+        )
+    if not candidates:
+        return None
+    score, _, _, selected = max(candidates)
+    if score < minimum_score:
+        return None
+    return {
+        **selected,
+        "selection_score": score,
+        "selection_query": query,
+    }
 
 
 class BrowserDependencyError(RuntimeError):
@@ -313,23 +457,52 @@ class PlaywrightBrowserClient:
                 )
                 page.wait_for_timeout(1500)
                 selected_detail_url: str | None = None
+                selected_detail_score: float | None = None
+                rendered_results: list[dict[str, object]] = []
                 if "/maps/place/" not in page.url:
-                    first_result = page.locator(
+                    rendered_values = page.locator(
                         "a.hfpxzc, [role='feed'] a[href*='/maps/place/'], "
                         "a[href*='/maps/place/']"
-                    ).first
-                    if first_result.count():
-                        detail_url = first_result.get_attribute("href", timeout=3000)
-                        if detail_url:
+                    ).evaluate_all(
+                        """
+                        elements => elements.map(element => {
+                          const card = element.closest('[role="article"]')
+                            || element.parentElement?.parentElement
+                            || element.parentElement;
+                          return {
+                            name: element.getAttribute('aria-label')
+                              || element.textContent?.trim()
+                              || null,
+                            url: element.href || element.getAttribute('href'),
+                            card_text: card?.innerText?.trim() || null,
+                          };
+                        })
+                        """
+                    )
+                    rendered_results = [
+                        value
+                        for value in rendered_values
+                        if isinstance(value, dict)
+                        and isinstance(value.get("url"), str)
+                        and "/maps/place/" in str(value["url"])
+                    ][:20]
+                    selected_result = _select_google_maps_search_result(
+                        url,
+                        rendered_results,
+                    )
+                    if selected_result is not None:
+                        detail_url = selected_result.get("url")
+                        if isinstance(detail_url, str):
                             selected_detail_url = detail_url
+                            selected_detail_score = float(
+                                selected_result["selection_score"]
+                            )
                             detail_response = page.goto(
                                 detail_url,
                                 wait_until="domcontentloaded",
                                 timeout=timeout_ms,
                             )
                             response = detail_response or response
-                        else:
-                            first_result.click(timeout=5000, no_wait_after=True)
                         page.wait_for_timeout(1200)
 
                 def pre_expansion_text(selector: str) -> str | None:
@@ -648,6 +821,8 @@ class PlaywrightBrowserClient:
                 structured_data: dict[str, object] = {
                     **detail_data,
                     "detail_url": stable_detail_url or selected_detail_url,
+                    "selected_detail_score": selected_detail_score,
+                    "search_result_candidates": rendered_results,
                     "official_share_url": official_share_url,
                     "business_status_text": business_status_text,
                     "status_evidence_scoped": True,

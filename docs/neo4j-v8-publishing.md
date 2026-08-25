@@ -97,12 +97,24 @@ python -m nextrip_graphrag v8-publish-observations `
   --canonical-dataset $dataset
 ```
 
-This reads daily Google opening evidence directly from the pinned canonical
-dataset and scans these append-only contextual/manual observation stores:
+This reads scheduled Google opening evidence directly from the pinned canonical
+dataset and scans these latest contextual/manual projections:
 
 - `data/current/hotel_price`
 - `data/current/hotel_availability`
 - `data/current/menu`
+- `data/approvals/opening_status`
+
+Scheduled crawlers first persist quality-accepted, content-addressed evidence
+under `data/observations`. Only after that durable write succeeds do they update
+the `data/current` latest projections consumed by this publisher. The accepted
+store is the immutable JSON history; `data/current` is a rebuildable serving
+projection and is not the system of record.
+
+Pending canonical opening evidence is skipped by default. An exact
+content-addressed approval created by `approve-opening-status-reviews` promotes
+only that pinned observation to `human_verified`; its original status and
+approval provenance are retained on the Neo4j observation.
 
 Legacy place projections and the `current_place` artifact family are not
 accepted. Place identity, business/opening facts and daily opening observations
@@ -123,8 +135,26 @@ scheduler and worker environment after V8 is active:
 ```dotenv
 NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED=true
 NEXTRIP_NEO4J_V8_OBSERVATIONS_SCHEDULE="*/15 * * * *"
-NEXTRIP_CANONICAL_DATASET=data/canonical/datasets/dataset=<dataset-id>/canonical-active-dataset.json
+NEXTRIP_CANONICAL_DATASET_POINTER=data/canonical/active-dataset-pointer.json
 ```
 
 The DAG is disabled by default and fails closed when the pinned dataset or V8
-credentials are missing.
+credentials are missing. `NEXTRIP_CANONICAL_DATASET` remains a legacy exact-path
+fallback until the first pointer promotion.
+# Automated canonical rollout
+
+Static place changes are deployed by `nextrip_canonical_release_rollout`; dynamic
+traffic is not persisted in Neo4j. The rollout consumes an immutable base dataset,
+Google Maps patch, candidate dataset, readiness report and completeness audit.
+It activates Neo4j before compare-and-swap promotion of
+`data/canonical/active-dataset-pointer.json`. Existing releases and observations
+remain available as history; no active data is deleted during rollout.
+
+The lightweight entry point used in the Airflow image is:
+
+```text
+python -m nextrip_graphrag.canonical_rollout_cli ... --apply
+```
+
+It intentionally does not import the retrieval or embedding runtime. Gemini
+embedding is a separate incremental step after the canonical release is active.

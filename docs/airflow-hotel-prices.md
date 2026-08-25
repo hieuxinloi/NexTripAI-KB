@@ -2,7 +2,7 @@
 
 `dags/nextrip_hotel_prices.py` runs the hotel branch every five hours. It uses
 Trivago's remote MCP endpoint over HTTP; it does not launch Playwright and does
-not write to Neo4j. The public MCP currently needs no API key. NexTrip uses
+not write directly to Neo4j. The public MCP currently needs no API key. NexTrip uses
 `trivago-accommodation-search` with the canonical hotel name for discovery;
 after confirmation it uses the canonical Trivago name and city. Coordinates
 are supporting evidence only; the scheduled pipeline does not auto-confirm a
@@ -16,19 +16,26 @@ Each Airflow run performs two ordered tasks:
    `place_id` values. No verified-seed or current-place fallback is allowed.
 2. `batch-trivago-availability` refreshes only accommodations with a confirmed
    Trivago identity, captures immutable raw evidence, records availability for
-   the exact full stay, normalizes and validates priced offers, and updates the
-   contextual current availability/current price stores. Unresolved identity
+   the exact full stay, normalizes and validates priced offers, writes every
+   quality-accepted price/availability observation as immutable JSON under
+   `data/observations`, and then updates the contextual latest projections under
+   `data/current`. Unresolved identity
    research is opt-in through `--include-identity-discovery` and is not part of
    the five-hour price schedule. When an exact search
    proves the stay unavailable, the default policy shifts the complete stay by
    one day and records both windows. `UNKNOWN` technical or identity results do
-   not trigger fallback and are never presented as sold out. It does not
-   publish to Neo4j.
+   not trigger fallback, do not update accepted/current data, and are never
+   presented as sold out. They remain in raw evidence and the immutable stay
+   run result for retry/audit. The DAG does not publish directly to Neo4j.
 
 One MCP session is reused within a batch. Candidate identity is resolved from
 the returned accommodation ID, name, and city. A new strong, unambiguous match
 can be confirmed automatically; an ambiguous result remains unresolved/review,
 and a previously confirmed ID is never silently replaced by another ID.
+
+The accepted JSON is content-addressed and append-only, so a later five-hour
+refresh never overwrites the prior price. `data/current` is only a latest-value
+projection for serving and Neo4j publication.
 
 The default request is check-in tomorrow, one-night stay, one fallback day,
 two adults, zero children, one room, and VND. The current availability and
@@ -48,12 +55,15 @@ Required worker setting:
 
 ```text
 NEXTRIP_KB_ROOT=/opt/airflow/nextrip
-NEXTRIP_CANONICAL_DATASET=/opt/airflow/nextrip/data/canonical/datasets/dataset=<dataset-id>/canonical-active-dataset.json
+NEXTRIP_CANONICAL_DATASET_POINTER=data/canonical/active-dataset-pointer.json
+NEXTRIP_HOTEL_PRICES_AIRFLOW_ENABLED=true
 ```
 
-The selected canonical file must be mounted read-only at that exact path. The
-registry task fails before crawling if the setting is missing or the artifact
-does not validate.
+The canonical directory and `data` directory must be shared with the worker.
+The registry task fails before crawling if the pointer is missing or invalid.
+`NEXTRIP_CANONICAL_DATASET` remains an exact-path fallback during migration.
+For Docker Compose, use `NEXTRIP_DATA_ROOT` to keep this persistent data tree on
+the selected host disk; see [Runtime data root](runtime-data-root.md).
 
 Optional settings and their defaults:
 
@@ -64,10 +74,13 @@ NEXTRIP_HOTEL_LOOKAHEAD_DAYS=1
 NEXTRIP_HOTEL_ADULTS=2
 NEXTRIP_HOTEL_ROOMS=1
 NEXTRIP_HOTEL_CURRENCY=VND
-NEXTRIP_TRIVAGO_MAX_REQUESTS=73
+NEXTRIP_ACCEPTED_OBSERVATION_ROOT=data/observations
+NEXTRIP_TRIVAGO_MAX_REQUESTS=
 ```
 
-For a bounded first live run, set `NEXTRIP_TRIVAGO_MAX_REQUESTS=1`. Check the
+An empty maximum selects every active confirmed hotel; there is no hard-coded
+expected hotel count. For a bounded first live run, set
+`NEXTRIP_TRIVAGO_MAX_REQUESTS=1`. Check the
 summary in `data/runs/trivago_availability_batch` before increasing the limit.
 Per-hotel stay results are stored in `data/runs/trivago_stay`. The source and
 job are enabled in `config/sources.json` and `config/jobs.json`; those files are

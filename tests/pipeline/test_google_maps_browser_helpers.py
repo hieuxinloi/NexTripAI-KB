@@ -3,7 +3,9 @@ from __future__ import annotations
 from nextrip_pipeline.crawl.browser import (
     _first_official_google_maps_share_url,
     _google_maps_price_text_from_scoped_labels,
+    _google_maps_search_query,
     _google_maps_weekday_aria_label_count,
+    _select_google_maps_search_result,
 )
 from nextrip_pipeline.google_maps_identity import (
     google_maps_official_share_url,
@@ -127,6 +129,89 @@ def test_short_plus_code_uses_fixed_service_area_not_place_coordinates() -> None
     assert center[0] == 16.0608125
     assert center[1] == 108.2229375
     assert google_maps_plus_code_center("366F+85", city_id="unknown") is None
+
+
+def test_search_result_selector_does_not_trust_the_first_maps_card() -> None:
+    requested = (
+        "https://www.google.com/maps/search/"
+        "H%E1%BB%93%20Xanh%2C%20S%C6%A1n%20Tr%C3%A0%2C%20%C4%90%C3%A0%20N%E1%BA%B5ng/"
+        "@16.1,108.2,17z?hl=vi"
+    )
+    selected = _select_google_maps_search_result(
+        requested,
+        [
+            {
+                "name": "Ớt Xanh Garden",
+                "url": "https://www.google.com/maps/place/Ot+Xanh/data=!1swrong",
+                "card_text": "Nhà hàng · Hải Châu",
+            },
+            {
+                "name": "Hồ Xanh Đà Nẵng",
+                "url": "https://www.google.com/maps/place/Ho+Xanh/data=!1scorrect",
+                "card_text": "Hồ Xanh · Sơn Trà · Đà Nẵng",
+            },
+        ],
+    )
+
+    assert selected is not None
+    assert selected["name"] == "Hồ Xanh Đà Nẵng"
+    assert selected["selection_score"] >= 0.8
+
+
+def test_search_result_selector_fails_closed_for_unrelated_results() -> None:
+    requested = "https://www.google.com/maps/search/H%E1%BB%93%20Xanh/@16,108,17z"
+
+    assert (
+        _select_google_maps_search_result(
+            requested,
+            [
+                {
+                    "name": "MẸT Hội An",
+                    "url": "https://www.google.com/maps/place/Met/data=!1sunrelated",
+                    "card_text": "Nhà hàng tại Hội An",
+                }
+            ],
+        )
+        is None
+    )
+
+
+def test_search_result_selector_uses_place_slug_when_label_is_missing() -> None:
+    requested = (
+        "https://www.google.com/maps/search/"
+        "C%E1%BA%A7u%20R%E1%BB%93ng%2C%20%C4%90%C3%A0%20N%E1%BA%B5ng/"
+        "@16.06,108.22,17z"
+    )
+
+    selected = _select_google_maps_search_result(
+        requested,
+        [
+            {
+                "name": None,
+                "url": (
+                    "https://www.google.com/maps/place/"
+                    "C%E1%BA%A7u+R%E1%BB%93ng+%C4%90%C3%A0+N%E1%BA%B5ng/"
+                    "data=!1scorrect"
+                ),
+                "card_text": "",
+            }
+        ],
+    )
+
+    assert selected is not None
+    assert selected["name"]
+    assert selected["selection_score"] >= 0.6
+
+
+def test_search_query_extracts_decoded_place_terms() -> None:
+    assert (
+        _google_maps_search_query(
+            "https://www.google.com/maps/search/"
+            "C%E1%BA%A7u%20R%E1%BB%93ng%2C%20%C4%90%C3%A0%20N%E1%BA%B5ng/"
+            "@16.06,108.22,17z?hl=vi"
+        )
+        == "Cầu Rồng, Đà Nẵng"
+    )
 
 
 def test_full_plus_code_matches_open_location_code_specification_vector() -> None:

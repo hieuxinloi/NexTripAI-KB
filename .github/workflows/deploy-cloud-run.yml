@@ -2,6 +2,8 @@ name: Deploy Cloud Run
 
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/data-traffic-pipeline]
 
 permissions:
   contents: read
