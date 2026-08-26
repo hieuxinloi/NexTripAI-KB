@@ -207,6 +207,7 @@ class V8GraphStore(V5GraphStore):
                    END AS reason,
                    rankedCandidate {
                      .rating, .review_count, .address, .description,
+                     .lat, .lng, .duration_recommendation,
                      .opening_hours_open, .opening_hours_close,
                      .opening_hours_note, .price_per_night_min,
                      .price_per_night_max, .price_per_person_min,
@@ -251,6 +252,7 @@ class V8GraphStore(V5GraphStore):
                    'Địa điểm bạn đã lưu' AS reason,
                    place {
                      .rating, .review_count, .address, .description,
+                     .lat, .lng, .duration_recommendation,
                      .opening_hours_open, .opening_hours_close,
                      .opening_hours_note, .price_per_night_min,
                      .price_per_night_max, .price_per_person_min,

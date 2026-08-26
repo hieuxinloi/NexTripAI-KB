@@ -956,6 +956,24 @@ def test_v8_personalized_candidates_use_parameterized_graph_context() -> None:
     assert captured["params"]["preferred_categories"] == ["cafe"]
     assert "$seed_place_ids" in captured["query"]
     assert "v8:attr-1" not in captured["query"]
+    assert ".lat, .lng, .duration_recommendation" in captured["query"]
+
+
+def test_v8_places_by_ids_preserves_planning_coordinates_and_hours() -> None:
+    store = V8GraphStore.__new__(V8GraphStore)
+    captured: dict[str, Any] = {}
+
+    def fake_run(query: str, **params: Any) -> list[dict[str, Any]]:
+        captured["query"] = query
+        captured["params"] = params
+        return []
+
+    store.run = fake_run  # type: ignore[method-assign]
+    store.places_by_ids(["attr_qn_041", "rest_qn_051"])
+
+    assert captured["params"]["place_ids"] == ["attr_qn_041", "rest_qn_051"]
+    assert ".lat, .lng, .duration_recommendation" in captured["query"]
+    assert ".opening_hours_open, .opening_hours_close" in captured["query"]
 
 
 def test_v8_diversity_never_places_zero_score_before_positive_matches() -> None:
