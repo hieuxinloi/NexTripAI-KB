@@ -969,6 +969,54 @@ def test_v5_tool_required_does_not_query_graph() -> None:
     assert response.trace[0]["status"] == "ok"
 
 
+def test_v5_tool_required_resolves_ordered_place_targets_for_dynamic_tool() -> None:
+    class Store:
+        pass
+
+    class Resolver:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str | None, int]] = []
+
+        def resolve(self, target, limit, cities):
+            self.calls.append((target.value, limit))
+            place_id = {
+                "Bảo tàng Quang Trung": "attr_qn_041",
+                "GoGi House": "rest_qn_021",
+            }[target.value]
+            return [TargetResult(
+                target_id=place_id,
+                kind=TargetKind.PLACE,
+                name=target.value,
+                score=1.0,
+            )]
+
+    service = V5RetrievalService(Store())
+    resolver = Resolver()
+    service.resolver = resolver
+    plan = V5QueryPlan(
+        intent=V5Intent.TOOL_REQUIRED,
+        targets=[
+            QueryTarget(kind=TargetKind.PLACE, value="Bảo tàng Quang Trung"),
+            QueryTarget(kind=TargetKind.PLACE, value="GoGi House"),
+        ],
+        required_tools=["route", "transport"],
+        confidence=1.0,
+    )
+
+    outcome = service._execute_plan(plan, "Đi bằng gì và mất bao lâu?", 5)
+
+    assert [target.target_id for target in outcome.targets] == [
+        "attr_qn_041",
+        "rest_qn_021",
+    ]
+    assert resolver.calls == [
+        ("Bảo tàng Quang Trung", 1),
+        ("GoGi House", 1),
+    ]
+    assert outcome.retrieval_strategy == "tool_target_resolution"
+    assert outcome.facts == []
+
+
 def test_v5_planner_does_not_guess_geo_scope_without_gemini() -> None:
     plan, planner, failure = plan_query("Tuy Phước có gì?", None, CATALOG)
 

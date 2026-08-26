@@ -92,7 +92,7 @@ class V5RetrievalService(V4RetrievalService):
             failure is not None
             or plan.clarification_needed
             or grounding_blocked
-            or plan.intent in {V5Intent.UNSUPPORTED, V5Intent.TOOL_REQUIRED}
+            or plan.intent == V5Intent.UNSUPPORTED
         )
         if not retrieval_blocked:
             outcome = self._execute_plan(plan, query, top_k)
@@ -194,7 +194,24 @@ class V5RetrievalService(V4RetrievalService):
         top_k: int,
     ) -> _RetrievalOutcome:
         outcome = _RetrievalOutcome()
-        if plan.intent in {V5Intent.LOOKUP, V5Intent.PROFILE, V5Intent.COMPARE}:
+        if plan.intent == V5Intent.TOOL_REQUIRED:
+            # Dynamic tools still need canonical graph identities. Resolve only
+            # the ordered targets here; route distance and duration must come
+            # from the traffic providers, never from a static graph estimate.
+            for target in plan.targets:
+                resolved = self.resolver.resolve(
+                    target,
+                    1,
+                    plan.geo_scope.cities,
+                )
+                if resolved:
+                    outcome.targets.append(resolved[0])
+                elif target.value:
+                    outcome.missing_fields.append(
+                        f"not_found:{target.kind.value}:{target.value}"
+                    )
+            outcome.retrieval_strategy = "tool_target_resolution"
+        elif plan.intent in {V5Intent.LOOKUP, V5Intent.PROFILE, V5Intent.COMPARE}:
             resolved_targets: list[TargetResult] = []
             for target in plan.targets:
                 resolved = self.resolver.resolve(target, plan.limit, plan.geo_scope.cities)
