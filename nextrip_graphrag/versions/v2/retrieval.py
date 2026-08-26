@@ -359,6 +359,8 @@ def _entity(place: dict[str, Any]) -> EntityResult:
             for key, value in {
                 "address": place.get("address"),
                 "amenities": place.get("amenities"),
+                "check_in_time": place.get("check_in_time"),
+                "check_out_time": place.get("check_out_time"),
                 "cuisine": place.get("cuisine"),
                 "description": place.get("description"),
                 "is_indoor": place.get("is_indoor"),

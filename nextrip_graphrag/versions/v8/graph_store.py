@@ -208,6 +208,7 @@ class V8GraphStore(V5GraphStore):
                    rankedCandidate {
                      .rating, .review_count, .address, .description,
                      .lat, .lng, .duration_recommendation,
+                     .check_in_time, .check_out_time,
                      .opening_hours_open, .opening_hours_close,
                      .opening_hours_note, .price_per_night_min,
                      .price_per_night_max, .price_per_person_min,
@@ -253,6 +254,7 @@ class V8GraphStore(V5GraphStore):
                    place {
                      .rating, .review_count, .address, .description,
                      .lat, .lng, .duration_recommendation,
+                     .check_in_time, .check_out_time,
                      .opening_hours_open, .opening_hours_close,
                      .opening_hours_note, .price_per_night_min,
                      .price_per_night_max, .price_per_person_min,

@@ -69,6 +69,8 @@ def test_v8_entity_projection_preserves_planning_fields() -> None:
             "city": "Quy Nhơn",
             "entity_type": "restaurant",
             "category": "vietnamese",
+            "check_in_time": "14:00",
+            "check_out_time": "12:00",
             "lat": 13.779242,
             "lng": 109.225279,
             "opening_hours_open": "16:00",
@@ -79,6 +81,8 @@ def test_v8_entity_projection_preserves_planning_fields() -> None:
     )
 
     assert entity.attributes == {
+        "check_in_time": "14:00",
+        "check_out_time": "12:00",
         "lat": 13.779242,
         "lng": 109.225279,
         "opening_hours_open": "16:00",
@@ -957,6 +961,7 @@ def test_v8_personalized_candidates_use_parameterized_graph_context() -> None:
     assert "$seed_place_ids" in captured["query"]
     assert "v8:attr-1" not in captured["query"]
     assert ".lat, .lng, .duration_recommendation" in captured["query"]
+    assert ".check_in_time, .check_out_time" in captured["query"]
 
 
 def test_v8_places_by_ids_preserves_planning_coordinates_and_hours() -> None:
@@ -973,6 +978,7 @@ def test_v8_places_by_ids_preserves_planning_coordinates_and_hours() -> None:
 
     assert captured["params"]["place_ids"] == ["attr_qn_041", "rest_qn_051"]
     assert ".lat, .lng, .duration_recommendation" in captured["query"]
+    assert ".check_in_time, .check_out_time" in captured["query"]
     assert ".opening_hours_open, .opening_hours_close" in captured["query"]
 
 
