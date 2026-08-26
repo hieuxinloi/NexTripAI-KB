@@ -26,6 +26,7 @@ from nextrip_graphrag.versions.v5.schemas import (
 )
 from nextrip_graphrag.versions.v4.schemas import RankingCriterion
 from nextrip_graphrag.versions.v2.schemas import EntityResult
+from nextrip_graphrag.versions.v2.retrieval import _entity
 from nextrip_graphrag.versions.v8.graph_store import (
     V8GraphStore,
     _diversify_by_entity_type,
@@ -58,6 +59,33 @@ CATALOG = {
     "concepts": ["families", "quiet", "sea view"],
     "places": ["Cầu Rồng", "Eo Gió"],
 }
+
+
+def test_v8_entity_projection_preserves_planning_fields() -> None:
+    entity = _entity(
+        {
+            "id": "rest_qn_051",
+            "name": "Bánh mì 555",
+            "city": "Quy Nhơn",
+            "entity_type": "restaurant",
+            "category": "vietnamese",
+            "lat": 13.779242,
+            "lng": 109.225279,
+            "opening_hours_open": "16:00",
+            "opening_hours_close": "23:00",
+            "opening_hours_note": "Giờ tham khảo",
+            "duration_recommendation": "45-60 phút",
+        }
+    )
+
+    assert entity.attributes == {
+        "lat": 13.779242,
+        "lng": 109.225279,
+        "opening_hours_open": "16:00",
+        "opening_hours_close": "23:00",
+        "opening_hours_note": "Giờ tham khảo",
+        "duration_recommendation": "45-60 phút",
+    }
 
 
 class _RuntimeReadinessStore(V8GraphStore):

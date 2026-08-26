@@ -362,8 +362,16 @@ def _entity(place: dict[str, Any]) -> EntityResult:
                 "cuisine": place.get("cuisine"),
                 "description": place.get("description"),
                 "is_indoor": place.get("is_indoor"),
+                "lat": place.get("lat"),
+                "lng": place.get("lng"),
                 "matched_targets": place.get("matched_targets"),
                 "opening_hours": place.get("opening_hours"),
+                "opening_hours_open": place.get("opening_hours_open"),
+                "opening_hours_close": place.get("opening_hours_close"),
+                "opening_hours_note": place.get("opening_hours_note"),
+                "duration_recommendation": place.get(
+                    "duration_recommendation"
+                ),
                 "phone": place.get("phone"),
                 "price": place.get("price"),
                 "rating": place.get("rating"),
