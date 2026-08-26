@@ -209,8 +209,6 @@ class GoogleMapsMappingApproval(ImmutableQualityModel):
     def validate_content_address(self) -> GoogleMapsMappingApproval:
         if self.mapping_id != f"google-maps-{self.place_id}":
             raise ValueError("mapping_id does not match approved place_id")
-        if self.resolution_status is MappingResolutionStatus.AUTO_CONFIRM:
-            raise ValueError("AUTO_CONFIRM mapping does not require human approval")
         if self.decision_status is GoogleMapsDecisionStatus.PASS:
             raise ValueError("PASS decision does not require human approval")
         if self.approved_at < max(
@@ -600,10 +598,11 @@ def _require_place_binding(
         raise GoogleMapsMappingApprovalError(
             "weekly opening evidence belongs to another place"
         )
-    if resolution.status is MappingResolutionStatus.AUTO_CONFIRM:
-        raise GoogleMapsMappingApprovalError(
-            "AUTO_CONFIRM mapping does not require human approval"
-        )
+    # A provider identity can be AUTO_CONFIRM while the overall place decision
+    # is still REVIEW/QUARANTINE for an operational field such as ``open_now``.
+    # In that case a reviewer may explicitly pin the exact observation for a
+    # canonical correction.  PASS decisions remain rejected above because they
+    # already flow through the unattended publication path.
     if decision.status is GoogleMapsDecisionStatus.PASS:
         raise GoogleMapsMappingApprovalError(
             "PASS decision does not require human approval"

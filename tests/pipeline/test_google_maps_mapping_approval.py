@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -408,6 +409,62 @@ def test_approval_rejects_resolution_bound_to_another_place(tmp_path: Path) -> N
         )
 
 
+def test_approval_accepts_auto_confirm_identity_when_place_decision_needs_review(
+    tmp_path: Path,
+) -> None:
+    observation = _observation()
+    dataset = _dataset(_record("cafe_dn_001", name="TÃªn master cÅ©"))
+    mapping = _mapping().model_copy(
+        update={
+            "attributes": {
+                **_mapping().attributes,
+                "master_name": observation.name,
+                "master_address": observation.address,
+                "master_latitude": observation.location.latitude,
+                "master_longitude": observation.location.longitude,
+            }
+        }
+    )
+    resolution = GoogleMapsMappingResolver(
+        clock=lambda: NOW + timedelta(hours=1)
+    ).resolve(mapping, observation, canonical_url=str(observation.source_url))
+    assert resolution.status.value == "auto_confirm"
+    decision = _decision(observation).model_copy(
+        update={
+            "status": GoogleMapsDecisionStatus.REVIEW,
+            "reason_codes": ["OPENING_STATUS_UNAVAILABLE"],
+        }
+    )
+    paths = {
+        "dataset": tmp_path / "dataset.json",
+        "observation": tmp_path / "observation.json",
+        "resolution": tmp_path / "resolution.json",
+        "decision": tmp_path / "decision.json",
+    }
+    for key, value in (
+        ("dataset", dataset),
+        ("observation", observation),
+        ("resolution", resolution),
+        ("decision", decision),
+    ):
+        paths[key].write_text(value.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+    approval, published, _, _ = approve_google_maps_mapping(
+        paths["dataset"],
+        paths["observation"],
+        paths["resolution"],
+        paths["decision"],
+        reviewer="Oanhh",
+        approval_writer=GoogleMapsMappingApprovalWriter(tmp_path / "approvals"),
+        mapping_writer=CurrentGoogleMapsMappingWriter(tmp_path / "mappings"),
+        approved_at=NOW + timedelta(hours=3),
+    )
+
+    assert approval.resolution_status.value == "auto_confirm"
+    assert approval.decision_status is GoogleMapsDecisionStatus.REVIEW
+    assert published.status is MappingStatus.CONFIRMED
+
+
 def test_approve_google_maps_mapping_cli_uses_default_output_directories(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -521,6 +578,81 @@ def test_exact_mapping_approval_publishes_quarantined_evidence(
         updated.data["google_maps_refresh"]["mapping_approval_id"]
         == approval.approval_id
     )
+
+
+def test_reviewed_complete_weekly_schedule_is_source_and_approval_pinned(
+    tmp_path: Path,
+) -> None:
+    dataset = _dataset(_record("cafe_dn_001", name="TÃªn master cÅ©"))
+    observation = _observation()
+    (approval, _, _, _), _, _ = _approve(tmp_path, dataset, observation)
+    days = [
+        {
+            "day": day,
+            "intervals": [
+                {
+                    "opens_at": "14:00:00",
+                    "closes_at": "22:00:00",
+                    "closes_next_day": False,
+                }
+            ],
+            "closed": False,
+            "open_24_hours": False,
+        }
+        for day in (
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        )
+    ]
+    schedule_path = tmp_path / "reviewed-schedule.json"
+    schedule_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "reviewer": "Oanhh",
+                "reviewed_at": (NOW + timedelta(hours=3)).isoformat(),
+                "records": [
+                    {
+                        "place_id": observation.place_id,
+                        "observation_id": observation.observation_id,
+                        "timezone": "Asia/Ho_Chi_Minh",
+                        "days": days,
+                        "reason": "reviewed Google weekly schedule",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    patch = build_google_maps_canonical_refresh_patch(
+        dataset,
+        tmp_path,
+        tmp_path,
+        entity_types=[EntityType.CAFE],
+        mapping_approval_root=tmp_path / "approvals",
+        weekly_schedule_review_path=schedule_path,
+        generated_at=NOW + timedelta(hours=4),
+    )
+
+    record = patch.records[0]
+    assert record.weekly_opening is not None
+    assert len(record.weekly_opening.days) == 7
+    assert record.weekly_opening.verification_status.value == "human_verified"
+    assert record.evidence.mapping_approval_id == approval.approval_id
+    assert record.evidence.schedule_review_reviewer == "Oanhh"
+    assert record.evidence.schedule_review_file_sha256 == hashlib.sha256(
+        schedule_path.read_bytes()
+    ).hexdigest()
+    refreshed = apply_google_maps_canonical_refresh_patch(dataset, patch)
+    assert refreshed.records[0].data["opening_hours"]["open"] == "14:00"
+    assert refreshed.records[0].data["opening_hours"]["close"] == "22:00"
 
 
 def test_mapping_approval_for_another_dataset_is_not_accepted(

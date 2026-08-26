@@ -31,6 +31,7 @@ from nextrip_pipeline.google_maps_price import (
 from nextrip_pipeline.publishing._file_lock import destination_file_lock
 from nextrip_pipeline.schemas import (
     BusinessStatus,
+    DailyOpeningSchedule,
     EntityType,
     GeoPoint,
     GoogleMapsPlaceObservation,
@@ -111,6 +112,14 @@ class CanonicalGoogleMapsEvidence(NexTripModel):
     )
     mapping_approval_reviewer: str | None = Field(default=None, min_length=1)
     mapping_approval_approved_at: AwareDatetime | None = None
+    schedule_review_path: str | None = Field(default=None, min_length=1)
+    schedule_review_file_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    schedule_review_reviewer: str | None = Field(default=None, min_length=1)
+    schedule_reviewed_at: AwareDatetime | None = None
+    schedule_review_reason: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def validate_mapping_approval_provenance(
@@ -130,7 +139,57 @@ class CanonicalGoogleMapsEvidence(NexTripModel):
             raise ValueError(
                 "mapping approval provenance fields must be supplied together"
             )
+        schedule_values = (
+            self.schedule_review_path,
+            self.schedule_review_file_sha256,
+            self.schedule_review_reviewer,
+            self.schedule_reviewed_at,
+            self.schedule_review_reason,
+        )
+        if any(value is not None for value in schedule_values) and not all(
+            value is not None for value in schedule_values
+        ):
+            raise ValueError("schedule review provenance fields must be supplied together")
+        if self.schedule_review_path is not None and self.mapping_approval_id is None:
+            raise ValueError("reviewed schedule requires a human mapping approval")
         return self
+
+
+class GoogleMapsWeeklyScheduleOverride(NexTripModel):
+    place_id: str = Field(min_length=1)
+    observation_id: str = Field(min_length=1)
+    timezone: str = "Asia/Ho_Chi_Minh"
+    days: list[DailyOpeningSchedule] = Field(min_length=7, max_length=7)
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_complete_week(self) -> GoogleMapsWeeklyScheduleOverride:
+        if len({item.day for item in self.days}) != 7:
+            raise ValueError("reviewed weekly schedule must contain all seven days")
+        return self
+
+
+class GoogleMapsWeeklyScheduleReview(NexTripModel):
+    schema_version: str = Field(default="1.0.0", pattern=r"^1\.0\.0$")
+    reviewer: str = Field(min_length=1)
+    reviewed_at: AwareDatetime
+    records: list[GoogleMapsWeeklyScheduleOverride] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_records(self) -> GoogleMapsWeeklyScheduleReview:
+        if self.records != sorted(self.records, key=lambda item: item.place_id):
+            raise ValueError("reviewed weekly schedules must be sorted by place_id")
+        ids = [item.place_id for item in self.records]
+        if len(ids) != len(set(ids)):
+            raise ValueError("reviewed weekly schedules must have unique place IDs")
+        return self
+
+
+@dataclass(frozen=True)
+class _LoadedScheduleReview:
+    document: GoogleMapsWeeklyScheduleReview
+    path: Path
+    sha256: str
 
 
 def _refresh_record_payload(
@@ -388,6 +447,7 @@ def build_google_maps_canonical_refresh_patch(
     entity_types: Iterable[EntityType] = GOOGLE_MAPS_CANONICAL_ENTITY_TYPES,
     source_run_ids: Iterable[str] = (),
     mapping_approval_root: str | Path | None = None,
+    weekly_schedule_review_path: str | Path | None = None,
     generated_at: datetime | None = None,
 ) -> CanonicalGoogleMapsRefreshPatch:
     """Select the latest PASS or exactly approved evidence for each place."""
@@ -412,6 +472,13 @@ def build_google_maps_canonical_refresh_patch(
         set(records_by_id),
     )
     mapping_approvals = _load_mapping_approvals(mapping_approval_root)
+    schedule_review = _load_weekly_schedule_review(weekly_schedule_review_path)
+    schedule_overrides = (
+        {item.place_id: item for item in schedule_review.document.records}
+        if schedule_review is not None
+        else {}
+    )
+    used_schedule_overrides: set[str] = set()
     refreshes: list[CanonicalGoogleMapsRefreshRecord] = []
     deferred: list[CanonicalGoogleMapsDeferredRecord] = []
     for place_id, canonical in sorted(records_by_id.items()):
@@ -535,6 +602,32 @@ def build_google_maps_canonical_refresh_patch(
             and len(observation.weekly_opening.days) == 7
             else None
         )
+        schedule_override = schedule_overrides.get(place_id)
+        if schedule_override is not None:
+            if accepted_approval is None:
+                raise CanonicalGoogleMapsRefreshError(
+                    f"reviewed weekly schedule requires mapping approval: {place_id}"
+                )
+            if schedule_override.observation_id != observation.observation_id:
+                raise CanonicalGoogleMapsRefreshError(
+                    f"reviewed weekly schedule belongs to another observation: {place_id}"
+                )
+            if schedule_review is None:
+                raise AssertionError("loaded schedule review unexpectedly missing")
+            complete_weekly_opening = WeeklyOpeningScheduleObservation(
+                observation_id=(
+                    f"{observation.observation_id}:human-reviewed-weekly-opening"
+                ),
+                run_id=observation.run_id,
+                place_id=place_id,
+                source_record_ids=[observation.source_record_id],
+                timezone=schedule_override.timezone,
+                days=schedule_override.days,
+                observed_at=observation.observed_at,
+                verification_status=VerificationStatus.HUMAN_VERIFIED,
+            )
+            used_schedule_overrides.add(place_id)
+
         evidence = CanonicalGoogleMapsEvidence(
             observation_relative_path=_relative_artifact_path(
                 loaded.path, Path(observation_root)
@@ -565,6 +658,17 @@ def build_google_maps_canonical_refresh_patch(
                     ),
                 }
                 if accepted_approval is not None
+                else {}
+            ),
+            **(
+                {
+                    "schedule_review_path": schedule_review.path.as_posix(),
+                    "schedule_review_file_sha256": schedule_review.sha256,
+                    "schedule_review_reviewer": schedule_review.document.reviewer,
+                    "schedule_reviewed_at": schedule_review.document.reviewed_at,
+                    "schedule_review_reason": schedule_override.reason,
+                }
+                if schedule_override is not None and schedule_review is not None
                 else {}
             ),
         )
@@ -611,6 +715,13 @@ def build_google_maps_canonical_refresh_patch(
             )
         )
 
+    unused_schedule_overrides = sorted(set(schedule_overrides) - used_schedule_overrides)
+    if unused_schedule_overrides:
+        raise CanonicalGoogleMapsRefreshError(
+            "reviewed weekly schedules were not applied: "
+            + ", ".join(unused_schedule_overrides)
+        )
+
     refreshes, deferred = _defer_external_identity_collisions(
         dataset,
         refreshes,
@@ -639,6 +750,21 @@ def build_google_maps_canonical_refresh_patch(
         source_run_ids=selected_run_ids,
         records=refreshes,
         deferred=deferred,
+    )
+
+
+def _load_weekly_schedule_review(
+    path: str | Path | None,
+) -> _LoadedScheduleReview | None:
+    if path is None:
+        return None
+    review_path = Path(path).resolve()
+    payload = review_path.read_bytes()
+    document = GoogleMapsWeeklyScheduleReview.model_validate_json(payload)
+    return _LoadedScheduleReview(
+        document=document,
+        path=review_path,
+        sha256=hashlib.sha256(payload).hexdigest(),
     )
 
 

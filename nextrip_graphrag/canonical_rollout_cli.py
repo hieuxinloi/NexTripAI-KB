@@ -19,6 +19,10 @@ from nextrip_pipeline.canonical.google_maps_refresh import (
     CanonicalGoogleMapsRefreshPatch,
     apply_google_maps_canonical_refresh_patch,
 )
+from nextrip_pipeline.canonical.hotel_identity_patch import (
+    CanonicalHotelIdentityPatch,
+    apply_canonical_hotel_identity_patch,
+)
 from nextrip_pipeline.canonical.readiness import (
     CanonicalDatasetReadinessReport,
     read_canonical_dataset_readiness,
@@ -44,7 +48,7 @@ class ValidatedRolloutInputs:
     base: CanonicalActiveDataset
     candidate: CanonicalActiveDataset
     readiness: CanonicalDatasetReadinessReport
-    patch: CanonicalGoogleMapsRefreshPatch
+    patch: CanonicalGoogleMapsRefreshPatch | CanonicalHotelIdentityPatch
     active_dataset_id: str
     active_dataset_hash: str
 
@@ -73,21 +77,34 @@ def validate_rollout_inputs(
     candidate = read_canonical_active_dataset(candidate_dataset)
     readiness_report = read_canonical_dataset_readiness(readiness)
     require_canonical_dataset_publish_ready(readiness_report)
-    refresh_patch = CanonicalGoogleMapsRefreshPatch.model_validate_json(
-        Path(patch).read_bytes()
-    )
+    patch_bytes = Path(patch).read_bytes()
+    try:
+        patch_document = json.loads(patch_bytes)
+    except json.JSONDecodeError as error:
+        raise CanonicalRolloutError("canonical patch is not valid JSON") from error
+    if patch_document.get("patch_kind") == "hotel_identity":
+        refresh_patch: CanonicalGoogleMapsRefreshPatch | CanonicalHotelIdentityPatch = (
+            CanonicalHotelIdentityPatch.model_validate(patch_document)
+        )
+        expected_candidate = apply_canonical_hotel_identity_patch(base, refresh_patch)
+        patch_label = "Hotel identity"
+    else:
+        refresh_patch = CanonicalGoogleMapsRefreshPatch.model_validate_json(
+            patch_bytes
+        )
+        expected_candidate = apply_google_maps_canonical_refresh_patch(
+            base,
+            refresh_patch,
+        )
+        patch_label = "Google Maps"
 
     if (refresh_patch.base_dataset_id, refresh_patch.base_dataset_hash) != (
         base.dataset_id,
         base.dataset_hash,
     ):
         raise CanonicalRolloutError(
-            "Google Maps patch does not belong to the supplied base dataset"
+            f"{patch_label} patch does not belong to the supplied base dataset"
         )
-    expected_candidate = apply_google_maps_canonical_refresh_patch(
-        base,
-        refresh_patch,
-    )
     if expected_candidate != candidate:
         raise CanonicalRolloutError(
             "candidate dataset is not the exact immutable result of its patch"

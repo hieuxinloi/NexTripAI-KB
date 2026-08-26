@@ -1,0 +1,11 @@
+[Unit]
+Description=Reload NexTrip serving APIs after canonical dataset promotion
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nextrip-sync-active-canonical-dataset
+
+[Install]
+WantedBy=multi-user.target

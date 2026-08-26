@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections.abc import Sequence
@@ -198,6 +199,11 @@ from nextrip_pipeline.quality import (
     approve_google_maps_mapping,
     approve_trivago_review,
     build_opening_status_review_approvals,
+)
+from nextrip_pipeline.canonical.hotel_identity_patch import (
+    CanonicalHotelIdentityPatchWriter,
+    apply_canonical_hotel_identity_patch,
+    build_canonical_hotel_identity_patch,
 )
 from nextrip_pipeline.canonical.active_pointer import (
     ACTIVE_DATASET_POINTER_FILENAME,
@@ -1421,6 +1427,15 @@ def build_parser() -> argparse.ArgumentParser:
             "their exact reviewed REVIEW/QUARANTINE evidence."
         ),
     )
+    apply_google_refresh.add_argument(
+        "--weekly-schedule-review",
+        type=Path,
+        default=None,
+        help=(
+            "Optional reviewed seven-day schedules pinned to exact Google "
+            "observations and human mapping approvals."
+        ),
+    )
     build_maps_registry.add_argument(
         "--resolved-mapping-dir",
         type=Path,
@@ -1491,6 +1506,47 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-menu-backlog",
         action="store_true",
         help="Do not generate the cafe/restaurant manual menu backlog.",
+    )
+
+    apply_hotel_identity = subparsers.add_parser(
+        "apply-hotel-identity-patch",
+        help=(
+            "Apply reviewed Trivago/Google hotel rename or same-ID replacement "
+            "corrections to one immutable canonical dataset."
+        ),
+    )
+    apply_hotel_identity.add_argument("--canonical-dataset", type=Path, required=True)
+    apply_hotel_identity.add_argument("--corrections", type=Path, required=True)
+    apply_hotel_identity.add_argument("--evidence-root", type=Path, default=Path("."))
+    apply_hotel_identity.add_argument(
+        "--patch-output-dir",
+        type=Path,
+        default=Path("data/canonical/hotel-identity-patches"),
+    )
+    apply_hotel_identity.add_argument(
+        "--dataset-output-dir",
+        type=Path,
+        default=Path("data/canonical/datasets"),
+    )
+    apply_hotel_identity.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("config/generated/canonical-identity-manifest.json"),
+    )
+    apply_hotel_identity.add_argument(
+        "--identity-decisions",
+        type=Path,
+        default=Path("config/canonical-identity-decisions.json"),
+    )
+    apply_hotel_identity.add_argument(
+        "--duplicate-evidence",
+        type=Path,
+        default=Path("data/reports/canonical/duplicate-evidence.json"),
+    )
+    apply_hotel_identity.add_argument(
+        "--readiness-output-dir",
+        type=Path,
+        default=Path("data/canonical/readiness"),
     )
 
     audit_completeness = subparsers.add_parser(
@@ -3197,6 +3253,63 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1
         return 0
 
+    if arguments.command == "apply-hotel-identity-patch":
+        try:
+            dataset = read_canonical_active_dataset(arguments.canonical_dataset)
+            correction_document = json.loads(
+                arguments.corrections.read_text(encoding="utf-8-sig")
+            )
+            if not isinstance(correction_document, dict):
+                raise ValueError("hotel identity corrections must be an object")
+            patch = build_canonical_hotel_identity_patch(
+                dataset,
+                correction_document,
+                evidence_root=arguments.evidence_root,
+            )
+            candidate = apply_canonical_hotel_identity_patch(dataset, patch)
+            manifest = read_canonical_identity_manifest(arguments.manifest)
+            resolver = CanonicalIdentityResolver(manifest)
+            evidence_audit = DuplicateEvidenceAudit.model_validate_json(
+                arguments.duplicate_evidence.read_bytes()
+            )
+            identity_decisions = load_duplicate_identity_decisions(
+                arguments.identity_decisions
+            )
+            readiness = evaluate_canonical_dataset_readiness(
+                candidate,
+                evidence_audit,
+                resolver,
+                distinct_decisions=identity_decisions.distinct_decisions,
+            )
+            require_canonical_dataset_publish_ready(readiness)
+            patch_path = CanonicalHotelIdentityPatchWriter(
+                arguments.patch_output_dir
+            ).write(patch)
+            dataset_path = CanonicalActiveDatasetWriter(
+                arguments.dataset_output_dir
+            ).write(candidate)
+            readiness_path = CanonicalDatasetReadinessWriter(
+                arguments.readiness_output_dir
+            ).write(readiness)
+        except (
+            CanonicalDatasetNotReadyError,
+            json.JSONDecodeError,
+            OSError,
+            ValidationError,
+            ValueError,
+        ) as error:
+            print(f"Cannot apply hotel identity patch: {error}", file=sys.stderr)
+            return 2
+        print(f"patch={patch_path}")
+        print(f"dataset={dataset_path}")
+        print(f"readiness={readiness_path}")
+        print(
+            f"corrected={len(patch.records)} "
+            f"renamed={sum(item.mode.value == 'rename' for item in patch.records)} "
+            f"replaced={sum(item.mode.value == 'replace' for item in patch.records)}"
+        )
+        return 0
+
     if arguments.command == "apply-google-maps-canonical-refresh":
         try:
             dataset = read_canonical_active_dataset(arguments.canonical_dataset)
@@ -3212,6 +3325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 entity_types=entity_types,
                 source_run_ids=arguments.run_id,
                 mapping_approval_root=arguments.mapping_approval_root,
+                weekly_schedule_review_path=arguments.weekly_schedule_review,
             )
             patch_path = CanonicalGoogleMapsPatchWriter(
                 arguments.patch_output_dir
