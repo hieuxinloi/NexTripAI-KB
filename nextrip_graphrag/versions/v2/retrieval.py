@@ -30,7 +30,9 @@ class V2RetrievalService:
         self.store = store
         self.gemini = gemini
 
-    def query(self, query: str, top_k: int = DEFAULT_TYPED_QUERY_TOP_K) -> V2QueryResponse:
+    def query(
+        self, query: str, top_k: int = DEFAULT_TYPED_QUERY_TOP_K
+    ) -> V2QueryResponse:
         self._ensure_ready()
         trace: list[dict[str, Any]] = []
         started = perf_counter()
@@ -88,7 +90,9 @@ class V2RetrievalService:
 
         evidence = self._evidence(facts)
         manifest = asdict(kb_version_manifests()["v2"])
-        trace.append({"step": "total", "status": "ok", "elapsed_ms": _elapsed_ms(started)})
+        trace.append(
+            {"step": "total", "status": "ok", "elapsed_ms": _elapsed_ms(started)}
+        )
         return V2QueryResponse(
             answer_type=plan.intent,
             query_plan=plan,
@@ -336,7 +340,9 @@ class V2RetrievalService:
             EvidenceResult(
                 text_unit_id=row["unit"]["id"],
                 document_id=row["document"]["id"],
-                title=row["unit"].get("title") or row["document"].get("title") or "Evidence",
+                title=row["unit"].get("title")
+                or row["document"].get("title")
+                or "Evidence",
                 text=row["unit"]["text"],
                 url=row["document"].get("url"),
                 source_name=row["document"].get("source_name"),
@@ -371,11 +377,28 @@ def _entity(place: dict[str, Any]) -> EntityResult:
                 "opening_hours_open": place.get("opening_hours_open"),
                 "opening_hours_close": place.get("opening_hours_close"),
                 "opening_hours_note": place.get("opening_hours_note"),
-                "duration_recommendation": place.get(
-                    "duration_recommendation"
-                ),
+                "duration_recommendation": place.get("duration_recommendation"),
                 "phone": place.get("phone"),
                 "price": place.get("price"),
+                "price_min": place.get("price_min"),
+                "price_max": place.get("price_max"),
+                "price_range_min": place.get("price_range_min"),
+                "price_range_max": place.get("price_range_max"),
+                "price_range_currency": place.get("price_range_currency"),
+                "price_per_person_min": place.get("price_per_person_min"),
+                "price_per_person_max": place.get("price_per_person_max"),
+                "price_per_person_currency": place.get("price_per_person_currency"),
+                "drink_price_min": place.get("drink_price_min"),
+                "drink_price_max": place.get("drink_price_max"),
+                "drink_price_currency": place.get("drink_price_currency"),
+                "entry_fee_min": place.get("entry_fee_min"),
+                "entry_fee_max": place.get("entry_fee_max"),
+                "entry_fee_currency": place.get("entry_fee_currency"),
+                "ticket_price_adult": place.get("ticket_price_adult"),
+                "ticket_price_child": place.get("ticket_price_child"),
+                "ticket_price_student": place.get("ticket_price_student"),
+                "ticket_price_elderly": place.get("ticket_price_elderly"),
+                "ticket_price_currency": place.get("ticket_price_currency"),
                 "rating": place.get("rating"),
                 "review_count": place.get("review_count"),
                 "signature_dishes": place.get("signature_dishes"),
@@ -417,7 +440,10 @@ def _missing_fields(plan: Any) -> list[str]:
         missing.append("city")
     if plan.intent == QueryIntent.ENTITY_DETAIL and not plan.subjects:
         missing.append("subject")
-    if plan.tasks and plan.intent in {QueryIntent.AGGREGATE_COUNT, QueryIntent.ENTITY_LIST}:
+    if plan.tasks and plan.intent in {
+        QueryIntent.AGGREGATE_COUNT,
+        QueryIntent.ENTITY_LIST,
+    }:
         if not plan.tasks[0].entity_types:
             missing.append("entity_types")
     return missing

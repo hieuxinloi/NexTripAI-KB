@@ -8,6 +8,14 @@ from neo4j_graphrag.indexes import create_fulltext_index, create_vector_index
 from ..v5.graph_store import V5GraphStore
 
 
+class NearbyAnchorNotFoundError(LookupError):
+    """The requested canonical V8 anchor does not exist."""
+
+
+class NearbyAnchorLocationMissingError(ValueError):
+    """The requested canonical V8 anchor cannot be used for spatial search."""
+
+
 class V8GraphStore(V5GraphStore):
     """Graph store for the isolated V8 database.
 
@@ -23,6 +31,124 @@ class V8GraphStore(V5GraphStore):
     place_fulltext_index = "place_fulltext"
     place_vector_index = "place_embedding"
     concept_vector_index = "concept_embedding"
+
+    def nearby_candidates(
+        self,
+        *,
+        anchor_place_id: str,
+        entity_types: list[str],
+        city: str | None,
+        radius_km: float,
+        excluded_place_ids: list[str],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Return V8 places within a road-planning candidate radius.
+
+        This is deliberately a point-in-time spatial query. It does not create
+        or depend on ``NEAR`` relationships, which would become stale whenever
+        canonical coordinates change.
+        """
+
+        anchor_rows = self.run(
+            """
+            MATCH (anchor:Place {
+              id: $anchor_place_id,
+              kb_version: $kb_version
+            })
+            RETURN anchor.location IS NOT NULL AS has_location
+            """,
+            anchor_place_id=anchor_place_id,
+            kb_version=self.kb_version,
+        )
+        if not anchor_rows:
+            raise NearbyAnchorNotFoundError(anchor_place_id)
+        if not bool(anchor_rows[0].get("has_location")):
+            raise NearbyAnchorLocationMissingError(anchor_place_id)
+
+        excluded = list(dict.fromkeys([anchor_place_id, *excluded_place_ids]))
+        rows = self.run(
+            """
+            MATCH (anchor:Place {
+              id: $anchor_place_id,
+              kb_version: $kb_version
+            })
+            MATCH (candidate:Place {kb_version: $kb_version})
+            WHERE candidate.location IS NOT NULL
+              AND coalesce(candidate.active, true) = true
+              AND NOT candidate.id IN $excluded_place_ids
+              AND (
+                size($entity_types) = 0
+                OR candidate.entity_type IN $entity_types
+              )
+              AND ($city IS NULL OR candidate.city = $city)
+            WITH candidate,
+                 point.distance(anchor.location, candidate.location) AS distance_m
+            WHERE distance_m <= $radius_m
+            RETURN candidate.id AS place_id,
+                   candidate.name AS name,
+                   candidate.city AS city,
+                   candidate.entity_type AS entity_type,
+                   coalesce(candidate.category_name, candidate.category) AS category,
+                   candidate.address AS address,
+                   distance_m / 1000.0 AS distance_km,
+                   candidate.location.latitude AS latitude,
+                   candidate.location.longitude AS longitude,
+                   candidate.rating AS rating,
+                   candidate.review_count AS review_count,
+                   candidate.description AS description,
+                   candidate.duration_recommendation AS duration_recommendation,
+                   candidate.opening_hours_open AS opening_hours_open,
+                   candidate.opening_hours_close AS opening_hours_close,
+                   candidate.opening_hours_note AS opening_hours_note,
+                   candidate.price_level AS price_level,
+                   candidate.price_range AS price_display,
+                   candidate.price_range_min AS price_range_min,
+                   candidate.price_range_max AS price_range_max,
+                   candidate.price_per_night_min AS price_per_night_min,
+                   candidate.price_per_night_max AS price_per_night_max,
+                   candidate.price_per_person_min AS price_per_person_min,
+                   candidate.price_per_person_max AS price_per_person_max,
+                   candidate.drink_price_min AS drink_price_min,
+                   candidate.drink_price_max AS drink_price_max,
+                   candidate.entry_fee_min AS entry_fee_min,
+                   candidate.entry_fee_max AS entry_fee_max,
+                   candidate.ticket_price_adult AS ticket_price_adult,
+                   candidate.ticket_price_child AS ticket_price_child,
+                   candidate.ticket_price_student AS ticket_price_student,
+                   candidate.ticket_price_elderly AS ticket_price_elderly,
+                   coalesce(
+                     candidate.price_range_currency,
+                     candidate.price_per_night_currency,
+                     candidate.price_per_person_currency,
+                     candidate.drink_price_currency,
+                     candidate.entry_fee_currency,
+                     candidate.ticket_price_currency
+                   ) AS price_currency,
+                   coalesce(
+                     candidate.price_range_note,
+                     candidate.price_per_night_note,
+                     candidate.price_per_person_note,
+                     candidate.drink_price_note,
+                     candidate.entry_fee_note,
+                     candidate.ticket_price_note
+                   ) AS price_note,
+                   candidate.source_name AS source_name,
+                   candidate.source_url AS source_url
+            ORDER BY distance_m ASC,
+                     coalesce(toFloat(candidate.rating), 0.0) DESC,
+                     coalesce(toInteger(candidate.review_count), 0) DESC,
+                     candidate.name ASC
+            LIMIT $limit
+            """,
+            anchor_place_id=anchor_place_id,
+            kb_version=self.kb_version,
+            entity_types=list(dict.fromkeys(entity_types)),
+            city=city,
+            excluded_place_ids=excluded,
+            radius_m=radius_km * 1000.0,
+            limit=limit,
+        )
+        return [_nearby_candidate_row(row) for row in rows]
 
     def runtime_readiness(self) -> dict[str, Any]:
         """Verify the active canonical release, not only Neo4j connectivity."""
@@ -76,9 +202,7 @@ class V8GraphStore(V5GraphStore):
         actual = int(count_rows[0].get("place_count", -1)) if count_rows else -1
         if actual != expected:
             issues.append("active_place_count_mismatch")
-        semantic_status = str(
-            release.get("semantic_index_status") or "pending"
-        )
+        semantic_status = str(release.get("semantic_index_status") or "pending")
         if semantic_status not in {"pending", "ready"}:
             issues.append("semantic_index_status_invalid")
         return {
@@ -382,7 +506,9 @@ class V8GraphStore(V5GraphStore):
 
         statistics = self.projection_statistics()
         if statistics["nodes"] != projected_nodes:
-            raise RuntimeError("V8 node projection count changed during materialization")
+            raise RuntimeError(
+                "V8 node projection count changed during materialization"
+            )
         if statistics["relationships"] != projected_relationships:
             raise RuntimeError(
                 "V8 relationship projection count changed during materialization"
@@ -561,4 +687,67 @@ def _interleave_entity_types(
     interleaved = chain.from_iterable(zip_longest(*ranked_groups))
     return [row for row in interleaved if row is not None]
 
-__all__ = ["V8GraphStore"]
+
+def _nearby_candidate_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "place_id": row.get("place_id"),
+        "name": row.get("name"),
+        "city": row.get("city"),
+        "entity_type": row.get("entity_type"),
+        "category": row.get("category"),
+        "address": row.get("address"),
+        "distance_km": round(float(row["distance_km"]), 3),
+        "coordinates": {
+            "latitude": row.get("latitude"),
+            "longitude": row.get("longitude"),
+        },
+        "prices": {
+            "currency": row.get("price_currency"),
+            "display_text": row.get("price_display"),
+            "price_level": row.get("price_level"),
+            "price_range_min": row.get("price_range_min"),
+            "price_range_max": row.get("price_range_max"),
+            "price_per_night_min": row.get("price_per_night_min"),
+            "price_per_night_max": row.get("price_per_night_max"),
+            "price_per_person_min": row.get("price_per_person_min"),
+            "price_per_person_max": row.get("price_per_person_max"),
+            "drink_price_min": row.get("drink_price_min"),
+            "drink_price_max": row.get("drink_price_max"),
+            "entry_fee_min": row.get("entry_fee_min"),
+            "entry_fee_max": row.get("entry_fee_max"),
+            "ticket_price_adult": row.get("ticket_price_adult"),
+            "ticket_price_child": row.get("ticket_price_child"),
+            "ticket_price_student": row.get("ticket_price_student"),
+            "ticket_price_elderly": row.get("ticket_price_elderly"),
+            "note": row.get("price_note"),
+        },
+        "source": {
+            "name": row.get("source_name"),
+            "url": _safe_public_url(row.get("source_url")),
+        },
+        "attributes": {
+            "rating": row.get("rating"),
+            "review_count": row.get("review_count"),
+            "description": row.get("description"),
+            "duration_recommendation": row.get("duration_recommendation"),
+            "opening_hours_open": row.get("opening_hours_open"),
+            "opening_hours_close": row.get("opening_hours_close"),
+            "opening_hours_note": row.get("opening_hours_note"),
+        },
+    }
+
+
+def _safe_public_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if stripped.lower().startswith(("https://", "http://")):
+        return stripped
+    return None
+
+
+__all__ = [
+    "NearbyAnchorLocationMissingError",
+    "NearbyAnchorNotFoundError",
+    "V8GraphStore",
+]

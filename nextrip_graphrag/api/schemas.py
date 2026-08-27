@@ -4,7 +4,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
-from ..config import DEFAULT_SEARCH_TOP_K, DEFAULT_TYPED_QUERY_TOP_K, MAX_TOP_K, MIN_TOP_K
+from ..config import (
+    DEFAULT_SEARCH_TOP_K,
+    DEFAULT_TYPED_QUERY_TOP_K,
+    MAX_TOP_K,
+    MIN_TOP_K,
+)
 from ..versions.v6.schemas import ConversationContext
 
 
@@ -20,6 +25,7 @@ CityTerm = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=80),
 ]
+EntityType = Literal["attraction", "cafe", "hotel", "nightlife", "restaurant"]
 
 
 class HealthResponse(BaseModel):
@@ -113,7 +119,9 @@ class TypedQueryRequest(BaseModel):
 class PersonalizedRecommendationRequest(BaseModel):
     kb_version: Literal["v8"] = "v8"
     seed_place_ids: list[PlaceId] = Field(default_factory=list, max_length=20)
-    preferred_concepts: list[PreferenceTerm] = Field(default_factory=list, max_length=30)
+    preferred_concepts: list[PreferenceTerm] = Field(
+        default_factory=list, max_length=30
+    )
     excluded_concepts: list[PreferenceTerm] = Field(default_factory=list, max_length=30)
     excluded_place_ids: list[PlaceId] = Field(default_factory=list, max_length=100)
     preferred_cities: list[CityTerm] = Field(default_factory=list, max_length=10)
@@ -144,3 +152,76 @@ class PersonalizedPlace(BaseModel):
 
 class PersonalizedRecommendationResponse(BaseModel):
     items: list[PersonalizedPlace] = Field(default_factory=list)
+
+
+class NearbyRequest(BaseModel):
+    """Bounded, V8-only spatial lookup around one canonical place."""
+
+    kb_version: Literal["v8"] = "v8"
+    anchor_place_id: PlaceId
+    entity_types: list[EntityType] = Field(default_factory=list, max_length=5)
+    city: CityTerm | None = None
+    radius_km: float = Field(default=5.0, ge=0.1, le=50.0)
+    excluded_place_ids: list[PlaceId] = Field(default_factory=list, max_length=100)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class NearbyCoordinates(BaseModel):
+    latitude: float = Field(ge=-90.0, le=90.0)
+    longitude: float = Field(ge=-180.0, le=180.0)
+
+
+class NearbyStaticPrices(BaseModel):
+    """Static catalog prices only; date-scoped hotel offers live elsewhere."""
+
+    currency: str | None = None
+    display_text: str | None = None
+    price_level: str | int | float | None = None
+    price_range_min: float | None = Field(default=None, ge=0)
+    price_range_max: float | None = Field(default=None, ge=0)
+    price_per_night_min: float | None = Field(default=None, ge=0)
+    price_per_night_max: float | None = Field(default=None, ge=0)
+    price_per_person_min: float | None = Field(default=None, ge=0)
+    price_per_person_max: float | None = Field(default=None, ge=0)
+    drink_price_min: float | None = Field(default=None, ge=0)
+    drink_price_max: float | None = Field(default=None, ge=0)
+    entry_fee_min: float | None = Field(default=None, ge=0)
+    entry_fee_max: float | None = Field(default=None, ge=0)
+    ticket_price_adult: float | Literal["free"] | None = None
+    ticket_price_child: float | Literal["free"] | None = None
+    ticket_price_student: float | Literal["free"] | None = None
+    ticket_price_elderly: float | Literal["free"] | None = None
+    note: str | None = None
+
+
+class NearbySafeAttributes(BaseModel):
+    """Explicit API allow-list; never serialize the complete Neo4j node."""
+
+    rating: float | None = None
+    review_count: int | None = Field(default=None, ge=0)
+    description: str | None = None
+    duration_recommendation: str | None = None
+    opening_hours_open: str | None = None
+    opening_hours_close: str | None = None
+    opening_hours_note: str | None = None
+
+
+class NearbyPlace(BaseModel):
+    place_id: str
+    name: str
+    city: str
+    entity_type: EntityType
+    category: str | None = None
+    address: str | None = None
+    distance_km: float = Field(ge=0)
+    coordinates: NearbyCoordinates
+    prices: NearbyStaticPrices = Field(default_factory=NearbyStaticPrices)
+    source: SourceInfo = Field(default_factory=SourceInfo)
+    attributes: NearbySafeAttributes = Field(default_factory=NearbySafeAttributes)
+
+
+class NearbyResponse(BaseModel):
+    kb_version: Literal["v8"] = "v8"
+    anchor_place_id: str
+    radius_km: float
+    items: list[NearbyPlace] = Field(default_factory=list)

@@ -21,6 +21,10 @@ from ..versions.registry import (
 )
 from ..versions.v4.schemas import DynamicObservationInput, V4QueryResponse
 from ..versions.v5.concept_linker import ConceptLinker
+from ..versions.v8.graph_store import (
+    NearbyAnchorLocationMissingError,
+    NearbyAnchorNotFoundError,
+)
 from .schemas import (
     GraphContext,
     HealthResponse,
@@ -35,6 +39,8 @@ from .schemas import (
     PersonalizedRecommendationRequest,
     PersonalizedRecommendationResponse,
     PlaceBatchRequest,
+    NearbyRequest,
+    NearbyResponse,
 )
 from .dependencies import KbServices, get_kb_services, require_admin_api_key
 
@@ -515,6 +521,62 @@ def places_by_ids(
     )
 
 
+@router.post("/api/kb/nearby", response_model=NearbyResponse)
+def nearby_places(
+    request: NearbyRequest,
+    services: KbServices = Depends(get_kb_services),
+) -> NearbyResponse:
+    """Find nearby canonical places without persisting derived proximity edges."""
+
+    try:
+        store = services.store_for("v8")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    city = _canonical_nearby_city(request.city)
+    try:
+        items = store.nearby_candidates(
+            anchor_place_id=request.anchor_place_id,
+            entity_types=list(dict.fromkeys(request.entity_types)),
+            city=city,
+            radius_km=request.radius_km,
+            excluded_place_ids=list(dict.fromkeys(request.excluded_place_ids)),
+            limit=request.limit,
+        )
+    except NearbyAnchorNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "nearby_anchor_not_found",
+                "anchor_place_id": request.anchor_place_id,
+            },
+        ) from exc
+    except NearbyAnchorLocationMissingError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "nearby_anchor_location_missing",
+                "anchor_place_id": request.anchor_place_id,
+            },
+        ) from exc
+    return NearbyResponse(
+        anchor_place_id=request.anchor_place_id,
+        radius_km=request.radius_km,
+        items=items,
+    )
+
+
+def _canonical_nearby_city(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return canonical_city(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unsupported_nearby_city", "city": value},
+        ) from exc
+
+
 def _resolve_recommendation_filters(
     store: Any,
     gemini: Any,
@@ -525,9 +587,7 @@ def _resolve_recommendation_filters(
         return _RecommendationFilters([], [], [])
     concepts_by_slug = {slugify(value): value for value in catalog["concepts"]}
     types_by_slug = {slugify(value): value for value in catalog["entity_types"]}
-    categories_by_slug = {
-        slugify(value): value for value in catalog["categories"]
-    }
+    categories_by_slug = {slugify(value): value for value in catalog["categories"]}
     concepts: list[str] = []
     entity_types: list[str] = []
     categories: list[str] = []
