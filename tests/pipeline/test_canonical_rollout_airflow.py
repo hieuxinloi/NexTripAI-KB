@@ -30,6 +30,15 @@ def test_rollout_dag_is_disabled_by_default_and_fail_closed(monkeypatch) -> None
     assert "canonical_rollout_cli" in module._apply_rollout_command()
     assert "--apply" in module._apply_rollout_command()
     assert "observation_cli" in module._publish_observations_command()
+    assert "--hotel-price-previous-days" in (
+        module._publish_observations_command()
+    )
+    assert "--hotel-batch-summary-root" in (
+        module._publish_observations_command()
+    )
+    assert "NEXTRIP_TRIVAGO_BATCH_SUMMARY_ROOT" in (
+        module._publish_observations_command()
+    )
     assert "v8_embedding_cli" in module._embedding_command()
     assert "--apply" in module._embedding_command()
     assert "GEMINI_EMBEDDING_MODEL" in module._embedding_command()

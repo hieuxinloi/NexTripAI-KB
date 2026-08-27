@@ -124,7 +124,23 @@ invalid or missing canonical artifact fails the plan instead of falling back.
 Add `--apply` only after the matching canonical release is active. Plans and
 run manifests are written under `data/neo4j/v8/observation_runs/`. Repeating an
 apply is idempotent; later crawl observations get new deterministic IDs and do
-not replace older nodes.
+not replace older nodes. At the end of the same Neo4j transaction, hotel price
+history is bounded by Vietnam calendar day: the newest crawl day and one prior
+day are retained, while older price revisions and their linked availability
+observations are deleted. Raw/accepted JSON history is not deleted. The publish
+manifest records the anchor, cutoff and deleted counts. Cleanup is gated by the
+latest immutable `TrivagoStayBatchSummary` under
+`data/runs/trivago_availability_batch`: it runs only when
+`selected_count == eligible_count > 0`,
+`completed_count == selected_count` and `failed_count == 0`. A successful
+partial retry cannot authorize graph-wide cleanup. Summaries older than eight
+hours, more than
+five minutes in the future, or containing duplicate hotel IDs fail closed.
+The CLI evaluates and pins one exact summary for both plan
+construction and publication. When the gate does not pass, stale current JSON
+projections are not pre-filtered, observation rows are still published, cleanup
+is skipped, and the summary hash, run ID, counts and reason are recorded in the
+manifest.
 
 ## Airflow
 
@@ -135,6 +151,8 @@ scheduler and worker environment after V8 is active:
 ```dotenv
 NEXTRIP_NEO4J_V8_OBSERVATIONS_ENABLED=true
 NEXTRIP_NEO4J_V8_OBSERVATIONS_SCHEDULE="*/15 * * * *"
+NEXTRIP_NEO4J_V8_HOTEL_PRICE_PREVIOUS_DAYS=1
+NEXTRIP_TRIVAGO_BATCH_SUMMARY_ROOT=data/runs/trivago_availability_batch
 NEXTRIP_CANONICAL_DATASET_POINTER=data/canonical/active-dataset-pointer.json
 ```
 
@@ -148,7 +166,8 @@ traffic is not persisted in Neo4j. The rollout consumes an immutable base datase
 Google Maps patch, candidate dataset, readiness report and completeness audit.
 It activates Neo4j before compare-and-swap promotion of
 `data/canonical/active-dataset-pointer.json`. Existing releases and observations
-remain available as history; no active data is deleted during rollout.
+remain available as history, except for the bounded hotel price/availability
+retention applied by the observation publisher after activation.
 
 The lightweight entry point used in the Airflow image is:
 

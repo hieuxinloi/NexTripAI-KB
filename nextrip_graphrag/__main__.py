@@ -44,6 +44,7 @@ from .versions.v8.canonical_importer import (
 from .versions.v8.observation_publisher import (
     V8ObservationPublisher,
     build_v8_observation_plan,
+    load_latest_hotel_price_cleanup_gate,
     write_v8_observation_plan,
 )
 from .versions.v8.label_migration import (
@@ -621,12 +622,19 @@ class _DryRunObservationStore:
 def cmd_v8_publish_observations(args: argparse.Namespace) -> None:
     """Plan verified dynamic observations and optionally append them to V8."""
 
+    cleanup_gate = load_latest_hotel_price_cleanup_gate(
+        args.hotel_batch_summary_root
+    )
     plan = build_v8_observation_plan(
         args.canonical_dataset,
         hotel_price_root=args.hotel_price_root,
         hotel_availability_root=args.hotel_availability_root,
         current_menu_root=args.menu_root,
         opening_approval_root=args.opening_approval_root,
+        hotel_price_previous_calendar_days=(
+            args.hotel_price_previous_days
+        ),
+        hotel_price_cleanup_gate=cleanup_gate,
     )
     output_root = Path(args.output_root)
     plan_path = write_v8_observation_plan(
@@ -648,6 +656,10 @@ def cmd_v8_publish_observations(args: argparse.Namespace) -> None:
         manifest = V8ObservationPublisher(
             store,
             batch_size=args.batch_size,
+            hotel_price_previous_calendar_days=(
+                args.hotel_price_previous_days
+            ),
+            hotel_price_cleanup_gate=cleanup_gate,
         ).publish(
             plan,
             dry_run=not args.apply,
@@ -1205,6 +1217,23 @@ def build_parser() -> argparse.ArgumentParser:
         default="data/neo4j/v8/observation_runs",
     )
     v8_publish_observations.add_argument("--batch-size", type=int, default=500)
+    v8_publish_observations.add_argument(
+        "--hotel-price-previous-days",
+        type=int,
+        default=1,
+        help=(
+            "Keep the newest Vietnam crawl day plus this many preceding "
+            "calendar days in Neo4j (default: 1)."
+        ),
+    )
+    v8_publish_observations.add_argument(
+        "--hotel-batch-summary-root",
+        default="data/runs/trivago_availability_batch",
+        help=(
+            "Directory (or exact file) containing immutable "
+            "TrivagoStayBatchSummary artifacts used to gate graph cleanup."
+        ),
+    )
     v8_publish_observations.add_argument(
         "--apply",
         action="store_true",

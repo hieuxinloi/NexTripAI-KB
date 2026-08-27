@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -11,6 +12,7 @@ import pytest
 
 from nextrip_graphrag.__main__ import build_parser
 from nextrip_graphrag.versions.v8.observation_publisher import (
+    V8HotelPriceCleanupGate,
     V8ObservationInputError,
     V8ObservationKind,
     V8ObservationPublishError,
@@ -18,6 +20,7 @@ from nextrip_graphrag.versions.v8.observation_publisher import (
     V8ObservationPublisher,
     build_v8_observation_plan_for_dataset,
     ensure_v8_observation_schema,
+    load_latest_hotel_price_cleanup_gate,
     read_v8_observation_plan,
     write_v8_observation_plan,
 )
@@ -59,6 +62,70 @@ from tests.canonical_dataset_support import (
 NOW = datetime(2026, 8, 23, 4, tzinfo=timezone.utc)
 
 
+def _complete_cleanup_gate() -> V8HotelPriceCleanupGate:
+    return V8HotelPriceCleanupGate(
+        passed=True,
+        reason="batch_complete",
+        summary_path="run=trivago-availability-test.json",
+        summary_sha256="a" * 64,
+        run_id="trivago-availability-test",
+        finished_at=NOW,
+        eligible_count=1,
+        selected_count=1,
+        completed_count=1,
+        failed_count=0,
+    )
+
+
+def _write_hotel_batch_summary(
+    root: Path,
+    *,
+    run_id: str,
+    finished_at: datetime,
+    selected: int,
+    completed: int,
+    failed: int,
+    eligible: int | None = None,
+) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    statuses = ["completed"] * completed + ["failed"] * failed
+    payload = {
+        "run_id": run_id,
+        "started_at": (finished_at - timedelta(hours=1)).isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "request_context": {
+            "check_in": "2026-08-24",
+            "check_out": "2026-08-25",
+            "occupancy": {"adults": 2, "children": 0, "rooms": 1},
+            "children_ages": [],
+            "currency": "VND",
+        },
+        "lookahead_days": 1,
+        "registry_count": selected,
+        "eligible_count": selected if eligible is None else eligible,
+        "selected_count": selected,
+        "completed_count": completed,
+        "failed_count": failed,
+        "stop_reason_counts": {},
+        "availability_counts": {},
+        "items": [
+            {
+                "hotel_id": f"hotel_{index:03d}",
+                "search_query": f"Hotel {index}",
+                "status": status,
+                "result_run_id": f"{run_id}-hotel-{index:03d}",
+            }
+            for index, status in enumerate(statuses, start=1)
+        ],
+    }
+    path = root / f"run={run_id}.json"
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
 class FakeResult:
     def __init__(self, rows: list[dict[str, Any]] | None = None) -> None:
         self.rows = rows or []
@@ -77,6 +144,30 @@ class FakeTransaction:
 
     def run(self, query: str, **params: Any) -> FakeResult:
         self.calls.append((query, params))
+        if "latest-hotel-price-observed-at" in query:
+            if self.store.retention_failure == "latest":
+                raise RuntimeError("retention anchor failed")
+            return FakeResult(
+                [
+                    {
+                        "latest_observed_at": (
+                            self.store.latest_price_observed_at
+                        )
+                    }
+                ]
+            )
+        if "prune-hotel-availability" in query:
+            if self.store.retention_failure == "availability":
+                raise RuntimeError("availability retention failed")
+            return FakeResult(
+                [{"deleted": self.store.deleted_availability_observations}]
+            )
+        if "prune-hotel-price" in query:
+            if self.store.retention_failure == "price":
+                raise RuntimeError("price retention failed")
+            return FakeResult(
+                [{"deleted": self.store.deleted_price_observations}]
+            )
         if "MATCH (release:DatasetRelease" in query:
             return FakeResult([{"matches": self.store.release_matches}])
         if "OPTIONAL MATCH (place:Place" in query:
@@ -155,10 +246,20 @@ class FakeStore:
         release_matches: int = 1,
         missing: set[str] | None = None,
         content_mismatches: set[str] | None = None,
+        latest_price_observed_at: str | None = "2026-08-23T04:00:00Z",
+        deleted_price_observations: int = 0,
+        deleted_availability_observations: int = 0,
+        retention_failure: str | None = None,
     ) -> None:
         self.release_matches = release_matches
         self.missing = missing or set()
         self.content_mismatches = content_mismatches or set()
+        self.latest_price_observed_at = latest_price_observed_at
+        self.deleted_price_observations = deleted_price_observations
+        self.deleted_availability_observations = (
+            deleted_availability_observations
+        )
+        self.retention_failure = retention_failure
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.execute_write_calls = 0
         self.committed = False
@@ -231,6 +332,120 @@ def test_plan_reads_current_artifacts_and_builds_deterministic_ids(
         "current_menu_approval",
     }
     assert not any("traffic" in item.relative_path for item in first.input_artifacts)
+
+
+def _append_stale_hotel_inputs(roots: dict[str, Path]) -> None:
+    price_path = next(Path(roots["hotel_price_root"]).glob("*.json"))
+    price = CurrentHotelPriceSnapshot.model_validate_json(price_path.read_bytes())
+    old_price = price.model_copy(deep=True)
+    old_price.observation_id = "source-price-old"
+    old_price.observation.observation_id = "source-price-old"
+    old_price.observation.offer_key = "listing|agoda|old"
+    old_price.observation.source_record_id = "raw-price-old"
+    old_price.observation.observed_at = NOW - timedelta(days=3)
+    old_price.updated_at = NOW - timedelta(days=3)
+    old_price.stale_after = NOW - timedelta(days=3) + timedelta(hours=5)
+    _write(
+        Path(roots["hotel_price_root"]) / "old-price.json",
+        old_price.model_dump_json(indent=2),
+    )
+
+    availability_path = next(
+        Path(roots["hotel_availability_root"]).glob("*.json")
+    )
+    availability = CurrentHotelAvailabilitySnapshot.model_validate_json(
+        availability_path.read_bytes()
+    )
+    old_availability = availability.model_copy(deep=True)
+    old_availability.observation_id = "source-availability-old"
+    old_availability.observation.observation_id = "source-availability-old"
+    old_availability.observation.source_record_id = "raw-price-old"
+    old_availability.observation.price_observation_ids = ["source-price-old"]
+    old_availability.observation.observed_at = NOW - timedelta(days=3)
+    old_availability.updated_at = NOW - timedelta(days=3)
+    old_availability.stale_after = NOW - timedelta(days=3) + timedelta(hours=5)
+    _write(
+        Path(roots["hotel_availability_root"]) / "old-availability.json",
+        old_availability.model_dump_json(indent=2),
+    )
+
+
+def test_plan_excludes_hotel_inputs_older_than_retention_window(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    _append_stale_hotel_inputs(roots)
+
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        hotel_price_cleanup_gate=_complete_cleanup_gate(),
+        built_at=NOW,
+    )
+
+    assert plan.counts["hotel_price"] == 1
+    assert plan.counts["hotel_availability"] == 1
+    assert all(
+        artifact.relative_path not in {"old-price.json", "old-availability.json"}
+        for artifact in plan.input_artifacts
+    )
+
+
+def test_failed_cleanup_gate_does_not_prefilter_stale_hotel_inputs(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    _append_stale_hotel_inputs(roots)
+    failed_gate = V8HotelPriceCleanupGate(
+        reason="batch_incomplete",
+        summary_path="run=incomplete.json",
+        summary_sha256="b" * 64,
+        run_id="incomplete",
+        finished_at=NOW,
+        selected_count=2,
+        completed_count=1,
+        failed_count=0,
+    )
+
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        hotel_price_cleanup_gate=failed_gate,
+        built_at=NOW,
+    )
+
+    assert plan.counts["hotel_price"] == 2
+    assert plan.counts["hotel_availability"] == 2
+    assert {artifact.relative_path for artifact in plan.input_artifacts} >= {
+        "old-price.json",
+        "old-availability.json",
+    }
+
+
+def test_publish_rejects_gate_different_from_plan_prefilter_gate(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        hotel_price_cleanup_gate=_complete_cleanup_gate(),
+        built_at=NOW,
+    )
+    store = FakeStore()
+
+    with pytest.raises(
+        V8ObservationPublishError,
+        match="prefilter gate does not match publish gate",
+    ):
+        V8ObservationPublisher(
+            store,
+            hotel_price_cleanup_gate=V8HotelPriceCleanupGate(
+                reason="batch_stale"
+            ),
+        ).publish(plan)
+
+    assert store.calls == []
 
 
 def test_plan_skips_pending_review_opening_without_blocking_verified_inputs(
@@ -464,6 +679,221 @@ def test_dry_run_writes_manifest_without_touching_store(tmp_path: Path) -> None:
     assert manifest_path.is_file()
     assert store.calls == []
     assert all(count == 0 for count in manifest.processed_counts.values())
+    assert manifest.hotel_price_retention.applied is False
+    assert manifest.hotel_price_retention.previous_calendar_days == 1
+    assert manifest.hotel_price_retention.skip_reason == "dry_run"
+
+
+def test_cleanup_gate_uses_latest_finished_batch_without_hardcoded_count(
+    tmp_path: Path,
+) -> None:
+    summary_root = tmp_path / "summaries"
+    _write_hotel_batch_summary(
+        summary_root,
+        run_id="older-73-hotels",
+        finished_at=NOW - timedelta(hours=5),
+        selected=73,
+        completed=73,
+        failed=0,
+    )
+    latest = _write_hotel_batch_summary(
+        summary_root,
+        run_id="latest-4-hotels",
+        finished_at=NOW,
+        selected=4,
+        completed=4,
+        failed=0,
+    )
+
+    gate = load_latest_hotel_price_cleanup_gate(
+        summary_root,
+        evaluated_at=NOW,
+    )
+
+    assert gate.passed is True
+    assert gate.reason == "batch_complete"
+    assert gate.run_id == "latest-4-hotels"
+    assert gate.summary_path == str(latest)
+    assert gate.selected_count == 4
+    assert gate.completed_count == 4
+    assert gate.failed_count == 0
+    assert gate.summary_sha256 == hashlib.sha256(latest.read_bytes()).hexdigest()
+
+
+def test_cleanup_gate_rejects_empty_successful_batch(tmp_path: Path) -> None:
+    summary_root = tmp_path / "summaries"
+    _write_hotel_batch_summary(
+        summary_root,
+        run_id="empty-success",
+        finished_at=NOW,
+        selected=0,
+        completed=0,
+        failed=0,
+    )
+
+    gate = load_latest_hotel_price_cleanup_gate(
+        summary_root,
+        evaluated_at=NOW,
+    )
+
+    assert gate.passed is False
+    assert gate.reason == "batch_empty"
+    assert gate.selected_count == 0
+
+
+def test_cleanup_gate_rejects_successful_partial_batch(tmp_path: Path) -> None:
+    summary_root = tmp_path / "summaries"
+    _write_hotel_batch_summary(
+        summary_root,
+        run_id="partial-retry-4-of-73",
+        finished_at=NOW,
+        eligible=73,
+        selected=4,
+        completed=4,
+        failed=0,
+    )
+
+    gate = load_latest_hotel_price_cleanup_gate(
+        summary_root,
+        evaluated_at=NOW,
+    )
+
+    assert gate.passed is False
+    assert gate.reason == "batch_partial"
+    assert gate.eligible_count == 73
+    assert gate.selected_count == 4
+
+
+@pytest.mark.parametrize(
+    ("finished_at", "reason"),
+    [
+        (NOW - timedelta(hours=9), "batch_stale"),
+        (NOW + timedelta(minutes=6), "batch_from_future"),
+    ],
+)
+def test_cleanup_gate_rejects_stale_or_future_batch(
+    tmp_path: Path,
+    finished_at: datetime,
+    reason: str,
+) -> None:
+    summary_root = tmp_path / "summaries"
+    _write_hotel_batch_summary(
+        summary_root,
+        run_id=reason,
+        finished_at=finished_at,
+        selected=3,
+        completed=3,
+        failed=0,
+    )
+
+    gate = load_latest_hotel_price_cleanup_gate(
+        summary_root,
+        evaluated_at=NOW,
+    )
+
+    assert gate.passed is False
+    assert gate.reason == reason
+
+
+def test_cleanup_gate_rejects_duplicate_hotel_ids(tmp_path: Path) -> None:
+    summary_root = tmp_path / "summaries"
+    path = _write_hotel_batch_summary(
+        summary_root,
+        run_id="duplicate-hotels",
+        finished_at=NOW,
+        selected=2,
+        completed=2,
+        failed=0,
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["items"][1]["hotel_id"] = payload["items"][0]["hotel_id"]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    gate = load_latest_hotel_price_cleanup_gate(
+        summary_root,
+        evaluated_at=NOW,
+    )
+
+    assert gate.passed is False
+    assert gate.reason == "batch_summary_inconsistent"
+
+
+@pytest.mark.parametrize(
+    ("completed", "failed", "reason"),
+    [
+        (2, 1, "batch_failed"),
+        (2, 0, "batch_incomplete"),
+    ],
+)
+def test_failed_or_incomplete_batch_skips_cleanup_but_publishes_observations(
+    tmp_path: Path,
+    completed: int,
+    failed: int,
+    reason: str,
+) -> None:
+    roots = _write_current_artifacts(tmp_path / "inputs")
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        built_at=NOW,
+    )
+    summary_root = tmp_path / "summaries"
+    _write_hotel_batch_summary(
+        summary_root,
+        run_id=f"quality-{reason}",
+        finished_at=NOW,
+        selected=3,
+        completed=completed,
+        failed=failed,
+    )
+    store = FakeStore(
+        deleted_price_observations=9,
+        deleted_availability_observations=5,
+    )
+
+    manifest = V8ObservationPublisher(
+        store,
+        hotel_batch_summary_root=summary_root,
+    ).publish(plan)
+
+    assert manifest.status is V8ObservationPublishStatus.PUBLISHED
+    assert manifest.processed_counts == plan.counts
+    retention = manifest.hotel_price_retention
+    assert retention.applied is False
+    assert retention.skip_reason == reason
+    assert retention.quality_gate.passed is False
+    assert retention.quality_gate.selected_count == 3
+    assert retention.quality_gate.completed_count == completed
+    assert retention.quality_gate.failed_count == failed
+    assert store.committed is True
+    queries = "\n".join(query for query, _ in store.transaction.calls)
+    assert "prune-hotel-availability" not in queries
+    assert "prune-hotel-price" not in queries
+
+
+def test_missing_batch_summary_skips_cleanup_with_audited_reason(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path / "inputs")
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        built_at=NOW,
+    )
+    store = FakeStore()
+
+    manifest = V8ObservationPublisher(
+        store,
+        hotel_batch_summary_root=tmp_path / "missing-summaries",
+    ).publish(plan)
+
+    retention = manifest.hotel_price_retention
+    assert retention.applied is False
+    assert retention.skip_reason == "batch_summary_missing"
+    assert retention.quality_gate.reason == "batch_summary_missing"
+    assert all(
+        "prune-hotel" not in query for query, _ in store.transaction.calls
+    )
 
 
 def test_ensure_schema_creates_only_neutral_observation_schema() -> None:
@@ -524,10 +954,15 @@ def test_apply_matches_existing_places_and_merges_append_only(tmp_path: Path) ->
     )
     store = FakeStore()
 
-    manifest = V8ObservationPublisher(store, clock=lambda: NOW).publish(plan)
+    manifest = V8ObservationPublisher(
+        store,
+        clock=lambda: NOW,
+        hotel_price_cleanup_gate=_complete_cleanup_gate(),
+    ).publish(plan)
 
     assert manifest.status is V8ObservationPublishStatus.PUBLISHED
     assert manifest.processed_counts == plan.counts
+    assert manifest.hotel_price_retention.applied is True
     queries = "\n".join(query for query, _ in [*store.calls, *store.transaction.calls])
     assert store.execute_write_calls == 1
     assert store.committed is True
@@ -553,6 +988,109 @@ def test_apply_matches_existing_places_and_merges_append_only(tmp_path: Path) ->
     assert "v8_observation_observed_at" not in queries
     assert "ON MATCH SET" not in queries
     assert "V8Traffic" not in queries
+
+
+def test_price_retention_keeps_current_and_previous_vietnam_days(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        built_at=NOW,
+    )
+    # 2026-08-26T17:30Z is 2026-08-27 00:30 in Vietnam. Therefore
+    # local days 27 and 26 are retained and the UTC cutoff is day 25 17:00.
+    store = FakeStore(
+        latest_price_observed_at="2026-08-26T17:30:00Z",
+        deleted_price_observations=7,
+        deleted_availability_observations=3,
+    )
+    summary_root = tmp_path / "summaries"
+    _write_hotel_batch_summary(
+        summary_root,
+        run_id="retention-quality-pass",
+        finished_at=NOW,
+        selected=5,
+        completed=5,
+        failed=0,
+    )
+
+    manifest = V8ObservationPublisher(
+        store,
+        clock=lambda: NOW,
+        hotel_batch_summary_root=summary_root,
+    ).publish(plan)
+
+    retention = manifest.hotel_price_retention
+    assert retention.timezone == "Asia/Ho_Chi_Minh"
+    assert retention.previous_calendar_days == 1
+    assert retention.anchor_observed_at == datetime(
+        2026, 8, 26, 17, 30, tzinfo=timezone.utc
+    )
+    assert retention.cutoff_observed_at == datetime(
+        2026, 8, 25, 17, tzinfo=timezone.utc
+    )
+    assert retention.deleted_price_observations == 7
+    assert retention.deleted_availability_observations == 3
+    assert retention.quality_gate.passed is True
+    assert retention.quality_gate.run_id == "retention-quality-pass"
+
+    transaction_calls = store.transaction.calls
+    prune_availability_index = next(
+        index
+        for index, (query, _) in enumerate(transaction_calls)
+        if "prune-hotel-availability" in query
+    )
+    prune_price_index = next(
+        index
+        for index, (query, _) in enumerate(transaction_calls)
+        if "prune-hotel-price" in query
+    )
+    final_release_index = max(
+        index
+        for index, (query, _) in enumerate(transaction_calls)
+        if "validate-active-release" in query
+    )
+    assert prune_availability_index < prune_price_index < final_release_index
+    for index in (prune_availability_index, prune_price_index):
+        assert (
+            transaction_calls[index][1]["cutoff_observed_at"]
+            == "2026-08-25T17:00:00Z"
+        )
+
+    queries = "\n".join(query for query, _ in transaction_calls)
+    assert "MATCH (price:HotelPriceObservation" in queries
+    assert "MATCH (availability:HotelAvailabilityObservation" in queries
+    assert "prune-hotel-opening" not in queries
+    assert "prune-menu" not in queries
+
+
+def test_price_retention_failure_rolls_back_publish_and_manifest(
+    tmp_path: Path,
+) -> None:
+    roots = _write_current_artifacts(tmp_path)
+    plan = build_v8_observation_plan_for_dataset(
+        _dataset(tmp_path / "canonical"),
+        **roots,
+        built_at=NOW,
+    )
+    store = FakeStore(retention_failure="price")
+    manifest_path = tmp_path / "must-not-exist.json"
+
+    with pytest.raises(RuntimeError, match="price retention failed"):
+        V8ObservationPublisher(
+            store,
+            hotel_price_cleanup_gate=_complete_cleanup_gate(),
+        ).publish(
+            plan,
+            manifest_path=manifest_path,
+        )
+
+    assert store.execute_write_calls == 1
+    assert store.rolled_back is True
+    assert store.committed is False
+    assert not manifest_path.exists()
 
 
 def test_apply_fails_before_merge_for_wrong_release_or_missing_place(

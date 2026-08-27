@@ -10,6 +10,7 @@ from .neo4j_store import Neo4jGraphStore
 from .versions.v8.observation_publisher import (
     V8ObservationPublisher,
     build_v8_observation_plan,
+    load_latest_hotel_price_cleanup_gate,
     write_v8_observation_plan,
 )
 
@@ -34,18 +35,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-root", default="data/neo4j/v8/observation_runs")
     parser.add_argument("--batch-size", type=int, default=500)
+    parser.add_argument(
+        "--hotel-batch-summary-root",
+        default="data/runs/trivago_availability_batch",
+        help=(
+            "Directory (or exact file) containing immutable "
+            "TrivagoStayBatchSummary artifacts used to gate graph cleanup."
+        ),
+    )
+    parser.add_argument(
+        "--hotel-price-previous-days",
+        type=int,
+        default=1,
+        help=(
+            "Keep the newest Vietnam crawl day plus this many preceding "
+            "calendar days in Neo4j (default: 1)."
+        ),
+    )
     parser.add_argument("--apply", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    cleanup_gate = load_latest_hotel_price_cleanup_gate(
+        args.hotel_batch_summary_root
+    )
     plan = build_v8_observation_plan(
         args.canonical_dataset,
         hotel_price_root=args.hotel_price_root,
         hotel_availability_root=args.hotel_availability_root,
         current_menu_root=args.menu_root,
         opening_approval_root=args.opening_approval_root,
+        hotel_price_previous_calendar_days=(
+            args.hotel_price_previous_days
+        ),
+        hotel_price_cleanup_gate=cleanup_gate,
     )
     output_root = Path(args.output_root)
     plan_path = write_v8_observation_plan(
@@ -75,7 +100,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     store = Neo4jGraphStore(Settings.from_neo4j_env("v8"))
     try:
-        manifest = V8ObservationPublisher(store, batch_size=args.batch_size).publish(
+        manifest = V8ObservationPublisher(
+            store,
+            batch_size=args.batch_size,
+            hotel_price_previous_calendar_days=(
+                args.hotel_price_previous_days
+            ),
+            hotel_price_cleanup_gate=cleanup_gate,
+        ).publish(
             plan,
             manifest_path=run_path,
         )

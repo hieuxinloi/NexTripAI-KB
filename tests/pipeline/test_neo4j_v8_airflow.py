@@ -37,6 +37,10 @@ def test_v8_observation_dag_is_disabled_by_default_and_command_is_bounded(
     assert "data/current/place" not in command
     assert "data/current/menu" in command
     assert "data/neo4j/v8/observation_runs" in command
+    assert "NEXTRIP_NEO4J_V8_HOTEL_PRICE_PREVIOUS_DAYS:-1" in command
+    assert "--hotel-price-previous-days" in command
+    assert "NEXTRIP_TRIVAGO_BATCH_SUMMARY_ROOT" in command
+    assert "--hotel-batch-summary-root" in command
     assert command.endswith("--apply")
 
 

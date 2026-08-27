@@ -71,6 +71,10 @@ def _publish_observations_command() -> str:
         '--hotel-availability-root "${NEXTRIP_CURRENT_HOTEL_AVAILABILITY_ROOT:-data/current/hotel_availability}" '
         '--menu-root "${NEXTRIP_CURRENT_MENU_ROOT:-data/current/menu}" '
         '--output-root "${NEXTRIP_NEO4J_V8_OBSERVATION_RUN_ROOT:-data/neo4j/v8/observation_runs}" '
+        '--hotel-price-previous-days '
+        '"${NEXTRIP_NEO4J_V8_HOTEL_PRICE_PREVIOUS_DAYS:-1}" '
+        '--hotel-batch-summary-root '
+        '"${NEXTRIP_TRIVAGO_BATCH_SUMMARY_ROOT:-data/runs/trivago_availability_batch}" '
         "--apply"
     )
 
