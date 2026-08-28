@@ -26,6 +26,7 @@ class V6RetrievalService(V5RetrievalService):
     graph_kb_version = "v5"
     api_kb_version = "v6"
     response_model = V6QueryResponse
+    itinerary_builder_type = ItineraryBuilder
 
     def _ensure_ready(self) -> None:
         rows = self.store.run(
@@ -79,7 +80,7 @@ class V6RetrievalService(V5RetrievalService):
         itinerary = []
         if response.intent == V5Intent.PLAN_CANDIDATES:
             duration = response.query_plan.duration_days or previous.duration_days or 1
-            itinerary = ItineraryBuilder(self.store).build(
+            itinerary = self.itinerary_builder_type(self.store).build(
                 response.recommendations,
                 duration,
             )

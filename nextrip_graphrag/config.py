@@ -83,6 +83,16 @@ def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
     return parsed
 
 
+def _env_float(name: str, default: float, *, minimum: float = 0.001) -> float:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    parsed = float(value)
+    if parsed < minimum:
+        raise ValueError(f"{name} must be at least {minimum}.")
+    return parsed
+
+
 @dataclass(frozen=True)
 class Settings:
     neo4j_uri: str = "bolt://localhost:7687"
@@ -105,8 +115,11 @@ class Settings:
     neo4j_v5_user: str = "neo4j"
     neo4j_v5_password: str = "change-me"
     neo4j_v5_database: str | None = "neo4j"
-    neo4j_connection_timeout: float = 3.0
-    neo4j_max_transaction_retry_time: float = 3.0
+    neo4j_connection_timeout: float = 5.0
+    neo4j_connection_acquisition_timeout: float = 5.0
+    neo4j_liveness_check_timeout: float = 5.0
+    neo4j_max_connection_lifetime: float = 300.0
+    neo4j_max_transaction_retry_time: float = 10.0
     google_api_key: str | None = None
     gemini_planner_model: str = ""
     gemini_thinking_level: str = "minimal"
@@ -168,6 +181,26 @@ class Settings:
             neo4j_v5_user=os.getenv("NEO4J_V5_USER", cls.neo4j_v5_user),
             neo4j_v5_password=os.getenv("NEO4J_V5_PASSWORD", cls.neo4j_v5_password),
             neo4j_v5_database=os.getenv("NEO4J_V5_DATABASE", cls.neo4j_v5_database) or None,
+            neo4j_connection_timeout=_env_float(
+                "NEO4J_CONNECTION_TIMEOUT",
+                cls.neo4j_connection_timeout,
+            ),
+            neo4j_connection_acquisition_timeout=_env_float(
+                "NEO4J_CONNECTION_ACQUISITION_TIMEOUT",
+                cls.neo4j_connection_acquisition_timeout,
+            ),
+            neo4j_liveness_check_timeout=_env_float(
+                "NEO4J_LIVENESS_CHECK_TIMEOUT",
+                cls.neo4j_liveness_check_timeout,
+            ),
+            neo4j_max_connection_lifetime=_env_float(
+                "NEO4J_MAX_CONNECTION_LIFETIME",
+                cls.neo4j_max_connection_lifetime,
+            ),
+            neo4j_max_transaction_retry_time=_env_float(
+                "NEO4J_MAX_TRANSACTION_RETRY_TIME",
+                cls.neo4j_max_transaction_retry_time,
+            ),
             google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
             gemini_planner_model=planner_model,
             gemini_thinking_level=thinking_level,
@@ -202,6 +235,26 @@ class Settings:
             neo4j_user=os.getenv("NEO4J_USER", cls.neo4j_user),
             neo4j_password=os.getenv("NEO4J_PASSWORD", cls.neo4j_password),
             neo4j_database=os.getenv("NEO4J_DATABASE", cls.neo4j_database) or None,
+            neo4j_connection_timeout=_env_float(
+                "NEO4J_CONNECTION_TIMEOUT",
+                cls.neo4j_connection_timeout,
+            ),
+            neo4j_connection_acquisition_timeout=_env_float(
+                "NEO4J_CONNECTION_ACQUISITION_TIMEOUT",
+                cls.neo4j_connection_acquisition_timeout,
+            ),
+            neo4j_liveness_check_timeout=_env_float(
+                "NEO4J_LIVENESS_CHECK_TIMEOUT",
+                cls.neo4j_liveness_check_timeout,
+            ),
+            neo4j_max_connection_lifetime=_env_float(
+                "NEO4J_MAX_CONNECTION_LIFETIME",
+                cls.neo4j_max_connection_lifetime,
+            ),
+            neo4j_max_transaction_retry_time=_env_float(
+                "NEO4J_MAX_TRANSACTION_RETRY_TIME",
+                cls.neo4j_max_transaction_retry_time,
+            ),
             neo4j_version_connections=_configured_neo4j_versions(),
         )
         return settings.for_version(version)

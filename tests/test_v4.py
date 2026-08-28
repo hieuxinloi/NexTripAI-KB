@@ -52,6 +52,41 @@ def recommendation_plan(**overrides) -> dict:
 CONCEPT_VOCABULARY = ["families", "seafood"]
 
 
+def test_path_candidates_limits_rows_before_projecting_large_place_payloads() -> None:
+    captured: dict = {}
+
+    class Store:
+        def run(self, query, **params):
+            raise AssertionError("Path candidate retrieval must use read routing")
+
+        def run_read(self, query, **params):
+            captured["query"] = query
+            captured["params"] = params
+            return []
+
+    service = V4RetrievalService(Store())
+
+    candidates, checks = service._path_candidates(
+        "Quy Nhon",
+        [],
+        [],
+        [],
+        [],
+        15,
+    )
+
+    query = captured["query"]
+    assert candidates == []
+    assert checks == []
+    assert "place.city = $city" in query
+    assert "$entity_types = [] OR" not in query
+    assert "$place_ids IS NULL OR" not in query
+    assert query.index("LIMIT $limit") < query.index("RETURN place")
+    assert "RETURN place {.*" not in query
+    assert ".duration_recommendation" in query
+    assert ".price_per_person_min" in query
+
+
 def test_description_extraction_preserves_negative_amenity_claim() -> None:
     description = "Khach san khong lap dat he thong be boi."
 

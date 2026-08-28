@@ -279,13 +279,21 @@ class V4RetrievalService(V3RetrievalService):
         required_terms = [_plain(term) for term in required_concepts]
         preferred_terms = [_plain(term) for term in preferred_concepts]
         all_terms = [*required_terms, *preferred_terms]
-        clauses = [
-            "place.kb_version = $kb_version",
-            "($city IS NULL OR place.city = $city)",
-            "($entity_types = [] OR place.entity_type IN $entity_types)",
-            "($place_ids IS NULL OR place.id IN $place_ids)",
-            "all(term IN $required_terms WHERE EXISTS { MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(concept:Concept) WHERE concept.kb_version = $kb_version AND (toLower(concept.canonical_name) CONTAINS term OR toLower(concept.name) CONTAINS term) })",
-        ]
+        clauses = ["place.kb_version = $kb_version"]
+        if city is not None:
+            clauses.append("place.city = $city")
+        if entity_types:
+            clauses.append("place.entity_type IN $entity_types")
+        if place_ids is not None:
+            clauses.append("place.id IN $place_ids")
+        if required_terms:
+            clauses.append(
+                "all(term IN $required_terms WHERE EXISTS { "
+                "MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(concept:Concept) "
+                "WHERE concept.kb_version = $kb_version "
+                "AND (toLower(concept.canonical_name) CONTAINS term "
+                "OR toLower(concept.name) CONTAINS term) })"
+            )
         params: dict[str, Any] = {
             "kb_version": self.kb_version,
             "city": city,
@@ -378,26 +386,88 @@ class V4RetrievalService(V3RetrievalService):
                 "OR toLower(weather.canonical_name) = 'all weather' })"
             )
 
-        rows = self.store.run(
-            f"""
-            MATCH (place:Place)
-            {near_match}
-            WHERE {' AND '.join(clauses)}
+        if all_terms:
+            concept_projection = """
             OPTIONAL MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(matched:Concept)
             WHERE any(term IN $all_terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term)
             WITH place,
                  count(DISTINCT CASE WHEN any(term IN $required_terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term) THEN matched END) AS requiredMatches,
-                 count(DISTINCT CASE WHEN any(term IN $preferred_terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term) THEN matched END) AS preferredMatches{', near' if near_subject else ''}
+                 count(DISTINCT CASE WHEN any(term IN $preferred_terms WHERE toLower(matched.canonical_name) CONTAINS term OR toLower(matched.name) CONTAINS term) THEN matched END) AS preferredMatches
+            """
+        else:
+            concept_projection = """
+            WITH place, 0 AS requiredMatches, 0 AS preferredMatches
+            """
+        if near_subject:
+            concept_projection = concept_projection.rstrip() + ", near\n"
+
+        read_query = getattr(self.store, "run_read", self.store.run)
+        rows = read_query(
+            f"""
+            MATCH (place:Place)
+            {near_match}
+            WHERE {' AND '.join(clauses)}
+            {concept_projection}
             WITH place, requiredMatches, preferredMatches,
                  CASE WHEN size($required_terms) = 0 THEN 1.0 ELSE toFloat(requiredMatches) / size($required_terms) END AS requiredCoverage,
                  CASE WHEN size($preferred_terms) = 0 THEN 0.0 ELSE toFloat(preferredMatches) / size($preferred_terms) END AS preferredCoverage{', near' if near_subject else ''}
-            RETURN place {{.*, score:
+            ORDER BY preferredMatches DESC,
+                     requiredMatches DESC,
+                     coalesce(place.rating, 0) DESC
+            LIMIT $limit
+            RETURN place {{
+                .id,
+                .name,
+                .city,
+                .entity_type,
+                .category_name,
+                .category,
+                .address,
+                .amenities,
+                .check_in_time,
+                .check_out_time,
+                .cuisine,
+                .description,
+                .is_indoor,
+                .lat,
+                .lng,
+                .matched_targets,
+                .opening_hours,
+                .opening_hours_open,
+                .opening_hours_close,
+                .opening_hours_note,
+                .duration_recommendation,
+                .phone,
+                .price,
+                .price_min,
+                .price_max,
+                .price_range_min,
+                .price_range_max,
+                .price_range_currency,
+                .price_per_person_min,
+                .price_per_person_max,
+                .price_per_person_currency,
+                .drink_price_min,
+                .drink_price_max,
+                .drink_price_currency,
+                .entry_fee_min,
+                .entry_fee_max,
+                .entry_fee_currency,
+                .ticket_price_adult,
+                .ticket_price_child,
+                .ticket_price_student,
+                .ticket_price_elderly,
+                .ticket_price_currency,
+                .rating,
+                .review_count,
+                .signature_dishes,
+                .support_count,
+                .weather_suitable,
+                score:
                 CASE WHEN size($preferred_terms) = 0
                      THEN requiredCoverage
                      ELSE $required_weight * requiredCoverage + $preferred_weight * preferredCoverage
                 END{distance_projection}}} AS place
-            ORDER BY preferredMatches DESC, requiredMatches DESC, coalesce(place.rating, 0) DESC
-            LIMIT $limit
             """,
             **params,
         )

@@ -70,16 +70,38 @@ class Neo4jGraphStore:
             settings.neo4j_uri,
             auth=(settings.neo4j_user, settings.neo4j_password),
             connection_timeout=settings.neo4j_connection_timeout,
+            connection_acquisition_timeout=(
+                settings.neo4j_connection_acquisition_timeout
+            ),
+            liveness_check_timeout=settings.neo4j_liveness_check_timeout,
+            max_connection_lifetime=settings.neo4j_max_connection_lifetime,
             max_transaction_retry_time=settings.neo4j_max_transaction_retry_time,
+            keep_alive=True,
         )
 
     def close(self) -> None:
         self.driver.close()
 
     def run(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        return self._execute(query, params)
+
+    def run_read(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        from neo4j import RoutingControl
+
+        return self._execute(query, params, routing=RoutingControl.READ)
+
+    def _execute(
+        self,
+        query: str,
+        params: dict[str, Any],
+        *,
+        routing: Any | None = None,
+    ) -> list[dict[str, Any]]:
         options: dict[str, Any] = {"parameters_": params}
         if self.settings.neo4j_database:
             options["database_"] = self.settings.neo4j_database
+        if routing is not None:
+            options["routing_"] = routing
         result = self.driver.execute_query(query, **options)
         return [record.data() for record in result.records]
 

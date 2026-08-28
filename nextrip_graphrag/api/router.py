@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from loguru import logger
+from neo4j.exceptions import ServiceUnavailable, SessionExpired
 
 from ..config import HEALTH_CHECK_TIMEOUT_SECONDS
 from ..logging import safe_text
@@ -439,6 +440,21 @@ def query_typed(
             )
         else:
             response = service.query(request.query, request.top_k)
+    except (ServiceUnavailable, SessionExpired) as exc:
+        logger.exception(
+            "KB typed query Neo4j unavailable version={} error_type={} elapsed_ms={}",
+            request.kb_version,
+            exc.__class__.__name__,
+            int((perf_counter() - started_at) * 1000),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "neo4j_temporarily_unavailable",
+                "message": "Knowledge Base connection is temporarily unavailable.",
+                "retryable": True,
+            },
+        ) from exc
     except Exception as exc:
         logger.exception(
             "KB typed query error version={} error_type={} elapsed_ms={}",

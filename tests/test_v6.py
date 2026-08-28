@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
+from neo4j.exceptions import SessionExpired
+
 from nextrip_graphrag.api import router
 from nextrip_graphrag.api.schemas import TypedQueryRequest
 from nextrip_graphrag.versions.v2.schemas import EntityResult
@@ -209,6 +213,42 @@ def test_v8_api_passes_conversation_context_to_stateful_service(monkeypatch) -> 
     )
 
     assert received["context"] == context
+
+
+def test_typed_query_maps_exhausted_neo4j_retry_to_503(monkeypatch) -> None:
+    class UnavailableService:
+        def __init__(self, store, gemini):
+            pass
+
+        def query(self, query, top_k, *, context=None):
+            raise SessionExpired("defunct pooled connection")
+
+    monkeypatch.setattr(
+        router,
+        "version_retrieval_service_class",
+        lambda version: UnavailableService,
+    )
+    services = SimpleNamespace(
+        settings=SimpleNamespace(configured_kb_versions=("v8",)),
+        gemini=None,
+        store_for=lambda version: object(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        router.query_typed(
+            TypedQueryRequest(
+                query="Len lich trinh mot ngay o Quy Nhon",
+                kb_version="v8",
+            ),
+            services,
+        )
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == {
+        "code": "neo4j_temporarily_unavailable",
+        "message": "Knowledge Base connection is temporarily unavailable.",
+        "retryable": True,
+    }
 
 
 def test_v6_itinerary_is_grounded_and_bounded_per_day() -> None:

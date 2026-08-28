@@ -286,6 +286,22 @@ def _compile_plan(
                     ),
                 ]
             )
+        elif intent == V5Intent.PLAN_CANDIDATES and not draft.tasks:
+            semantic_targets = [
+                target.value
+                for target in targets
+                if target.kind
+                in {
+                    TargetKind.ACTIVITY,
+                    TargetKind.DISH,
+                    TargetKind.CONCEPT,
+                }
+                and target.value
+            ]
+            preferred_concepts = _clean_values(
+                [*preferred_concepts, *semantic_targets]
+            )
+            targets = [QueryTarget(kind=TargetKind.PLACE)]
 
     if (
         draft.duration_days
@@ -305,16 +321,6 @@ def _compile_plan(
     ranking = list(dict.fromkeys(draft.ranking_criteria))
     tools = _enum_values(draft.required_tools)
     tasks = [_compile_task(raw) for raw in draft.tasks]
-    if (
-        intent == V5Intent.PLAN_CANDIDATES
-        and targets
-        and any(target.kind != TargetKind.PLACE for target in targets)
-        and not tasks
-    ):
-        raise ValueError(
-            "plan_candidates accepts place targets only, unless explicit tasks are supplied"
-        )
-
     return V8QueryPlan(
         intent=intent,
         targets=targets,

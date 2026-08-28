@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import cached_property
 from itertools import chain, zip_longest
 from typing import Any
 
@@ -14,6 +16,20 @@ class NearbyAnchorNotFoundError(LookupError):
 
 class NearbyAnchorLocationMissingError(ValueError):
     """The requested canonical V8 anchor cannot be used for spatial search."""
+
+
+@dataclass(frozen=True)
+class GraphCapabilities:
+    labels: frozenset[str]
+    relationship_types: frozenset[str]
+    property_keys: frozenset[str]
+    introspection_available: bool = True
+
+    def has_label(self, value: str) -> bool:
+        return value in self.labels
+
+    def has_relationship(self, value: str) -> bool:
+        return value in self.relationship_types
 
 
 class V8GraphStore(V5GraphStore):
@@ -31,6 +47,86 @@ class V8GraphStore(V5GraphStore):
     place_fulltext_index = "place_fulltext"
     place_vector_index = "place_embedding"
     concept_vector_index = "concept_embedding"
+
+    @cached_property
+    def capabilities(self) -> GraphCapabilities:
+        try:
+            labels = self.run(
+                "CALL db.labels() YIELD label RETURN collect(label) AS values"
+            )
+            relationships = self.run(
+                "CALL db.relationshipTypes() "
+                "YIELD relationshipType RETURN collect(relationshipType) AS values"
+            )
+            properties = self.run(
+                "CALL db.propertyKeys() "
+                "YIELD propertyKey RETURN collect(propertyKey) AS values"
+            )
+        except Exception:
+            return GraphCapabilities(
+                labels=frozenset(),
+                relationship_types=frozenset(),
+                property_keys=frozenset(),
+                introspection_available=False,
+            )
+        return GraphCapabilities(
+            labels=frozenset(
+                str(item)
+                for item in ((labels[0].get("values") if labels else []) or [])
+            ),
+            relationship_types=frozenset(
+                str(item)
+                for item in (
+                    (relationships[0].get("values") if relationships else []) or []
+                )
+            ),
+            property_keys=frozenset(
+                str(item)
+                for item in (
+                    (properties[0].get("values") if properties else []) or []
+                )
+            ),
+        )
+
+    def planner_catalog(self) -> dict[str, list[str]]:
+        rows = self.run_versioned(
+            """
+            OPTIONAL MATCH (city:City {kb_version: $kb_version})
+            WITH collect(DISTINCT city.name) AS cities
+            OPTIONAL MATCH (concept:Concept {kb_version: $kb_version})
+            WITH cities, collect(DISTINCT concept.canonical_name) AS concepts
+            OPTIONAL MATCH (place:Place {kb_version: $kb_version})
+            RETURN cities, concepts,
+                   collect(DISTINCT place.category) AS categories,
+                   collect(DISTINCT place.entity_type) AS entity_types,
+                   collect(DISTINCT place.name) AS places
+            """
+        )
+        row = rows[0]
+        catalog = {
+            key: sorted(str(value) for value in row.get(key, []) if value)
+            for key in (
+                "cities",
+                "categories",
+                "concepts",
+                "entity_types",
+                "places",
+            )
+        }
+        catalog["areas"] = []
+        if self.capabilities.has_label("GeoArea"):
+            area_rows = self.run_versioned(
+                """
+                MATCH (area:GeoArea {kb_version: $kb_version})
+                RETURN collect(DISTINCT area.name) AS areas
+                """
+            )
+            catalog["areas"] = sorted(
+                str(value)
+                for value in (area_rows[0].get("areas") or [])
+                if value
+            )
+        return catalog
 
     def nearby_candidates(
         self,

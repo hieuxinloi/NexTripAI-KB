@@ -31,6 +31,7 @@ from nextrip_graphrag.versions.v8.graph_store import (
     V8GraphStore,
     _diversify_by_entity_type,
 )
+from nextrip_graphrag.versions.v8.itinerary import V8ItineraryBuilder
 from nextrip_graphrag.versions.v8.query_planner import V8PlannerDraft, plan_query
 from nextrip_graphrag.versions.v8.schemas import V8QueryPlan
 from nextrip_graphrag.versions.v8.retrieval import (
@@ -57,6 +58,7 @@ CATALOG = {
     "cities": ["Đà Nẵng", "Quy Nhơn"],
     "areas": ["Hải Châu", "Nhơn Lý"],
     "concepts": ["families", "quiet", "sea view"],
+    "entity_types": ["attraction", "restaurant", "cafe", "hotel"],
     "places": ["Cầu Rồng", "Eo Gió"],
 }
 
@@ -349,10 +351,33 @@ def test_v8_drops_soft_planner_constraints_instead_of_rejecting_query() -> None:
     assert plan.constraints == []
 
 
+def test_v8_normalizes_semantic_itinerary_targets_to_place_contract() -> None:
+    planner = FakePlanner(
+        {
+            "intent": "plan_candidates",
+            "targets": [{"kind": "activity", "value": "khám phá thành phố"}],
+            "geo_scope": {"cities": ["Quy Nhơn"]},
+            "duration_days": 1,
+            "confidence": 0.9,
+        }
+    )
+
+    plan, planner_name, failure = plan_query(
+        "Lên lịch trình một ngày khám phá Quy Nhơn",
+        planner,
+        CATALOG,
+    )
+
+    assert failure is None
+    assert planner_name == "gemini_semantic_v8"
+    assert plan.targets == [QueryTarget(kind=TargetKind.PLACE)]
+    assert plan.preferred_concepts == ["khám phá thành phố"]
+
+
 def test_v8_recovers_grounded_itinerary_shape_when_planner_is_invalid() -> None:
     plan = _recover_itinerary_plan(
         "Tôi ở Quy Nhơn 2 ngày 1 đêm, lên lộ trình giúp tôi",
-        {"cities": ["Đà Nẵng", "Quy Nhơn"]},
+        CATALOG,
     )
 
     assert plan.intent == V5Intent.PLAN_CANDIDATES
@@ -364,6 +389,74 @@ def test_v8_recovers_grounded_itinerary_shape_when_planner_is_invalid() -> None:
         "cafe",
         "hotel",
     ]
+
+
+def test_v8_candidate_pool_is_bounded_per_balanced_task() -> None:
+    service = V8RetrievalService.__new__(V8RetrievalService)
+
+    assert service._path_candidate_limit(1) == 20
+    assert service._path_candidate_limit(5) == 20
+    assert service._path_candidate_limit(10) == 40
+    assert service._vector_candidate_limit(5) == 40
+
+
+def test_v8_planner_catalog_skips_unavailable_geo_area_capability() -> None:
+    store = V8GraphStore.__new__(V8GraphStore)
+    queries: list[str] = []
+
+    def fake_run(query: str, **_: Any) -> list[dict[str, Any]]:
+        queries.append(query)
+        if "db.labels()" in query:
+            return [{"values": ["City", "Concept", "Place"]}]
+        if "db.relationshipTypes()" in query:
+            return [{"values": ["IN_CITY", "MENTIONS"]}]
+        if "db.propertyKeys()" in query:
+            return [{"values": ["name", "entity_type"]}]
+        return [
+            {
+                "cities": ["Quy Nhơn"],
+                "concepts": ["quiet"],
+                "categories": ["beach"],
+                "entity_types": ["attraction"],
+                "places": ["Eo Gió"],
+            }
+        ]
+
+    store.run = fake_run  # type: ignore[method-assign]
+
+    catalog = store.planner_catalog()
+
+    assert catalog["areas"] == []
+    assert catalog["entity_types"] == ["attraction"]
+    assert not any("MATCH (area:GeoArea" in query for query in queries)
+
+
+def test_v8_itinerary_metadata_uses_runtime_point_distance() -> None:
+    captured: dict[str, Any] = {}
+
+    class Store:
+        def run_versioned(
+            self,
+            query: str,
+            **params: Any,
+        ) -> list[dict[str, Any]]:
+            captured["query"] = query
+            captured["params"] = params
+            return [
+                {
+                    "place_id": "place-1",
+                    "opening_hours_open": "08:00",
+                    "opening_hours_close": "18:00",
+                    "duration_recommendation": "60 phút",
+                    "distances": [],
+                }
+            ]
+
+    metadata = V8ItineraryBuilder(Store())._metadata(["place-1"])
+
+    assert metadata["place-1"]["opening_hours_open"] == "08:00"
+    assert "point.distance" in captured["query"]
+    assert ":NEAR" not in captured["query"]
 
 
 def test_v8_uses_v6_stateful_executor_and_v8_response_contract() -> None:
@@ -557,8 +650,7 @@ def test_v8_expands_multi_type_itinerary_without_phrase_aliases() -> None:
         ["cafe"],
     ]
     assert all(len(task.targets) == 1 for task in tasks)
-    assert tasks[0].limit == 20
-    assert all(task.limit >= 6 for task in tasks[1:])
+    assert all(task.limit == 2 for task in tasks)
 
 
 def test_v8_task_expansion_does_not_duplicate_separate_targets() -> None:
@@ -876,7 +968,7 @@ def test_v8_itinerary_policy_replaces_activity_phrase_with_balanced_place_types(
         confidence=0.95,
     )
 
-    compiled = _itinerary_candidate_plan(raw)
+    compiled = _itinerary_candidate_plan(raw, CATALOG)
     tasks = _effective_tasks(compiled)
 
     assert compiled.intent == V5Intent.PLAN_CANDIDATES

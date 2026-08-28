@@ -59,6 +59,18 @@ class V5RetrievalService(V4RetrievalService):
         super().__init__(store, gemini)
         self.resolver = V5EntityResolver(store)
 
+    def _path_candidate_limit(self, limit: int) -> int:
+        return max(
+            limit * POLICY.candidate_multiplier,
+            POLICY.minimum_candidate_pool,
+        )
+
+    def _vector_candidate_limit(self, limit: int) -> int:
+        return max(
+            limit * POLICY.candidate_multiplier,
+            POLICY.minimum_vector_pool,
+        )
+
     def query(self, query: str, top_k: int = DEFAULT_TYPED_QUERY_TOP_K) -> V5QueryResponse:
         self._ensure_ready()
         started = perf_counter()
@@ -316,7 +328,7 @@ class V5RetrievalService(V4RetrievalService):
                 plan.required_concepts,
                 plan.preferred_concepts,
                 plan.constraints,
-                max(limit * POLICY.candidate_multiplier, POLICY.minimum_candidate_pool),
+                self._path_candidate_limit(limit),
                 place_ids=place_ids,
             )
             query_embedding = (
@@ -578,7 +590,7 @@ class V5RetrievalService(V4RetrievalService):
             ORDER BY place.score DESC
             LIMIT $limit
             """,
-            candidate_limit=max(limit * POLICY.candidate_multiplier, POLICY.minimum_vector_pool),
+            candidate_limit=self._vector_candidate_limit(limit),
             embedding=query_embedding,
             city=city,
             entity_types=entity_types,

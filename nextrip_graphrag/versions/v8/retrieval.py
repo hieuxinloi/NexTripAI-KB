@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from math import ceil
 from collections.abc import Callable
 from contextvars import ContextVar
 from functools import cached_property
@@ -14,7 +15,7 @@ from neo4j_graphrag.types import RetrieverResultItem
 from ...config import DEFAULT_TYPED_QUERY_TOP_K
 from ...normalizer import slugify
 from ..v2.retrieval import _entity, _fulltext_query
-from ..v2.schemas import EntityResult, FactResult
+from ..v2.schemas import ENTITY_TYPES, EntityResult, FactResult
 from ..v4.policy import POLICY
 from ..v4.schemas import V4EvidenceResult
 from ..v4.schemas import RankingCriterion
@@ -37,6 +38,7 @@ from ..v5.schemas import (
 )
 from ..v7.entity_linker import SemanticEntityLinker
 from ..v7.query_planner import _keep_material_clarification
+from .itinerary import V8ItineraryBuilder
 from .query_planner import plan_query
 from .schemas import V8QueryPlan, V8QueryResponse
 
@@ -66,6 +68,13 @@ class V8RetrievalService(V6RetrievalService):
     place_fallback_strategy = "neo4j_graphrag_hybrid_evidence_v8"
     fulltext_index = "place_fulltext"
     vector_index = "place_embedding"
+    itinerary_builder_type = V8ItineraryBuilder
+
+    def _path_candidate_limit(self, limit: int) -> int:
+        return max(limit * 4, 20)
+
+    def _vector_candidate_limit(self, limit: int) -> int:
+        return max(limit * 8, 40)
 
     def query(
         self,
@@ -317,7 +326,7 @@ class V8RetrievalService(V6RetrievalService):
                     "deterministic_itinerary_recovery_v8",
                     None,
                 )
-            plan = _itinerary_candidate_plan(plan)
+            plan = _itinerary_candidate_plan(plan, catalog)
         return plan, planner, failure
 
     def _personalize_plan(self, plan: V5QueryPlan) -> V5QueryPlan:
@@ -410,7 +419,7 @@ class V8RetrievalService(V6RetrievalService):
             UNWIND $place_ids AS place_id
             MATCH (place:Place {id: place_id, kb_version: $kb_version})
             WHERE NOT EXISTS {
-              MATCH (place)-[:HAS_OFFERING*0..1]->(subject)-[]->(concept:Concept)
+              MATCH (place)-[]->(concept:Concept)
               WHERE concept.kb_version = $kb_version
                 AND any(
                   excluded IN $excluded_concepts
@@ -425,6 +434,87 @@ class V8RetrievalService(V6RetrievalService):
             excluded_concepts=excluded_concepts,
         )
         return {str(row["place_id"]) for row in rows}
+
+    def _candidate_metadata(
+        self,
+        candidate_ids: list[str],
+    ) -> dict[str, dict[str, float]]:
+        claim_projection = (
+            """
+            OPTIONAL MATCH (claim:Claim {kb_version: $kb_version})-[:ABOUT]->(place)
+            """
+            if self.store.capabilities.has_relationship("ABOUT")
+            else ""
+        )
+        confidence = (
+            "coalesce(avg(claim.confidence), 0)"
+            if claim_projection
+            else "0.0"
+        )
+        rows = self.store.run(
+            f"""
+            UNWIND $candidate_ids AS placeId
+            MATCH (place:Place {{id: placeId, kb_version: $kb_version}})
+            {claim_projection}
+            OPTIONAL MATCH (place)-[:HAS_FACT]->(price:Fact)
+            WHERE price.predicate IN ['price', 'price_min']
+            RETURN place.id AS place_id,
+                   coalesce(place.rating, 0) AS rating,
+                   coalesce(place.review_count, 0) AS review_count,
+                   coalesce(min(toFloatOrNull(price.value)), 0) AS price_min,
+                   CASE WHEN coalesce(place.rating, 0) > 5 THEN 10.0 ELSE 5.0 END AS rating_scale,
+                   {confidence} AS evidence_confidence
+            """,
+            candidate_ids=candidate_ids,
+            kb_version=self.kb_version,
+        )
+        return {
+            row["place_id"]: {
+                "rating": float(row["rating"]),
+                "rating_scale": max(float(row["rating_scale"]), 1.0),
+                "review_count": max(float(row["review_count"]), 0.0),
+                "price_min": max(float(row["price_min"]), 0.0),
+                "evidence_confidence": float(row["evidence_confidence"]),
+            }
+            for row in rows
+        }
+
+    def _claim_evidence(
+        self,
+        candidates: list[EntityResult],
+        concepts: list[str],
+    ) -> list[V4EvidenceResult]:
+        if not candidates or not concepts:
+            return []
+        required = {"ABOUT", "OBJECT", "SUPPORTED_BY", "PART_OF"}
+        if not required.issubset(self.store.capabilities.relationship_types):
+            return []
+        rows = self.store.run_versioned(
+            """
+            UNWIND $place_ids AS placeId
+            MATCH (place:Place {id: placeId, kb_version: $kb_version})
+            MATCH (claim:Claim {kb_version: $kb_version})-[:ABOUT]->(place)
+            MATCH (claim)-[:OBJECT]->(concept:Concept)
+            MATCH (claim)-[:SUPPORTED_BY]->(unit:TextUnit)-[:PART_OF]->(document:Document)
+            WHERE any(
+              term IN $terms
+              WHERE toLower(concept.canonical_name) CONTAINS term
+                 OR toLower(concept.name) CONTAINS term
+            )
+            RETURN DISTINCT place.id AS subject_id,
+                   unit.id AS text_unit_id,
+                   document.id AS document_id,
+                   coalesce(unit.title, document.title, place.name) AS title,
+                   unit.text AS text,
+                   document.url AS url,
+                   document.source_name AS source_name
+            LIMIT $evidence_limit
+            """,
+            place_ids=[candidate.place_id for candidate in candidates],
+            terms=[slugify(term).replace("-", " ") for term in concepts],
+            evidence_limit=POLICY.maximum_evidence_results,
+        )
+        return [V4EvidenceResult.model_validate(row) for row in rows]
 
     def _ground_plan(
         self,
@@ -536,27 +626,32 @@ class V8RetrievalService(V6RetrievalService):
         """Return several evidence chunks linked through claim and mention edges."""
         if not places:
             return []
-        rows = self.store.run_versioned(
-            """
-            UNWIND $place_ids AS place_id
-            MATCH (place:Place {id: place_id, kb_version: $kb_version})
-            CALL (place) {
-              MATCH (unit:TextUnit {kb_version: $kb_version})-[:MENTIONS]->(place)
-              RETURN unit, 0.0 AS claim_confidence
+        claim_branch = ""
+        if self.store.capabilities.has_relationship("HAS_OFFERING"):
+            claim_branch = """
               UNION
               MATCH (place)-[:HAS_OFFERING*0..1]->(subject)
                     <-[:ABOUT]-(claim:Claim {kb_version: $kb_version})
                     -[:SUPPORTED_BY]->(unit:TextUnit {kb_version: $kb_version})
               RETURN unit, coalesce(claim.confidence, 0.0) AS claim_confidence
-            }
+            """
+        rows = self.store.run_versioned(
+            f"""
+            UNWIND $place_ids AS place_id
+            MATCH (place:Place {{id: place_id, kb_version: $kb_version}})
+            CALL (place) {{
+              MATCH (unit:TextUnit {{kb_version: $kb_version}})-[:MENTIONS]->(place)
+              RETURN unit, 0.0 AS claim_confidence
+              {claim_branch}
+            }}
             MATCH (unit)-[:PART_OF]->(document:Document)
             WITH place, unit, document, max(claim_confidence) AS claim_confidence
             ORDER BY place.id, claim_confidence DESC, unit.sequence
-            WITH place, collect({
+            WITH place, collect({{
               unit: unit,
               document: document,
               claim_confidence: claim_confidence
-            })[0..3] AS chunks
+            }})[0..3] AS chunks
             UNWIND chunks AS chunk
             RETURN place.id AS subject_id,
                    chunk.unit.id AS text_unit_id,
@@ -583,10 +678,7 @@ class V8RetrievalService(V6RetrievalService):
         place_ids: list[str] | None = None,
     ) -> list[EntityResult]:
         """Use Neo4j GraphRAG's validated hybrid retrieval implementation."""
-        candidate_limit = max(
-            limit * POLICY.candidate_multiplier,
-            POLICY.minimum_vector_pool,
-        )
+        candidate_limit = self._vector_candidate_limit(limit)
         query_text = _fulltext_query(query)
         if not query_text:
             return []
@@ -778,13 +870,7 @@ def _effective_tasks(plan: V5QueryPlan) -> list[QueryTask]:
     )
     if len(entity_types) <= 1:
         return []
-    candidate_limits = {
-        "attraction": 20,
-        "restaurant": 6,
-        "cafe": 6,
-        "hotel": 6,
-        "nightlife": 6,
-    }
+    task_limit = max(1, ceil(max(plan.limit, DEFAULT_TYPED_QUERY_TOP_K) / len(entity_types)))
     return [
         QueryTask(
             name=entity_type,
@@ -798,13 +884,16 @@ def _effective_tasks(plan: V5QueryPlan) -> list[QueryTask]:
             preferred_concepts=plan.preferred_concepts,
             ranking_criteria=plan.ranking_criteria,
             constraints=plan.constraints,
-            limit=max(candidate_limits.get(entity_type, 6), plan.limit),
+            limit=task_limit,
         )
         for entity_type in entity_types
     ]
 
 
-def _itinerary_candidate_plan(plan: V5QueryPlan) -> V5QueryPlan:
+def _itinerary_candidate_plan(
+    plan: V5QueryPlan,
+    catalog: dict[str, list[str]] | None = None,
+) -> V5QueryPlan:
     """Compile itinerary retrieval into balanced, city-scoped graph tasks.
 
     The LLM still extracts city, duration and preferences. This policy controls
@@ -812,18 +901,14 @@ def _itinerary_candidate_plan(plan: V5QueryPlan) -> V5QueryPlan:
     natural-language phrase such as "lộ trình đi chơi" becoming an entity lookup.
     """
     payload = plan.model_dump(mode="python")
+    entity_types = _itinerary_entity_types(plan, catalog or {})
     payload.update(
         {
             "intent": V5Intent.PLAN_CANDIDATES,
             "targets": [
                 QueryTarget(
                     kind=TargetKind.PLACE,
-                    entity_types=[
-                        "attraction",
-                        "restaurant",
-                        "cafe",
-                        "hotel",
-                    ],
+                    entity_types=entity_types,
                 ).model_dump(mode="python")
             ],
             "tasks": [],
@@ -831,6 +916,27 @@ def _itinerary_candidate_plan(plan: V5QueryPlan) -> V5QueryPlan:
         }
     )
     return type(plan).model_validate(payload)
+
+
+def _itinerary_entity_types(
+    plan: V5QueryPlan,
+    catalog: dict[str, list[str]],
+) -> list[str]:
+    catalog_types = [
+        value
+        for value in catalog.get("entity_types", [])
+        if value in ENTITY_TYPES
+    ]
+    if catalog_types:
+        return list(dict.fromkeys(catalog_types))
+    planned_types = [
+        entity_type
+        for target in plan.targets
+        if target.kind == TargetKind.PLACE
+        for entity_type in target.entity_types
+        if entity_type in ENTITY_TYPES
+    ]
+    return list(dict.fromkeys(planned_types))
 
 
 def _recover_itinerary_plan(
@@ -848,12 +954,17 @@ def _recover_itinerary_plan(
         city for city in catalog.get("cities", []) if f"-{slugify(city)}-" in query_slug
     ]
     city = max(matching_cities, key=lambda value: len(slugify(value)), default=None)
+    entity_types = [
+        value
+        for value in catalog.get("entity_types", [])
+        if value in ENTITY_TYPES
+    ]
     return V8QueryPlan(
         intent=V5Intent.PLAN_CANDIDATES,
         targets=[
             QueryTarget(
                 kind=TargetKind.PLACE,
-                entity_types=["attraction", "restaurant", "cafe", "hotel"],
+                entity_types=list(dict.fromkeys(entity_types)),
             )
         ],
         geo_scope=GeoScope(cities=[city] if city else []),

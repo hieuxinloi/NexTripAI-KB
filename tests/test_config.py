@@ -21,6 +21,9 @@ def test_from_env_reads_deployment_and_runtime_budget_values(monkeypatch) -> Non
 
     policy_overrides = {
         "NEO4J_CONNECTION_TIMEOUT": "99",
+        "NEO4J_CONNECTION_ACQUISITION_TIMEOUT": "98",
+        "NEO4J_LIVENESS_CHECK_TIMEOUT": "97",
+        "NEO4J_MAX_CONNECTION_LIFETIME": "96",
         "NEO4J_MAX_TRANSACTION_RETRY_TIME": "99",
         "GEMINI_EMBEDDING_DIM": "99",
         "QUERY_EMBEDDING_CACHE": "external-cache",
@@ -42,8 +45,11 @@ def test_from_env_reads_deployment_and_runtime_budget_values(monkeypatch) -> Non
     assert settings.gemini_planner_model == "deployment-planner-model"
     assert settings.gemini_thinking_level == "low"
     assert settings.embedding_model == "deployment-embedding-model"
-    assert settings.neo4j_connection_timeout == defaults.neo4j_connection_timeout
-    assert settings.neo4j_max_transaction_retry_time == defaults.neo4j_max_transaction_retry_time
+    assert settings.neo4j_connection_timeout == 99
+    assert settings.neo4j_connection_acquisition_timeout == 98
+    assert settings.neo4j_liveness_check_timeout == 97
+    assert settings.neo4j_max_connection_lifetime == 96
+    assert settings.neo4j_max_transaction_retry_time == 99
     assert settings.gemini_timeout_ms == 12000
     assert settings.gemini_retry_attempts == 2
     assert settings.embedding_dim == defaults.embedding_dim
@@ -110,6 +116,7 @@ def test_from_neo4j_env_does_not_require_planner_model(monkeypatch) -> None:
     monkeypatch.setenv("NEO4J_V8_USER", "neo4j")
     monkeypatch.setenv("NEO4J_V8_PASSWORD", "secret")
     monkeypatch.setenv("NEO4J_V8_DATABASE", "neo4j")
+    monkeypatch.setenv("NEO4J_LIVENESS_CHECK_TIMEOUT", "15")
 
     settings = Settings.from_neo4j_env("v8")
 
@@ -117,6 +124,7 @@ def test_from_neo4j_env_does_not_require_planner_model(monkeypatch) -> None:
     assert settings.neo4j_user == "neo4j"
     assert settings.neo4j_password == "secret"
     assert settings.neo4j_database == "neo4j"
+    assert settings.neo4j_liveness_check_timeout == 15
     assert settings.gemini_planner_model == ""
 
 
