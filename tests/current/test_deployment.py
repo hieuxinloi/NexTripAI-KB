@@ -8,11 +8,15 @@ ROOT = Path(__file__).parents[2]
 
 def test_runtime_image_contains_current_data_package() -> None:
     dockerfile = (ROOT / "deploy" / "traffic" / "Dockerfile").read_text("utf-8")
+    requirements = (
+        ROOT / "deploy" / "traffic" / "requirements.txt"
+    ).read_text("utf-8")
 
     assert "COPY nextrip_current ./nextrip_current" in dockerfile
     assert "/app/data/current/hotel_price" in dockerfile
     assert "/app/data/current/hotel_availability" in dockerfile
     assert "/app/data/current/trivago_mappings" in dockerfile
+    assert "loguru==" in requirements
 
 
 def test_compose_exposes_authenticated_current_data_facade() -> None:
