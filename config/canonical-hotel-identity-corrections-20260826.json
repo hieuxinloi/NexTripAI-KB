@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0.0",
+  "records": [
+    {
+      "place_id": "hotel_dn_016",
+      "mode": "rename",
+      "previous_name": "Sujet Beach Hotel Da Nang",
+      "name": "Sujet Beach Hotel &Apartment by Haviland",
+      "trivago_external_id": "a1c3612d78c5",
+      "trivago_property_id": "43624866",
+      "trivago_url": "https://www.trivago.vn/vi/lm/kh%C3%A1ch-s%E1%BA%A1n-sujet-beach-hotel-apartment-by-haviland-%C4%91%C3%A0-n%E1%BA%B5ng?currencyCode=VND&search=100-43624866;dr-20260826-20260827;drs-40;rc-1-2&cip=234716015",
+      "evidence": [
+        {
+          "source_id": "trivago-mcp",
+          "source_record_id": "trivago-mcp-84a38e255fb246e2ba11371bc0621363",
+          "path": "data/raw/entity=hotel_price/source=trivago-mcp/date=2026-08-25/run=trivago-availability-20260825T213939Z-9099ba2b-hotel-hotel_dn_016-offset-0-identity-0/record=trivago-mcp-84a38e255fb246e2ba11371bc0621363.json",
+          "source_url": "https://mcp.trivago.com/mcp"
+        }
+      ],
+      "reason": "Canonical JSON used the old master name; use the exact provider-owned name returned by Trivago.",
+      "reviewer": "Oanhh",
+      "reviewed_at": "2026-08-26T11:30:00+07:00"
+    },
+    {
+      "place_id": "hotel_dn_021",
+      "mode": "replace",
+      "previous_name": "Nhà Bình Homestay Đà Nẵng",
+      "name": "Avatar Danang Hotel",
+      "address": "02 An Thượng 2, Ngũ Hành Sơn, Đà Nẵng 550000, Việt Nam",
+      "latitude": 16.0495625,
+      "longitude": 108.2470625,
+      "phone": "+84 943 683 777",
+      "trivago_external_id": "04f2d274f7b9",
+      "trivago_property_id": "4475284",
+      "trivago_url": "https://www.trivago.vn/vi/lm/kh%C3%A1ch-s%E1%BA%A1n-avatar-danang-hotel-%C4%91%C3%A0-n%E1%BA%B5ng?currencyCode=VND&search=100-4475284;dr-20260827-20260828;drs-40;rc-1-2&cip=234716015",
+      "star_rating": 4,
+      "review_rating": 9.1,
+      "review_count": 4704,
+      "evidence": [
+        {
+          "source_id": "trivago-mcp",
+          "source_record_id": "trivago-mcp-f7172250a49449f4a8813c0e245bfd4b",
+          "path": "data/raw/entity=hotel_price/source=trivago-mcp/date=2026-08-26/run=trivago-availability-20260826T035329Z-88ec133c-hotel-hotel_dn_021-offset-0-identity-0/record=trivago-mcp-f7172250a49449f4a8813c0e245bfd4b.json",
+          "source_url": "https://mcp.trivago.com/mcp"
+        },
+        {
+          "source_id": "google-maps-web",
+          "source_record_id": "google-maps-b65a4c8c0a2744c5a8a92e15299e649d",
+          "path": "data/normalized/entity=opening_status/source=google-maps-web/date=2026-08-26/run=google-maps-hotel-replacement-20260826T035932Z-118984b5/observation=google-maps-b65a4c8c0a2744c5a8a92e15299e649d%3Aplace-status.json"
+        }
+      ],
+      "reason": "Replace the previous physical place while preserving the public NexTrip ID; Trivago and Google coordinates agree within five metres.",
+      "reviewer": "Oanhh",
+      "reviewed_at": "2026-08-26T11:30:00+07:00"
+    },
+    {
+      "place_id": "hotel_dn_024",
+      "mode": "replace",
+      "previous_name": "LH APARTMENT DA NANG",
+      "name": "Yarra Ocean Suites Danang",
+      "address": "304 Võ Nguyên Giáp, Ngũ Hành Sơn, Đà Nẵng 550000, Việt Nam",
+      "latitude": 16.0489375,
+      "longitude": 108.2488125,
+      "phone": "+84 236 6269 888",
+      "website_url": "https://yarraoceansuitesdanang.com/",
+      "trivago_external_id": "05c8ca258d6a",
+      "trivago_property_id": "6732160",
+      "trivago_url": "https://www.trivago.vn/vi/lm/kh%C3%A1ch-s%E1%BA%A1n-yarra-ocean-suites-danang-%C4%91%C3%A0-n%E1%BA%B5ng?currencyCode=VND&search=100-6732160;dr-20260827-20260828;drs-40;rc-1-2&cip=234716015",
+      "star_rating": 4,
+      "review_rating": 9.2,
+      "review_count": 6832,
+      "evidence": [
+        {
+          "source_id": "trivago-mcp",
+          "source_record_id": "trivago-mcp-8d1815e038544800b519cdc0efbbcd0d",
+          "path": "data/raw/entity=hotel_price/source=trivago-mcp/date=2026-08-26/run=trivago-availability-20260826T035329Z-88ec133c-hotel-hotel_dn_024-offset-0-identity-0/record=trivago-mcp-8d1815e038544800b519cdc0efbbcd0d.json",
+          "source_url": "https://mcp.trivago.com/mcp"
+        },
+        {
+          "source_id": "google-maps-web",
+          "source_record_id": "google-maps-69677c6c461f453381d2f9229f90b10d",
+          "path": "data/normalized/entity=opening_status/source=google-maps-web/date=2026-08-26/run=google-maps-hotel-replacement-20260826T035932Z-118984b5/observation=google-maps-69677c6c461f453381d2f9229f90b10d%3Aplace-status.json"
+        }
+      ],
+      "reason": "Replace the previous physical place while preserving the public NexTrip ID; Trivago and Google coordinates agree within six metres.",
+      "reviewer": "Oanhh",
+      "reviewed_at": "2026-08-26T11:30:00+07:00"
+    },
+    {
+      "place_id": "hotel_qn_002",
+      "mode": "rename",
+      "previous_name": "Khách sạn Mường Thanh Quy Nhơn",
+      "name": "Muong Thanh Quy Nhon Hotel",
+      "trivago_external_id": "d27a255e5950",
+      "trivago_property_id": "2648338",
+      "trivago_url": "https://www.trivago.vn/vi/lm/kh%C3%A1ch-s%E1%BA%A1n-muong-thanh-quy-nhon-hotel-quy-nh%C6%A1n?currencyCode=VND&search=100-2648338;dr-20260826-20260827;drs-40;rc-1-2&cip=234716015",
+      "star_rating": 4,
+      "evidence": [
+        {
+          "source_id": "trivago-mcp",
+          "source_record_id": "trivago-mcp-8b6498708bf34c7da7a10bc89f7c7393",
+          "path": "data/raw/entity=hotel_price/source=trivago-mcp/date=2026-08-25/run=trivago-availability-20260825T213939Z-9099ba2b-hotel-hotel_qn_002-offset-0-identity-0/record=trivago-mcp-8b6498708bf34c7da7a10bc89f7c7393.json",
+          "source_url": "https://mcp.trivago.com/mcp"
+        }
+      ],
+      "reason": "Use the exact provider-owned Trivago name. Availability remains a date-scoped observation and is not stored as a permanent place state.",
+      "reviewer": "Oanhh",
+      "reviewed_at": "2026-08-26T11:30:00+07:00"
+    }
+  ]
+}

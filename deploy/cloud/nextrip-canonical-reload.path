@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch the NexTrip active canonical dataset pointer
+
+[Path]
+PathChanged=/srv/nextrip/data/canonical/active-dataset-pointer.json
+Unit=nextrip-canonical-reload.service
+
+[Install]
+WantedBy=multi-user.target

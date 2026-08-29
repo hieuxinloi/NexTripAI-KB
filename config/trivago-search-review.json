@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.0.0",
+  "overrides": [
+    {
+      "entity_id": "hotel_dn_043",
+      "aliases": [
+        "Voco Ma Belle Danang By Ihg, Đà Nẵng, Vietnam"
+      ]
+    },
+    {
+      "entity_id": "hotel_dn_034",
+      "aliases": [
+        "Daisy Boutique Hotel"
+      ],
+      "expected_external_id": "1630bb0d139a",
+      "expected_property_id": "19017974",
+      "expected_name": "Daisy Boutique Hotel",
+      "reviewer": "Oanhh-approved-agent-review-2026-08-22",
+      "reviewed_at": "2026-08-22T21:50:00+07:00",
+      "reason": "Distinctive provider name, 67 Che Lan Vien address evidence, 55 metre master distance, and no confirmed external/property collision.",
+      "evidence": [
+        {
+          "path": "data/quality/trivago_mapping/run=canonical-trivago_availability-d5bfaf89666525b7-hotel-hotel_dn_001-offset-0-identity-2/hotel=hotel_dn_001.json",
+          "file_sha256": "70059f9a75d5a42f578686f914e5dc569ff19ffe4b36aede52a69a00ebe9ca1a"
+        }
+      ],
+      "supporting_urls": [
+        "https://www.trivago.co.th/th/oar/%E0%B9%82%E0%B8%A3%E0%B8%87%E0%B9%81%E0%B8%A3%E0%B8%A1-daisy-boutique-hotel-%E0%B8%94%E0%B8%B2%E0%B8%99-%E0%B8%87?search=100-19017974",
+        "https://www.booking.com/hotel/vn/daisy-boutique-ngu-hanh-son1.vi.html"
+      ]
+    },
+    {
+      "entity_id": "hotel_qn_001",
+      "aliases": [
+        "Hotel Seagull",
+        "Seagull Hotel"
+      ],
+      "expected_external_id": "24b68c1895cc",
+      "expected_property_id": "443506",
+      "expected_name": "Hotel Seagull",
+      "reviewer": "Oanhh-approved-agent-review-2026-08-22",
+      "reviewed_at": "2026-08-22T21:50:00+07:00",
+      "reason": "Seagull and Hai Au are the same distinctive hotel identity at 489 An Duong Vuong; no confirmed external/property collision.",
+      "evidence": [
+        {
+          "path": "data/quality/trivago_mapping/run=canonical-trivago_availability-d5bfaf89666525b7-hotel-hotel_qn_001-offset-0-identity-2/hotel=hotel_qn_001.json",
+          "file_sha256": "7bdbb5ec10269271f54a80118254b31520f3c8915904ce93802e57faf4621415"
+        }
+      ],
+      "supporting_urls": [
+        "https://www.seagullhotel.com.vn/"
+      ]
+    },
+    {
+      "entity_id": "hotel_qn_005",
+      "aliases": [
+        "Ly Ky Hotel",
+        "Ly Ky Hotel Quy Nhon"
+      ],
+      "expected_external_id": "20b3d56ec8a6",
+      "expected_property_id": "5752936",
+      "expected_name": "Ly Ky Hotel",
+      "reviewer": "Oanhh-approved-agent-review-2026-08-22",
+      "reviewed_at": "2026-08-22T21:50:00+07:00",
+      "reason": "Exact distinctive Ly Ky identity at 368 Xuan Dieu, 52 metre master distance, and no confirmed external/property collision.",
+      "evidence": [
+        {
+          "path": "data/quality/trivago_mapping/run=canonical-trivago_availability-d5bfaf89666525b7-hotel-hotel_qn_005-offset-0-identity-2/hotel=hotel_qn_005.json",
+          "file_sha256": "323c301188ec53b45bf0be11df6c90ce9c26fd23021e6eda64f4c283f43e23dc"
+        }
+      ],
+      "supporting_urls": [
+        "https://www.booking.com/searchresults.vi.html?ss=Ly+Ky+Hotel+Quy+Nhon"
+      ]
+    },
+    {
+      "entity_id": "hotel_dn_028",
+      "aliases": [
+        "Mua home Da Nang"
+      ],
+      "expected_external_id": "ddfc4fee5dbe",
+      "expected_property_id": "33092310",
+      "expected_name": "Mưa home",
+      "reviewer": "Oanhh-approved-agent-review-2026-08-22",
+      "reviewed_at": "2026-08-22T22:35:00+07:00",
+      "reason": "Exact provider identity returned by the reviewed alias, 37 metre master-coordinate distance, live Booking.com offer, and no external/property collision.",
+      "evidence": [
+        {
+          "path": "data/quality/trivago_mapping/run=trivago-availability-20260822T152814Z-56293b1e-hotel-hotel_dn_028-offset-0-identity-1/hotel=hotel_dn_028.json",
+          "file_sha256": "11459f97a4b8b205636be95e4d0c646f8569c5e3e0c834d8c5a3fb20085b0942"
+        }
+      ],
+      "supporting_urls": [
+        "https://www.trivago.vn/vi/lm/căn-hộ-dịch-vụ-mưa-home-đà-nẵng?currencyCode=VND&search=100-33092310"
+      ]
+    },
+    {
+      "entity_id": "hotel_qn_004",
+      "aliases": [
+        "Yến Vy",
+        "Khách sạn Yến Vy",
+        "Yen Vy 18/7 Tran Van On"
+      ],
+      "expected_external_id": "1ed4243b0cdc",
+      "expected_property_id": "4060914",
+      "expected_name": "Yến Vy",
+      "reviewer": "Oanhh-approved-agent-review-2026-08-22",
+      "reviewed_at": "2026-08-22T22:35:00+07:00",
+      "reason": "Exact reviewed Yến Vy property at 18/7 Trần Văn Ơn, 128 metre master-coordinate distance, live Agoda offer, and no external/property collision.",
+      "evidence": [
+        {
+          "path": "data/quality/trivago_mapping/run=trivago-availability-20260822T152814Z-56293b1e-hotel-hotel_qn_004-offset-0-identity-1/hotel=hotel_qn_004.json",
+          "file_sha256": "64f97fdfcdac728dcea4e575c5d04f2bf211ea63debda00d28b400c20481615f"
+        }
+      ],
+      "supporting_urls": [
+        "https://www.trivago.vn/vi/oar/khách-sạn-yến-vy-quy-nhơn?search=100-4060914"
+      ]
+    },
+    {
+      "entity_id": "hotel_qn_003",
+      "aliases": [
+        "Sandals Hoàng Yến",
+        "Hoàng Yến Hotel Quy Nhơn",
+        "Hoàng Yến 1"
+      ],
+      "expected_external_id": "07d959ca1d50",
+      "expected_property_id": "1157792",
+      "expected_name": "Hoàng Yến",
+      "reviewer": "Oanhh-approved-agent-review-2026-08-23",
+      "reviewed_at": "2026-08-23T10:00:00+07:00",
+      "reason": "Confirmed entity-owned evidence matches Hoàng Yến at 05 An Dương Vương. Later search results omitted this listing and returned different hotels, including Hoàng Yến 3 already owned by hotel_qn_026; retain the established identity and retry price by stay date.",
+      "evidence": [
+        {
+          "path": "data/quality/trivago_mapping/run=canonical-trivago_availability-d5bfaf89666525b7-hotel-hotel_qn_003-offset-0-identity-2/hotel=hotel_qn_003.json",
+          "file_sha256": "fde85a3af1ca2b3a09f6148709718b2dc3c5491aa2bde3227403bb1be015d44e"
+        }
+      ],
+      "supporting_urls": [
+        "https://www.trivago.vn/vi/lm/kh%C3%A1ch-s%E1%BA%A1n-ho%C3%A0ng-y%E1%BA%BFn-quy-nh%C6%A1n?search=100-1157792"
+      ]
+    }
+  ]
+}

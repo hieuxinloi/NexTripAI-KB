@@ -1,0 +1,68 @@
+{
+  "name": "nextrip_verified_smoke_v1",
+  "dataset": "travel_data_verified",
+  "cases": [
+    {
+      "id": "L1-QN-EXACT-001",
+      "level": "L1",
+      "query": "Eo Gió",
+      "city": "Quy Nhơn",
+      "entity_types": ["attraction"],
+      "top_k": 5,
+      "accepted_place_ids": ["attr_qn_001"]
+    },
+    {
+      "id": "L1-DN-EXACT-001",
+      "level": "L1",
+      "query": "Cầu Rồng",
+      "city": "Đà Nẵng",
+      "entity_types": ["attraction"],
+      "top_k": 5,
+      "accepted_place_ids": ["attr_dn_006"]
+    },
+    {
+      "id": "L2-QN-WORK-CAFE-001",
+      "level": "L2",
+      "query": "quán cafe yên tĩnh để làm việc",
+      "city": "Quy Nhơn",
+      "entity_types": ["cafe"],
+      "top_k": 5,
+      "accepted_place_ids": ["cafe_qn_003", "cafe_qn_004", "cafe_qn_009", "cafe_qn_018", "cafe_qn_020", "cafe_qn_021", "cafe_qn_024", "cafe_qn_027", "cafe_qn_028", "cafe_qn_030", "cafe_qn_034"]
+    },
+    {
+      "id": "L2-QN-SEAFOOD-001",
+      "level": "L2",
+      "query": "nhà hàng hải sản",
+      "city": "Quy Nhơn",
+      "entity_types": ["restaurant"],
+      "top_k": 5,
+      "accepted_place_ids": ["rest_qn_030", "rest_qn_035", "rest_qn_038", "rest_qn_040", "rest_qn_041", "rest_qn_043", "rest_qn_044", "rest_qn_047", "rest_qn_050", "rest_qn_056", "rest_qn_057", "rest_qn_059", "rest_qn_060", "rest_qn_063", "rest_qn_065", "rest_qn_066", "rest_qn_067", "rest_qn_068", "rest_qn_070", "rest_qn_071", "rest_qn_073", "rest_qn_074", "rest_qn_075"]
+    },
+    {
+      "id": "L3-DN-RAIN-001",
+      "level": "L3",
+      "query": "địa điểm tham quan trong nhà phù hợp khi trời mưa",
+      "city": "Đà Nẵng",
+      "entity_types": ["attraction"],
+      "top_k": 5,
+      "accepted_place_ids": ["attr_dn_001", "attr_dn_009", "attr_dn_036", "attr_dn_037", "attr_dn_044", "attr_dn_053"]
+    },
+    {
+      "id": "L3-QN-RAIN-001",
+      "level": "L3",
+      "query": "trời mưa thì nên đi chơi ở đâu ở Quy Nhơn",
+      "city": "Quy Nhơn",
+      "top_k": 5,
+      "accepted_place_ids": ["attr_qn_041"]
+    },
+    {
+      "id": "L2-DN-ROOFTOP-001",
+      "level": "L2",
+      "query": "cafe rooftop",
+      "city": "Đà Nẵng",
+      "entity_types": ["cafe"],
+      "top_k": 5,
+      "accepted_place_ids": ["cafe_dn_004", "cafe_dn_009", "cafe_dn_012", "cafe_dn_018", "cafe_dn_019", "cafe_dn_040", "cafe_dn_043", "cafe_dn_051", "cafe_dn_052", "cafe_dn_055", "cafe_dn_059", "cafe_dn_060", "cafe_dn_064", "cafe_dn_066"]
+    }
+  ]
+}

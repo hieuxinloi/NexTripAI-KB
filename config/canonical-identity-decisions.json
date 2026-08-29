@@ -1,0 +1,413 @@
+{
+  "schema_version": "1.0.0",
+  "decisions": [
+    {
+      "keeper_legacy_place_id": "cafe_qn_008",
+      "duplicate_legacy_place_ids": ["night_qn_019"],
+      "reason": "verified_shared_google_place_token_and_observed_identity"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_033",
+      "duplicate_legacy_place_ids": ["night_qn_034"],
+      "reason": "verified_shared_google_place_token_and_observed_identity"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_079",
+      "duplicate_legacy_place_ids": ["night_qn_097"],
+      "reason": "verified_shared_google_place_token_and_observed_identity"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_058",
+      "duplicate_legacy_place_ids": ["night_qn_072"],
+      "reason": "verified_shared_google_place_token_and_observed_identity"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_047",
+      "duplicate_legacy_place_ids": ["night_qn_064"],
+      "reason": "verified_shared_google_place_token_and_observed_identity"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_088",
+      "duplicate_legacy_place_ids": ["night_dn_086"],
+      "reason": "verified_shared_google_place_token_and_observed_identity"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_051",
+      "duplicate_legacy_place_ids": ["night_qn_053"],
+      "reason": "human_review_same_google_name_address_plus_code_and_18m_master_distance"
+    },
+    {
+      "keeper_legacy_place_id": "night_dn_005",
+      "duplicate_legacy_place_ids": ["cafe_dn_044"],
+      "reason": "human_review_same_google_name_address_plus_code_and_37m_master_distance"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_008",
+      "duplicate_legacy_place_ids": ["night_dn_060"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_103",
+      "duplicate_legacy_place_ids": ["night_dn_057"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_087",
+      "duplicate_legacy_place_ids": ["night_dn_094"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_053",
+      "duplicate_legacy_place_ids": ["night_qn_071"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_104",
+      "duplicate_legacy_place_ids": ["night_qn_094"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_108",
+      "duplicate_legacy_place_ids": ["night_dn_066"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_106",
+      "duplicate_legacy_place_ids": ["night_qn_069"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_045",
+      "duplicate_legacy_place_ids": ["night_qn_076"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_064",
+      "duplicate_legacy_place_ids": ["night_qn_059"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_077",
+      "duplicate_legacy_place_ids": ["night_dn_077"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_089",
+      "duplicate_legacy_place_ids": ["night_dn_096"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_074",
+      "duplicate_legacy_place_ids": ["night_qn_092"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_019",
+      "duplicate_legacy_place_ids": ["night_qn_028"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_109",
+      "duplicate_legacy_place_ids": ["night_qn_062"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_014",
+      "duplicate_legacy_place_ids": ["night_qn_029"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_013",
+      "duplicate_legacy_place_ids": ["night_qn_045"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_022",
+      "duplicate_legacy_place_ids": ["night_qn_036"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_056",
+      "duplicate_legacy_place_ids": ["night_qn_082"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_093",
+      "duplicate_legacy_place_ids": ["night_dn_088"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_073",
+      "duplicate_legacy_place_ids": ["night_qn_049"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_034",
+      "duplicate_legacy_place_ids": ["night_dn_065", "rest_dn_090"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_071",
+      "duplicate_legacy_place_ids": ["night_qn_091"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_076",
+      "duplicate_legacy_place_ids": ["night_qn_063"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_082",
+      "duplicate_legacy_place_ids": ["night_qn_095"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_050",
+      "duplicate_legacy_place_ids": ["night_dn_043"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_029",
+      "duplicate_legacy_place_ids": ["rest_dn_054"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_072",
+      "duplicate_legacy_place_ids": ["night_qn_058"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_022",
+      "duplicate_legacy_place_ids": ["night_dn_035"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_012",
+      "duplicate_legacy_place_ids": ["night_qn_021"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_102",
+      "duplicate_legacy_place_ids": ["night_dn_087"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_065",
+      "duplicate_legacy_place_ids": ["night_qn_050"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_028",
+      "duplicate_legacy_place_ids": ["night_qn_055"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_064",
+      "duplicate_legacy_place_ids": ["night_dn_075"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_057",
+      "duplicate_legacy_place_ids": ["night_qn_074"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_024",
+      "duplicate_legacy_place_ids": ["night_qn_046"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_091",
+      "duplicate_legacy_place_ids": ["night_dn_097"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_039",
+      "duplicate_legacy_place_ids": ["night_qn_070"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_018",
+      "duplicate_legacy_place_ids": ["night_qn_044"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_110",
+      "duplicate_legacy_place_ids": ["night_dn_059"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_008",
+      "duplicate_legacy_place_ids": ["night_dn_047"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_082",
+      "duplicate_legacy_place_ids": ["night_dn_091"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_021",
+      "duplicate_legacy_place_ids": ["night_qn_090"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_018",
+      "duplicate_legacy_place_ids": ["night_dn_033"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_016",
+      "duplicate_legacy_place_ids": ["night_qn_023"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_028",
+      "duplicate_legacy_place_ids": ["night_dn_051"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_069",
+      "duplicate_legacy_place_ids": ["night_qn_085"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_111",
+      "duplicate_legacy_place_ids": ["night_dn_063"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_001",
+      "duplicate_legacy_place_ids": ["night_qn_032"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_070",
+      "duplicate_legacy_place_ids": ["night_dn_074"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_026",
+      "duplicate_legacy_place_ids": ["night_qn_037"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_107",
+      "duplicate_legacy_place_ids": ["night_qn_098"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_022",
+      "duplicate_legacy_place_ids": ["night_qn_066"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_083",
+      "duplicate_legacy_place_ids": ["night_qn_061"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_028",
+      "duplicate_legacy_place_ids": ["night_qn_038"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_071",
+      "duplicate_legacy_place_ids": ["night_dn_069"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_054",
+      "duplicate_legacy_place_ids": ["night_qn_056"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_108",
+      "duplicate_legacy_place_ids": ["night_qn_099"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_103",
+      "duplicate_legacy_place_ids": ["night_qn_096"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_029",
+      "duplicate_legacy_place_ids": ["night_dn_053"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_050",
+      "duplicate_legacy_place_ids": ["night_qn_052"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_106",
+      "duplicate_legacy_place_ids": ["night_dn_082"],
+      "reason": "human_review_batch_same_google_identity_evidence"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_017",
+      "duplicate_legacy_place_ids": ["night_dn_037"],
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_094",
+      "duplicate_legacy_place_ids": ["night_qn_051"],
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_081",
+      "duplicate_legacy_place_ids": ["night_qn_068"],
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_093",
+      "duplicate_legacy_place_ids": ["night_qn_060"],
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_qn_005",
+      "duplicate_legacy_place_ids": ["night_qn_039"],
+      "reason": "human_review_same_master_name_address_and_23m_distance"
+    },
+    {
+      "keeper_legacy_place_id": "rest_qn_001",
+      "duplicate_legacy_place_ids": ["night_qn_088"],
+      "reason": "human_review_same_crawled_name_address_phone_category_and_coordinates"
+    },
+    {
+      "keeper_legacy_place_id": "rest_dn_112",
+      "duplicate_legacy_place_ids": ["night_dn_058"],
+      "reason": "human_review_same_crawled_name_address_phone_and_category"
+    },
+    {
+      "keeper_legacy_place_id": "cafe_dn_026",
+      "duplicate_legacy_place_ids": ["night_dn_050"],
+      "reason": "human_review_same_crawled_name_address_phone_category_and_coordinates"
+    }
+  ],
+  "distinct_decisions": [
+    {
+      "place_ids": ["night_dn_072", "rest_dn_086"],
+      "reason": "human_review_verified_distinct_google_places"
+    },
+    {
+      "place_ids": ["cafe_dn_024", "night_dn_022"],
+      "reason": "human_review_verified_distinct_google_branches"
+    },
+    {
+      "place_ids": ["night_dn_079", "rest_dn_075"],
+      "reason": "human_review_verified_distinct_google_branches"
+    },
+    {
+      "place_ids": ["cafe_dn_032", "night_dn_024"],
+      "reason": "human_review_verified_distinct_google_places"
+    },
+    {
+      "place_ids": ["cafe_qn_020", "night_qn_027"],
+      "reason": "human_review_verified_distinct_google_branches"
+    }
+  ],
+  "replacements": []
+}

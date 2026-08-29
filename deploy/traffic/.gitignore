@@ -1,0 +1,3 @@
+.env
+valhalla-data/*
+!valhalla-data/.gitkeep

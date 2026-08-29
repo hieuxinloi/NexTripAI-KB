@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "reviewer": "Oanhh",
+  "reviewed_at": "2026-08-26T13:45:00+07:00",
+  "records": [
+    {
+      "place_id": "rest_qn_036",
+      "observation_id": "google-maps-3f63f665743341c6afc8e145067587d1:place-status",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "days": [
+        {"day": "monday", "intervals": [{"opens_at": "14:00:00", "closes_at": "22:00:00", "closes_next_day": false}], "closed": false, "open_24_hours": false},
+        {"day": "tuesday", "intervals": [{"opens_at": "14:00:00", "closes_at": "22:00:00", "closes_next_day": false}], "closed": false, "open_24_hours": false},
+        {"day": "wednesday", "intervals": [{"opens_at": "14:00:00", "closes_at": "22:00:00", "closes_next_day": false}], "closed": false, "open_24_hours": false},
+        {"day": "thursday", "intervals": [{"opens_at": "14:00:00", "closes_at": "22:00:00", "closes_next_day": false}], "closed": false, "open_24_hours": false},
+        {"day": "friday", "intervals": [{"opens_at": "14:00:00", "closes_at": "22:00:00", "closes_next_day": false}], "closed": false, "open_24_hours": false},
+        {"day": "saturday", "intervals": [{"opens_at": "14:00:00", "closes_at": "22:00:00", "closes_next_day": false}], "closed": false, "open_24_hours": false},
+        {"day": "sunday", "intervals": [{"opens_at": "14:00:00", "closes_at": "22:00:00", "closes_next_day": false}], "closed": false, "open_24_hours": false}
+      ],
+      "reason": "Human reviewed the complete seven-day schedule shown on Google Maps; hours may change."
+    }
+  ]
+}

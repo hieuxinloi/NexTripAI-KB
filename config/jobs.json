@@ -1,0 +1,38 @@
+{
+  "jobs": [
+    {
+      "job_id": "hotel-price-capture",
+      "source_id": "trivago-mcp",
+      "interval_minutes": 300,
+      "enabled": true
+    },
+    {
+      "job_id": "opening-status-capture",
+      "source_id": "google-maps-web",
+      "interval_minutes": 10080,
+      "max_requests_per_run": 10000,
+      "enabled": false
+    },
+    {
+      "job_id": "google-maps-details-refresh",
+      "source_id": "google-maps-web",
+      "interval_minutes": 10080,
+      "max_requests_per_run": 10000,
+      "enabled": false
+    },
+    {
+      "job_id": "place-menu-refresh",
+      "source_id": "google-maps-web",
+      "interval_minutes": 20160,
+      "max_requests_per_run": 16,
+      "enabled": false
+    },
+    {
+      "job_id": "place-media-refresh",
+      "source_id": "google-maps-web",
+      "interval_minutes": 43200,
+      "max_requests_per_run": 32,
+      "enabled": false
+    }
+  ]
+}

@@ -1,0 +1,214 @@
+name: nextrip-traffic
+
+services:
+  valhalla:
+    # Official Valhalla organization image, release and multi-arch manifest
+    # digest pinned. Never replace this with :latest in a deployment.
+    image: ghcr.io/valhalla/valhalla-scripted:3.8.3@sha256:24ef7955899dececb94e26c6dfb89d64fabfae875f980432694b0261eb6c251b
+    restart: unless-stopped
+    environment:
+      serve_tiles: "True"
+      use_tiles_ignore_pbf: "True"
+      force_rebuild: "False"
+      build_elevation: "False"
+      build_admins: "True"
+      build_time_zones: "True"
+      build_transit: "False"
+      build_tar: "True"
+      server_threads: "${VALHALLA_SERVER_THREADS:-2}"
+      tileset_name: "nextrip_vietnam"
+    volumes:
+      - type: bind
+        source: ${VALHALLA_DATA_DIR:-./valhalla-data}/${VALHALLA_DATASET_VERSION:-vietnam-2026-08-19}
+        target: /custom_files
+    ports:
+      - "${VALHALLA_BIND_ADDRESS:-127.0.0.1}:${VALHALLA_PORT:-8002}:8002"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8002/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 45m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  traffic-api:
+    build:
+      context: ../..
+      dockerfile: deploy/traffic/Dockerfile
+    image: nextrip-traffic-api:${NEXTRIP_TRAFFIC_IMAGE_TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      valhalla:
+        condition: service_healthy
+    environment:
+      NEXTRIP_KB_ROOT: /app
+      NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"
+      VALHALLA_ENABLED: "${VALHALLA_ENABLED:-true}"
+      VALHALLA_URL: http://valhalla:8002
+      HERE_ENABLED: "${HERE_ENABLED:-true}"
+      HERE_API_KEY: "${HERE_API_KEY:-}"
+      HERE_ROUTES_URL: "${HERE_ROUTES_URL:-https://router.hereapi.com/v8/routes}"
+      TRAFFIC_API_KEY: "${TRAFFIC_API_KEY:?set TRAFFIC_API_KEY}"
+      TRAFFIC_PROVIDER_TIMEOUT_SECONDS: "${TRAFFIC_PROVIDER_TIMEOUT_SECONDS:-20}"
+      TRAFFIC_ROUTE_TTL_SECONDS: "${TRAFFIC_ROUTE_TTL_SECONDS:-600}"
+      TRAFFIC_MATRIX_TTL_SECONDS: "${TRAFFIC_MATRIX_TTL_SECONDS:-600}"
+      TRAFFIC_FREE_FLOW_TTL_SECONDS: "${TRAFFIC_FREE_FLOW_TTL_SECONDS:-86400}"
+      TRAFFIC_DEPARTURE_BUCKET_MINUTES: "${TRAFFIC_DEPARTURE_BUCKET_MINUTES:-5}"
+      TRAFFIC_MAX_MATRIX_CELLS: "${TRAFFIC_MAX_MATRIX_CELLS:-25}"
+      TRAFFIC_STALE_IF_ERROR_SECONDS: "${TRAFFIC_STALE_IF_ERROR_SECONDS:-3600}"
+      TRAFFIC_CIRCUIT_FAILURE_THRESHOLD: "${TRAFFIC_CIRCUIT_FAILURE_THRESHOLD:-3}"
+      TRAFFIC_CIRCUIT_COOLDOWN_SECONDS: "${TRAFFIC_CIRCUIT_COOLDOWN_SECONDS:-60}"
+    volumes:
+      - type: bind
+        source: "${NEXTRIP_DATA_ROOT:-../../data}/canonical"
+        target: /app/data/canonical
+        read_only: true
+      - traffic_cache:/app/data/current/traffic
+    ports:
+      - "${TRAFFIC_BIND_ADDRESS:-127.0.0.1}:${TRAFFIC_PORT:-8010}:8010"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  current-data-api:
+    build:
+      context: ../..
+      dockerfile: deploy/traffic/Dockerfile
+    image: nextrip-traffic-api:${NEXTRIP_TRAFFIC_IMAGE_TAG:-local}
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - uvicorn
+      - nextrip_current.api:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8020"
+      - --workers
+      - "1"
+    depends_on:
+      traffic-api:
+        condition: service_healthy
+    environment:
+      NEXTRIP_KB_ROOT: /app
+      NEXTRIP_CANONICAL_DATASET: "${NEXTRIP_CANONICAL_DATASET:?set NEXTRIP_CANONICAL_DATASET}"
+      CURRENT_DATA_API_KEY: "${CURRENT_DATA_API_KEY:?set CURRENT_DATA_API_KEY}"
+      CURRENT_DATA_TRAFFIC_API_URL: http://traffic-api:8010
+      CURRENT_DATA_TRAFFIC_TIMEOUT_SECONDS: "${CURRENT_DATA_TRAFFIC_TIMEOUT_SECONDS:-20}"
+      CURRENT_DATA_TRIVAGO_REFRESH_ENABLED: "${CURRENT_DATA_TRIVAGO_REFRESH_ENABLED:-false}"
+      TRAFFIC_API_KEY: "${TRAFFIC_API_KEY:?set TRAFFIC_API_KEY}"
+    volumes:
+      - type: bind
+        source: "${NEXTRIP_DATA_ROOT:-../../data}"
+        target: /app/data
+    ports:
+      - "${CURRENT_DATA_BIND_ADDRESS:-127.0.0.1}:${CURRENT_DATA_PORT:-8020}:8020"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8020/ready', timeout=3).read()
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  kb-api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: nextrip-kb-api:${NEXTRIP_KB_IMAGE_TAG:-local}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      PORT: "8011"
+      ACTIVE_KB_VERSION: v8
+      # This runtime serves V8 only. Empty legacy aliases prevent readiness
+      # probes from waiting on the preserved V1-V5 databases.
+      NEO4J_URI: ""
+      NEO4J_USER: ""
+      NEO4J_PASSWORD: ""
+      NEO4J_DATABASE: ""
+      NEO4J_V1_URI: ""
+      NEO4J_V1_USER: ""
+      NEO4J_V1_PASSWORD: ""
+      NEO4J_V1_DATABASE: ""
+      NEO4J_V2_URI: ""
+      NEO4J_V2_USER: ""
+      NEO4J_V2_PASSWORD: ""
+      NEO4J_V2_DATABASE: ""
+      NEO4J_V3_URI: ""
+      NEO4J_V3_USER: ""
+      NEO4J_V3_PASSWORD: ""
+      NEO4J_V3_DATABASE: ""
+      NEO4J_V4_URI: ""
+      NEO4J_V4_USER: ""
+      NEO4J_V4_PASSWORD: ""
+      NEO4J_V4_DATABASE: ""
+      NEO4J_V5_URI: ""
+      NEO4J_V5_USER: ""
+      NEO4J_V5_PASSWORD: ""
+      NEO4J_V5_DATABASE: ""
+    ports:
+      - "${KB_API_BIND_ADDRESS:-127.0.0.1}:${KB_API_PORT:-8011}:8011"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8011/ready?version=v8', timeout=5).read()
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  traffic_cache:
+    name: nextrip_traffic_cache

@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "approved_by": "Oanhh",
+  "approved_at": "2026-08-23T11:28:00+07:00",
+  "reason": "Resolve all 19 provider_not_listed hotels under the user-approved policy: replace each unavailable provider identity with a distinct, exact-name, priced Trivago property in the same city and lodging type family, using a global nearest allocation to prevent duplicate properties. Preserve the public NexTrip hotel ID while replacing the physical identity and invalidating projections owned by the old identity.",
+  "proposal_artifacts": [
+    {
+      "path": "data/review/hotel_replacements/provider_not_listed_dn_a/proposals.json",
+      "file_sha256": "59381c7b70718437f6b3fab21f83f9dbb6ae135d08e7c29ca16c219e34dccd45"
+    },
+    {
+      "path": "data/review/hotel_replacements/provider_not_listed_dn_b/proposals.json",
+      "file_sha256": "a17d32e462bc65895529a937f1075d9d2cf361e2fbcb35b1ba244f4746b24aa1"
+    },
+    {
+      "path": "data/review/hotel_replacements/provider_not_listed_qn/proposals.json",
+      "file_sha256": "6dc9959ff2c0e0976370f338d060d6c8476aba0aa9830df85483d1c1b1651894"
+    }
+  ],
+  "expected_target_ids": [
+    "hotel_dn_003",
+    "hotel_dn_009",
+    "hotel_dn_010",
+    "hotel_dn_012",
+    "hotel_dn_015",
+    "hotel_dn_017",
+    "hotel_dn_022",
+    "hotel_dn_024",
+    "hotel_dn_025",
+    "hotel_dn_030",
+    "hotel_qn_006",
+    "hotel_qn_007",
+    "hotel_qn_009",
+    "hotel_qn_010",
+    "hotel_qn_013",
+    "hotel_qn_016",
+    "hotel_qn_019",
+    "hotel_qn_021",
+    "hotel_qn_028"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-08-25T12:43:26.541469Z",
+  "total_records": 73,
+  "registry_count": 73,
+  "status_counts": {
+    "confirmed": 73
+  },
+  "city_counts": {
+    "Quy Nhơn": 30,
+    "Đà Nẵng": 43
+  },
+  "overrides_applied": 73,
+  "search_review_overrides_applied": 7
+}

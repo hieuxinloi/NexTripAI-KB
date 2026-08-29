@@ -1,0 +1,139 @@
+{
+  "dataset": "nextrip_l1_1_v2",
+  "kb_version": "v2",
+  "passed": 10,
+  "total": 10,
+  "pass_rate": 1.0,
+  "results": [
+    {
+      "id": "L1-001",
+      "query": "Đà Nẵng có bao nhiêu khách sạn?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "aggregate_count",
+      "entity_ids": [],
+      "fact_predicates": [
+        "count"
+      ]
+    },
+    {
+      "id": "L1-002",
+      "query": "Quy Nhơn có bao nhiêu nhà hàng?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "aggregate_count",
+      "entity_ids": [],
+      "fact_predicates": [
+        "count"
+      ]
+    },
+    {
+      "id": "L1-003",
+      "query": "Có bao nhiêu điểm tham quan ở Đà Nẵng?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "aggregate_count",
+      "entity_ids": [],
+      "fact_predicates": [
+        "count"
+      ]
+    },
+    {
+      "id": "L1-004",
+      "query": "Liệt kê các quán cafe ở Quy Nhơn",
+      "passed": true,
+      "failures": [],
+      "answer_type": "entity_list",
+      "entity_ids": [
+        "cafe_qn_031",
+        "cafe_qn_018",
+        "cafe_qn_011",
+        "cafe_qn_012",
+        "cafe_qn_024"
+      ],
+      "fact_predicates": []
+    },
+    {
+      "id": "L1-005",
+      "query": "Đà Nẵng có những địa điểm nightlife nào?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "entity_list",
+      "entity_ids": [
+        "night_dn_017",
+        "night_dn_019",
+        "night_dn_020",
+        "night_dn_014",
+        "night_dn_016"
+      ],
+      "fact_predicates": []
+    },
+    {
+      "id": "L1-006",
+      "query": "Bãi biển Mỹ Khê ở đâu?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "entity_detail",
+      "entity_ids": [
+        "attr_dn_016"
+      ],
+      "fact_predicates": [
+        "address",
+        "location"
+      ]
+    },
+    {
+      "id": "L1-007",
+      "query": "Cầu Rồng có gì đặc biệt?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "entity_detail",
+      "entity_ids": [
+        "attr_dn_006"
+      ],
+      "fact_predicates": [
+        "description"
+      ]
+    },
+    {
+      "id": "L1-008",
+      "query": "Ghềnh Ráng Tiên Sa ở thành phố nào?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "entity_detail",
+      "entity_ids": [
+        "attr_qn_035"
+      ],
+      "fact_predicates": [
+        "city"
+      ]
+    },
+    {
+      "id": "L1-009",
+      "query": "Bà Nà Hills có độ cao bao nhiêu?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "entity_detail",
+      "entity_ids": [
+        "attr_dn_067"
+      ],
+      "fact_predicates": [
+        "altitude"
+      ]
+    },
+    {
+      "id": "L1-010",
+      "query": "Chùa Linh Ứng nằm ở đâu?",
+      "passed": true,
+      "failures": [],
+      "answer_type": "entity_detail",
+      "entity_ids": [
+        "attr_dn_045"
+      ],
+      "fact_predicates": [
+        "address",
+        "location"
+      ]
+    }
+  ]
+}

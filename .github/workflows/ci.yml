@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, feature/graphrag-kb, feature/data-traffic-pipeline]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_PLANNER_MODEL: gemini-3.5-flash-lite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check nextrip_graphrag tests
+      - run: pytest -q
+      - run: docker build -t nextripai-kb:ci .

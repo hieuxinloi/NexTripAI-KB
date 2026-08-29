@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime, timezone
+from inspect import signature
+from typing import Literal
+from urllib.parse import quote, unquote_plus, urlsplit, urlunsplit
+from uuid import uuid4
+
+from nextrip_pipeline.crawl.browser import BrowserClient
+from nextrip_pipeline.crawl.raw_writer import compute_content_hash
+from nextrip_pipeline.schemas import (
+    ExternalEntityMapping,
+    RecordSubjectType,
+    SourceRecord,
+)
+
+from .playwright_common import extract_json_ld
+
+
+def _force_vietnamese_language(url: str) -> str:
+    """Set Google Maps ``hl=vi`` while preserving every other query token."""
+
+    parsed = urlsplit(url)
+    query_tokens = parsed.query.split("&") if parsed.query else []
+    retained_tokens = []
+    for token in query_tokens:
+        key, _, _ = token.partition("=")
+        if unquote_plus(key).casefold() == "hl":
+            continue
+        retained_tokens.append(token)
+    retained_tokens.append("hl=vi")
+    return urlunsplit(parsed._replace(query="&".join(retained_tokens)))
+
+
+class GoogleMapsPlaceAdapter:
+    """Captures a public Google Maps place page without Places API credentials."""
+
+    def __init__(
+        self,
+        browser: BrowserClient,
+        *,
+        base_url: str = "https://www.google.com/maps/search/",
+        source_id: str = "google-maps-web",
+        parser_version: str = "1.0.0",
+        timeout_seconds: float = 45,
+        include_menu: bool = False,
+        force_search: bool = False,
+        search_query_mode: Literal["registry", "name"] = "registry",
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        if search_query_mode not in {"registry", "name"}:
+            raise ValueError("search_query_mode must be 'registry' or 'name'")
+        self.browser = browser
+        self.base_url = base_url.rstrip("/")
+        self.source_id = source_id
+        self.parser_version = parser_version
+        self.timeout_seconds = timeout_seconds
+        self.include_menu = include_menu
+        self.force_search = force_search
+        self.search_query_mode = search_query_mode
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def fetch(
+        self,
+        mapping: ExternalEntityMapping,
+        *,
+        run_id: str,
+    ) -> SourceRecord:
+        if mapping.source_id != self.source_id:
+            raise ValueError(f"mapping {mapping.mapping_id} belongs to another source")
+        if self.search_query_mode == "name":
+            query_value = (
+                mapping.attributes.get("master_name")
+                or mapping.attributes.get("google_place_name")
+                or mapping.attributes.get("search_query")
+            )
+            if not query_value:
+                raise ValueError(
+                    f"mapping {mapping.mapping_id} has no name-based search query"
+                )
+        else:
+            query_value = mapping.attributes.get("search_query") or mapping.external_id
+        query = str(query_value)
+        latitude = mapping.attributes.get("master_latitude")
+        longitude = mapping.attributes.get("master_longitude")
+        centered_place_url = isinstance(latitude, (int, float)) and isinstance(
+            longitude, (int, float)
+        )
+        if mapping.external_url is not None and not self.force_search:
+            requested_url = str(mapping.external_url)
+            centered_place_url = False
+        elif centered_place_url:
+            requested_url = (
+                "https://www.google.com/maps/search/"
+                f"{quote(query, safe='')}/@{latitude},{longitude},17z"
+            )
+        else:
+            requested_url = f"{self.base_url}/{quote(query, safe='')}"
+        requested_url = _force_vietnamese_language(requested_url)
+        detail_capture = getattr(self.browser, "capture_google_maps_place", None)
+        if callable(detail_capture):
+            capture_arguments = {"timeout_seconds": self.timeout_seconds}
+            if "include_menu" in signature(detail_capture).parameters:
+                capture_arguments["include_menu"] = self.include_menu
+            snapshot = detail_capture(requested_url, **capture_arguments)
+        else:
+            snapshot = self.browser.capture(
+                requested_url,
+                timeout_seconds=self.timeout_seconds,
+            )
+        raw_payload = {
+            "request": {
+                "entity_id": mapping.entity_id,
+                "query": query,
+                "force_search": self.force_search,
+                "search_query_mode": self.search_query_mode,
+                "used_master_coordinates_for_viewport": centered_place_url,
+            },
+            "page": {
+                "requested_url": snapshot.requested_url,
+                "final_url": snapshot.final_url,
+                "title": snapshot.title,
+                "html": snapshot.html,
+                "json_ld": extract_json_ld(snapshot.html),
+                "structured_data": snapshot.structured_data or {},
+                "force_search": self.force_search,
+                "search_query_mode": self.search_query_mode,
+                "used_master_coordinates_for_viewport": centered_place_url,
+            },
+        }
+        return SourceRecord(
+            source_record_id=f"google-maps-{uuid4().hex}",
+            run_id=run_id,
+            source_id=self.source_id,
+            entity_type=mapping.entity_type,
+            subject_type=RecordSubjectType.OPENING_STATUS,
+            subject_id=mapping.entity_id,
+            crawled_at=self.clock(),
+            raw_payload=raw_payload,
+            content_hash=compute_content_hash(raw_payload),
+            parser_version=self.parser_version,
+            source_url=snapshot.final_url,
+            http_status=snapshot.http_status,
+            content_type="text/html",
+        )

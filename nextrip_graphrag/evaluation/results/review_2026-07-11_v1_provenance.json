@@ -1,0 +1,446 @@
+{
+  "benchmark": "nextrip_verified_smoke_v1",
+  "dataset": "travel_data_verified",
+  "strategy": "v1_provenance",
+  "embedded_place_count": 0,
+  "embedded_text_unit_count": 1055,
+  "case_count": 7,
+  "aggregate": {
+    "hit_at_k": 1.0,
+    "precision_at_k": 0.7714,
+    "relevance_at_k": 1.0,
+    "accepted_recall_at_k": 0.6946,
+    "reciprocal_rank": 1.0,
+    "mean_latency_ms": 51.11
+  },
+  "cases": [
+    {
+      "id": "L1-QN-EXACT-001",
+      "level": "L1",
+      "query": "Eo Gió",
+      "retrieved_place_ids": [
+        "attr_qn_001",
+        "attr_qn_007",
+        "attr_qn_009",
+        "attr_qn_008",
+        "attr_qn_006"
+      ],
+      "accepted_place_ids": [
+        "attr_qn_001"
+      ],
+      "metrics": {
+        "hit_at_k": 1.0,
+        "precision_at_k": 0.2,
+        "relevance_at_k": 1.0,
+        "accepted_recall_at_k": 1.0,
+        "reciprocal_rank": 1.0
+      },
+      "latency_ms": 36.71,
+      "trace": [
+        {
+          "step": "text_unit_vector_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 23
+        },
+        {
+          "step": "text_unit_keyword_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 12
+        },
+        {
+          "step": "graph_filter_search",
+          "status": "skipped",
+          "reason": "no_structured_filters",
+          "elapsed_ms": 0
+        },
+        {
+          "step": "text_unit_rrf_fusion",
+          "status": "ok",
+          "candidate_limit": 20,
+          "count": 5,
+          "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "L1-DN-EXACT-001",
+      "level": "L1",
+      "query": "Cầu Rồng",
+      "retrieved_place_ids": [
+        "attr_dn_006",
+        "attr_dn_035",
+        "attr_dn_061",
+        "attr_dn_057",
+        "attr_dn_059"
+      ],
+      "accepted_place_ids": [
+        "attr_dn_006"
+      ],
+      "metrics": {
+        "hit_at_k": 1.0,
+        "precision_at_k": 0.2,
+        "relevance_at_k": 1.0,
+        "accepted_recall_at_k": 1.0,
+        "reciprocal_rank": 1.0
+      },
+      "latency_ms": 46.84,
+      "trace": [
+        {
+          "step": "text_unit_vector_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 27
+        },
+        {
+          "step": "text_unit_keyword_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 18
+        },
+        {
+          "step": "graph_filter_search",
+          "status": "skipped",
+          "reason": "no_structured_filters",
+          "elapsed_ms": 0
+        },
+        {
+          "step": "text_unit_rrf_fusion",
+          "status": "ok",
+          "candidate_limit": 20,
+          "count": 5,
+          "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "L2-QN-WORK-CAFE-001",
+      "level": "L2",
+      "query": "quán cafe yên tĩnh để làm việc",
+      "retrieved_place_ids": [
+        "cafe_qn_018",
+        "cafe_qn_024",
+        "cafe_qn_030",
+        "cafe_qn_021",
+        "cafe_qn_004"
+      ],
+      "accepted_place_ids": [
+        "cafe_qn_003",
+        "cafe_qn_004",
+        "cafe_qn_009",
+        "cafe_qn_018",
+        "cafe_qn_020",
+        "cafe_qn_021",
+        "cafe_qn_024",
+        "cafe_qn_027",
+        "cafe_qn_028",
+        "cafe_qn_030",
+        "cafe_qn_034"
+      ],
+      "metrics": {
+        "hit_at_k": 1.0,
+        "precision_at_k": 1.0,
+        "relevance_at_k": 1.0,
+        "accepted_recall_at_k": 0.45454545454545453,
+        "reciprocal_rank": 1.0
+      },
+      "latency_ms": 63.12,
+      "trace": [
+        {
+          "step": "text_unit_vector_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 37
+        },
+        {
+          "step": "text_unit_keyword_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 14
+        },
+        {
+          "step": "graph_filter_search",
+          "status": "ok",
+          "count": 11,
+          "filters": {
+            "categories": [],
+            "terms": [
+              "work"
+            ],
+            "indoor_or_all_weather": false
+          },
+          "elapsed_ms": 9
+        },
+        {
+          "step": "hard_constraint_gate",
+          "status": "ok",
+          "candidate_limit": 20,
+          "count": 5,
+          "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "L2-QN-SEAFOOD-001",
+      "level": "L2",
+      "query": "nhà hàng hải sản",
+      "retrieved_place_ids": [
+        "rest_qn_074",
+        "rest_qn_065",
+        "rest_qn_075",
+        "rest_qn_056",
+        "rest_qn_050"
+      ],
+      "accepted_place_ids": [
+        "rest_qn_030",
+        "rest_qn_035",
+        "rest_qn_038",
+        "rest_qn_040",
+        "rest_qn_041",
+        "rest_qn_043",
+        "rest_qn_044",
+        "rest_qn_047",
+        "rest_qn_050",
+        "rest_qn_056",
+        "rest_qn_057",
+        "rest_qn_059",
+        "rest_qn_060",
+        "rest_qn_063",
+        "rest_qn_065",
+        "rest_qn_066",
+        "rest_qn_067",
+        "rest_qn_068",
+        "rest_qn_070",
+        "rest_qn_071",
+        "rest_qn_073",
+        "rest_qn_074",
+        "rest_qn_075"
+      ],
+      "metrics": {
+        "hit_at_k": 1.0,
+        "precision_at_k": 1.0,
+        "relevance_at_k": 1.0,
+        "accepted_recall_at_k": 0.21739130434782608,
+        "reciprocal_rank": 1.0
+      },
+      "latency_ms": 50.11,
+      "trace": [
+        {
+          "step": "text_unit_vector_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 22
+        },
+        {
+          "step": "text_unit_keyword_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 14
+        },
+        {
+          "step": "graph_filter_search",
+          "status": "ok",
+          "count": 20,
+          "filters": {
+            "categories": [
+              "seafood"
+            ],
+            "terms": [],
+            "indoor_or_all_weather": false
+          },
+          "elapsed_ms": 12
+        },
+        {
+          "step": "hard_constraint_gate",
+          "status": "ok",
+          "candidate_limit": 20,
+          "count": 5,
+          "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "L3-DN-RAIN-001",
+      "level": "L3",
+      "query": "địa điểm tham quan trong nhà phù hợp khi trời mưa",
+      "retrieved_place_ids": [
+        "attr_dn_036",
+        "attr_dn_037",
+        "attr_dn_053",
+        "attr_dn_001",
+        "attr_dn_009"
+      ],
+      "accepted_place_ids": [
+        "attr_dn_001",
+        "attr_dn_009",
+        "attr_dn_036",
+        "attr_dn_037",
+        "attr_dn_044",
+        "attr_dn_053"
+      ],
+      "metrics": {
+        "hit_at_k": 1.0,
+        "precision_at_k": 1.0,
+        "relevance_at_k": 1.0,
+        "accepted_recall_at_k": 0.8333333333333334,
+        "reciprocal_rank": 1.0
+      },
+      "latency_ms": 46.05,
+      "trace": [
+        {
+          "step": "text_unit_vector_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 23
+        },
+        {
+          "step": "text_unit_keyword_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 14
+        },
+        {
+          "step": "graph_filter_search",
+          "status": "ok",
+          "count": 6,
+          "filters": {
+            "categories": [],
+            "terms": [],
+            "indoor_or_all_weather": true
+          },
+          "elapsed_ms": 7
+        },
+        {
+          "step": "hard_constraint_gate",
+          "status": "ok",
+          "candidate_limit": 20,
+          "count": 5,
+          "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "L3-QN-RAIN-001",
+      "level": "L3",
+      "query": "trời mưa thì nên đi chơi ở đâu ở Quy Nhơn",
+      "retrieved_place_ids": [
+        "attr_qn_041"
+      ],
+      "accepted_place_ids": [
+        "attr_qn_041"
+      ],
+      "metrics": {
+        "hit_at_k": 1.0,
+        "precision_at_k": 1.0,
+        "relevance_at_k": 1.0,
+        "accepted_recall_at_k": 1.0,
+        "reciprocal_rank": 1.0
+      },
+      "latency_ms": 56.14,
+      "trace": [
+        {
+          "step": "text_unit_vector_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 32
+        },
+        {
+          "step": "text_unit_keyword_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 16
+        },
+        {
+          "step": "graph_filter_search",
+          "status": "ok",
+          "count": 1,
+          "filters": {
+            "categories": [],
+            "terms": [],
+            "indoor_or_all_weather": true
+          },
+          "elapsed_ms": 6
+        },
+        {
+          "step": "hard_constraint_gate",
+          "status": "ok",
+          "candidate_limit": 20,
+          "count": 1,
+          "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "L2-DN-ROOFTOP-001",
+      "level": "L2",
+      "query": "cafe rooftop",
+      "retrieved_place_ids": [
+        "cafe_dn_018",
+        "cafe_dn_009",
+        "cafe_dn_059",
+        "cafe_dn_012",
+        "cafe_dn_064"
+      ],
+      "accepted_place_ids": [
+        "cafe_dn_004",
+        "cafe_dn_009",
+        "cafe_dn_012",
+        "cafe_dn_018",
+        "cafe_dn_019",
+        "cafe_dn_040",
+        "cafe_dn_043",
+        "cafe_dn_051",
+        "cafe_dn_052",
+        "cafe_dn_055",
+        "cafe_dn_059",
+        "cafe_dn_060",
+        "cafe_dn_064",
+        "cafe_dn_066"
+      ],
+      "metrics": {
+        "hit_at_k": 1.0,
+        "precision_at_k": 1.0,
+        "relevance_at_k": 1.0,
+        "accepted_recall_at_k": 0.35714285714285715,
+        "reciprocal_rank": 1.0
+      },
+      "latency_ms": 58.83,
+      "trace": [
+        {
+          "step": "text_unit_vector_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 36
+        },
+        {
+          "step": "text_unit_keyword_search",
+          "status": "ok",
+          "count": 20,
+          "elapsed_ms": 11
+        },
+        {
+          "step": "graph_filter_search",
+          "status": "ok",
+          "count": 14,
+          "filters": {
+            "categories": [
+              "rooftop_cafe",
+              "rooftop_bar"
+            ],
+            "terms": [],
+            "indoor_or_all_weather": false
+          },
+          "elapsed_ms": 9
+        },
+        {
+          "step": "hard_constraint_gate",
+          "status": "ok",
+          "candidate_limit": 20,
+          "count": 5,
+          "elapsed_ms": 0
+        }
+      ]
+    }
+  ]
+}

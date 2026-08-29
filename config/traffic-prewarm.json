@@ -1,0 +1,20 @@
+{
+  "pairs": [
+    {
+      "origin_id": "city_quy_nhon",
+      "destination_id": "city_da_nang",
+      "modes": [
+        "drive",
+        "two_wheeler"
+      ]
+    },
+    {
+      "origin_id": "city_da_nang",
+      "destination_id": "city_quy_nhon",
+      "modes": [
+        "drive",
+        "two_wheeler"
+      ]
+    }
+  ]
+}
