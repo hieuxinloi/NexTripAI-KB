@@ -73,9 +73,16 @@ def _batch_command() -> str:
         "MAX_REQUEST_ARGS=(); "
         'if [ -n "${NEXTRIP_TRIVAGO_MAX_REQUESTS:-}" ]; then '
         'MAX_REQUEST_ARGS=(--max-requests "$NEXTRIP_TRIVAGO_MAX_REQUESTS"); fi; '
+        'CHECK_IN_OFFSET_SPEC="${NEXTRIP_HOTEL_CHECK_IN_OFFSETS:-}"; '
+        'if [ -z "$CHECK_IN_OFFSET_SPEC" ]; then '
+        'CHECK_IN_OFFSET_SPEC="${NEXTRIP_HOTEL_CHECK_IN_OFFSET_DAYS:-0,1}"; fi; '
+        'IFS="," read -r -a CHECK_IN_OFFSETS <<< "$CHECK_IN_OFFSET_SPEC"; '
+        'for CHECK_IN_OFFSET in "${CHECK_IN_OFFSETS[@]}"; do '
+        'CHECK_IN_OFFSET="${CHECK_IN_OFFSET//[[:space:]]/}"; '
+        'test -n "$CHECK_IN_OFFSET"; '
         "python -m nextrip_pipeline.cli batch-trivago-availability "
         "--registry config/generated/trivago-hotel-registry.json "
-        '"--check-in-offset-days" "${NEXTRIP_HOTEL_CHECK_IN_OFFSET_DAYS:-1}" '
+        '"--check-in-offset-days" "$CHECK_IN_OFFSET" '
         '"--stay-nights" "${NEXTRIP_HOTEL_STAY_NIGHTS:-1}" '
         '"--lookahead-days" "${NEXTRIP_HOTEL_LOOKAHEAD_DAYS:-1}" '
         '"--adults" "${NEXTRIP_HOTEL_ADULTS:-2}" '
@@ -97,7 +104,8 @@ def _batch_command() -> str:
         '--stay-result-dir "${NEXTRIP_TRIVAGO_STAY_RESULT_ROOT:-data/runs/trivago_stay}" '
         "--summary-dir "
         '"${NEXTRIP_TRIVAGO_BATCH_SUMMARY_ROOT:-data/runs/trivago_availability_batch}" '
-        '"${MAX_REQUEST_ARGS[@]}"'
+        '"${MAX_REQUEST_ARGS[@]}"; '
+        "done"
     )
 
 

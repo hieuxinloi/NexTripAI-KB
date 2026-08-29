@@ -371,6 +371,41 @@ def test_stale_unavailable_evidence_is_hidden_unless_explicitly_requested(
     assert visible.reason is HotelAvailabilityReason.SOLD_OUT
 
 
+def test_refresh_disabled_falls_back_to_latest_exact_stale_price(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    observed_at = NOW - timedelta(hours=6)
+    price = _price(
+        repository.hotel_price_root,
+        offset=0,
+        observed_at=observed_at,
+    )
+    _availability(
+        repository.hotel_availability_root,
+        offset=0,
+        status=HotelAvailabilityStatus.AVAILABLE,
+        reason=HotelAvailabilityReason.OFFER_FOUND,
+        price_ids=[price.observation_id],
+        observed_at=observed_at,
+    )
+
+    response = CurrentDataService(
+        repository,
+        clock=lambda: NOW,
+    ).search_hotel_availability(_request(refresh=True))
+    window = response.results[0].windows[0]
+
+    assert response.include_stale is True
+    assert response.results[0].selected_window_index is None
+    assert window.lookup_status is CurrentLookupStatus.STALE
+    assert window.availability is HotelAvailabilityStatus.AVAILABLE
+    assert window.refresh_attempted is False
+    assert len(window.offers) == 1
+    assert window.offers[0].stale is True
+    assert window.offers[0].observed_at == observed_at
+
+
 def test_on_demand_refresh_receives_full_duration_and_populates_both_dates(
     tmp_path: Path,
 ) -> None:

@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
+from loguru import logger
+
 from nextrip_pipeline.publishing.current_price import CurrentHotelPriceSnapshot
 from nextrip_pipeline.publishing.current_availability import (
     CurrentHotelAvailabilitySnapshot,
@@ -23,8 +25,6 @@ from nextrip_traffic.models import (
 
 from .errors import (
     CurrentPlaceNotFoundError,
-    HotelRefreshError,
-    HotelRefreshUnavailableError,
     TrafficIntegrationUnavailableError,
 )
 from .models import (
@@ -138,21 +138,38 @@ class CurrentDataService:
         if result.status is CurrentLookupStatus.AVAILABLE:
             return response
         if self.hotel_refresher is None:
-            raise HotelRefreshUnavailableError(
-                "hotel refresh is disabled or no refresher is configured"
+            return self._hotel_offer_stale_fallback(
+                request,
+                response,
+                refresh_attempted=False,
             )
         hotel_id = request.hotel_ids[0]
         try:
             self.hotel_refresher.refresh(hotel_id, request)
         except Exception as error:
-            raise HotelRefreshError(
-                f"hotel refresh failed for {hotel_id}: {type(error).__name__}"
-            ) from error
+            logger.warning(
+                "Hotel price refresh failed; using latest exact stale offer "
+                "hotel_id={} error_type={}",
+                hotel_id,
+                type(error).__name__,
+            )
+            return self._hotel_offer_stale_fallback(
+                request,
+                response,
+                refresh_attempted=True,
+            )
         refreshed = self._search_hotel_offers(request)
         refreshed_result = refreshed.results[0].model_copy(
             update={"refresh_attempted": True}
         )
-        return refreshed.model_copy(update={"results": [refreshed_result]})
+        refreshed = refreshed.model_copy(update={"results": [refreshed_result]})
+        if refreshed_result.status is CurrentLookupStatus.AVAILABLE:
+            return refreshed
+        return self._hotel_offer_stale_fallback(
+            request,
+            refreshed,
+            refresh_attempted=True,
+        )
 
     def search_hotel_availability(
         self, request: HotelAvailabilitySearchRequest | Mapping[str, object]
@@ -164,16 +181,26 @@ class CurrentDataService:
         if not request.refresh_if_missing or self._availability_is_complete(response):
             return response
         if self.hotel_refresher is None:
-            raise HotelRefreshUnavailableError(
-                "hotel refresh is disabled or no refresher is configured"
+            return self._hotel_availability_stale_fallback(
+                request,
+                response,
+                refresh_attempted=False,
             )
         hotel_id = request.hotel_ids[0]
         try:
             self.hotel_refresher.refresh(hotel_id, request)
         except Exception as error:
-            raise HotelRefreshError(
-                f"hotel refresh failed for {hotel_id}: {type(error).__name__}"
-            ) from error
+            logger.warning(
+                "Hotel availability refresh failed; using latest exact stale offer "
+                "hotel_id={} error_type={}",
+                hotel_id,
+                type(error).__name__,
+            )
+            return self._hotel_availability_stale_fallback(
+                request,
+                response,
+                refresh_attempted=True,
+            )
 
         refreshed = self._search_hotel_availability(request)
         refreshed_results = [
@@ -187,7 +214,14 @@ class CurrentDataService:
             )
             for result in refreshed.results
         ]
-        return refreshed.model_copy(update={"results": refreshed_results})
+        refreshed = refreshed.model_copy(update={"results": refreshed_results})
+        if self._availability_is_complete(refreshed):
+            return refreshed
+        return self._hotel_availability_stale_fallback(
+            request,
+            refreshed,
+            refresh_attempted=True,
+        )
 
     def route(
         self, request: TrafficRouteRequest | Mapping[str, object]
@@ -567,6 +601,103 @@ class CurrentDataService:
         if last.availability is HotelAvailabilityStatus.UNKNOWN:
             return True
         return len(result.windows) == response.lookahead_days + 1
+
+    def _hotel_offer_stale_fallback(
+        self,
+        request: HotelOfferSearchRequest,
+        baseline: HotelOfferSearchResponse,
+        *,
+        refresh_attempted: bool,
+    ) -> HotelOfferSearchResponse:
+        stale_request = request.model_copy(
+            update={"include_stale": True, "refresh_if_missing": False}
+        )
+        fallback = self._search_hotel_offers(stale_request)
+        if not any(result.offers for result in fallback.results):
+            return self._mark_hotel_offer_refresh(
+                baseline,
+                refresh_attempted=refresh_attempted,
+            )
+        logger.info(
+            "Using latest exact stale hotel offer hotel_ids={}",
+            request.hotel_ids,
+        )
+        return self._mark_hotel_offer_refresh(
+            fallback,
+            refresh_attempted=refresh_attempted,
+        )
+
+    def _hotel_availability_stale_fallback(
+        self,
+        request: HotelAvailabilitySearchRequest,
+        baseline: HotelAvailabilitySearchResponse,
+        *,
+        refresh_attempted: bool,
+    ) -> HotelAvailabilitySearchResponse:
+        stale_request = request.model_copy(
+            update={"include_stale": True, "refresh_if_missing": False}
+        )
+        fallback = self._search_hotel_availability(stale_request)
+        if not any(
+            window.offers
+            for result in fallback.results
+            for window in result.windows
+        ):
+            return self._mark_hotel_availability_refresh(
+                baseline,
+                refresh_attempted=refresh_attempted,
+            )
+        logger.info(
+            "Using latest exact stale hotel availability offer hotel_ids={}",
+            request.hotel_ids,
+        )
+        return self._mark_hotel_availability_refresh(
+            fallback,
+            refresh_attempted=refresh_attempted,
+        )
+
+    @staticmethod
+    def _mark_hotel_offer_refresh(
+        response: HotelOfferSearchResponse,
+        *,
+        refresh_attempted: bool,
+    ) -> HotelOfferSearchResponse:
+        return response.model_copy(
+            update={
+                "results": [
+                    result.model_copy(
+                        update={"refresh_attempted": refresh_attempted}
+                    )
+                    for result in response.results
+                ]
+            }
+        )
+
+    @staticmethod
+    def _mark_hotel_availability_refresh(
+        response: HotelAvailabilitySearchResponse,
+        *,
+        refresh_attempted: bool,
+    ) -> HotelAvailabilitySearchResponse:
+        return response.model_copy(
+            update={
+                "results": [
+                    result.model_copy(
+                        update={
+                            "windows": [
+                                window.model_copy(
+                                    update={
+                                        "refresh_attempted": refresh_attempted
+                                    }
+                                )
+                                for window in result.windows
+                            ]
+                        }
+                    )
+                    for result in response.results
+                ]
+            }
+        )
 
     @staticmethod
     def _price_matches_current_mapping(

@@ -32,7 +32,10 @@ def test_hotel_dag_module_is_safe_without_airflow_and_uses_mcp_cli() -> None:
     assert "travel_data_verified" not in registry_command
     assert "--override config/trivago-mapping.json" in registry_command
     assert "batch-trivago-availability" in batch_command
-    assert "NEXTRIP_HOTEL_CHECK_IN_OFFSET_DAYS:-1" in batch_command
+    assert "NEXTRIP_HOTEL_CHECK_IN_OFFSETS" in batch_command
+    assert "NEXTRIP_HOTEL_CHECK_IN_OFFSET_DAYS:-0,1" in batch_command
+    assert 'IFS="," read -r -a CHECK_IN_OFFSETS' in batch_command
+    assert '"--check-in-offset-days" "$CHECK_IN_OFFSET"' in batch_command
     assert "NEXTRIP_HOTEL_STAY_NIGHTS:-1" in batch_command
     assert "NEXTRIP_HOTEL_LOOKAHEAD_DAYS:-1" in batch_command
     assert "NEXTRIP_HOTEL_ADULTS:-2" in batch_command

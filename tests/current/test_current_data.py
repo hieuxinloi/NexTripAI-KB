@@ -12,7 +12,6 @@ from pydantic import SecretStr, ValidationError
 from nextrip_current.api import create_app
 from nextrip_current.config import CurrentDataSettings
 from nextrip_current.errors import (
-    HotelRefreshUnavailableError,
     TrafficIntegrationError,
 )
 from nextrip_current.models import (
@@ -407,11 +406,38 @@ def test_refresh_missing_once_then_rereads_current_projection(tmp_path):
     assert len(result.offers) == 1
 
 
-def test_refresh_request_fails_explicitly_when_refresher_disabled(tmp_path):
+def test_refresh_request_returns_missing_result_when_refresher_disabled(tmp_path):
     service, place_root, _, _ = _service(tmp_path)
     _write_place(place_root)
-    with pytest.raises(HotelRefreshUnavailableError):
-        service.search_hotel_offers(_request(refresh_if_missing=True))
+
+    response = service.search_hotel_offers(_request(refresh_if_missing=True))
+
+    assert response.results[0].status is CurrentLookupStatus.MISSING
+    assert response.results[0].offers == []
+    assert response.results[0].refresh_attempted is False
+
+
+def test_refresh_request_falls_back_to_latest_exact_stale_offer(tmp_path):
+    service, place_root, price_root, mapping_root = _service(tmp_path)
+    _write_place(place_root)
+    _write_mapping(mapping_root)
+    _write_price(
+        price_root,
+        _price_snapshot(
+            observed_at=NOW - timedelta(hours=6),
+            stale_after=NOW - timedelta(hours=1),
+        ),
+    )
+
+    response = service.search_hotel_offers(_request(refresh_if_missing=True))
+    result = response.results[0]
+
+    assert response.include_stale is True
+    assert result.status is CurrentLookupStatus.STALE
+    assert result.refresh_attempted is False
+    assert len(result.offers) == 1
+    assert result.offers[0].stale is True
+    assert result.offers[0].observed_at == NOW - timedelta(hours=6)
 
 
 def test_http_contract_auth_readiness_batch_limit_and_search(tmp_path):
